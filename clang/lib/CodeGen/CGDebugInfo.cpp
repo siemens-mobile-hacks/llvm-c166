@@ -1835,6 +1835,10 @@ static unsigned getDwarfCC(CallingConv CC, const llvm::Triple &T) {
     return llvm::dwarf::DW_CC_LLVM_X86RegCall;
   case CC_M68kRTD:
     return llvm::dwarf::DW_CC_LLVM_M68kRTD;
+  case CC_C166StackParm:
+    // c166_stackparm changes argument placement only. Its call frame and
+    // return-address convention remain target-default.
+    return 0;
   case CC_PreserveNone:
     return llvm::dwarf::DW_CC_LLVM_PreserveNone;
   case CC_RISCVVectorCall:
@@ -4930,7 +4934,13 @@ llvm::DISubroutineType *CGDebugInfo::getOrCreateFunctionType(const Decl *D,
           getDwarfCC(CC, CGM.getTarget().getTriple()));
     }
 
-  return cast<llvm::DISubroutineType>(getOrCreateType(FnType, F));
+  auto *DIFnType = cast<llvm::DISubroutineType>(getOrCreateType(FnType, F));
+  unsigned DwarfCC = CGM.getTargetCodeGenInfo().getDwarfCallingConvention(
+      D, DIFnType->getCC());
+  if (DwarfCC == DIFnType->getCC())
+    return DIFnType;
+  return DBuilder.createSubroutineType(DIFnType->getTypeArray(),
+                                       DIFnType->getFlags(), DwarfCC);
 }
 
 QualType

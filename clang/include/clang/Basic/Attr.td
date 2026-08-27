@@ -481,6 +481,7 @@ def TargetAMDGPU : TargetArch<["amdgpu", "r600"]>;
 def TargetAnyArm : TargetArch<!listconcat(TargetARM.Arches, TargetAArch64.Arches)>;
 def TargetAVR : TargetArch<["avr"]>;
 def TargetBPF : TargetArch<["bpfel", "bpfeb"]>;
+def TargetC166 : TargetArch<["c166"]>;
 def TargetLoongArch : TargetArch<["loongarch32", "loongarch64"]>;
 def TargetMips32 : TargetArch<["mips", "mipsel"]>;
 def TargetAnyMips : TargetArch<["mips", "mipsel", "mips64", "mips64el"]>;
@@ -3593,6 +3594,58 @@ def PreserveAll : DeclOrTypeAttr {
 def M68kRTD: DeclOrTypeAttr {
   let Spellings = [Clang<"m68k_rtd">];
   let Documentation = [M68kRTDDocs];
+}
+
+def C166StackParm : DeclOrTypeAttr, TargetSpecificAttr<TargetC166> {
+  let Spellings = [Clang<"c166_stackparm">];
+  let Documentation = [C166StackParmDocs];
+}
+
+def C166Far : DeclOrTypeAttr, TargetSpecificAttr<TargetC166> {
+  let Spellings = [Clang<"c166_far">];
+  let Documentation = [C166FarDocs];
+}
+
+def C166Near : DeclOrTypeAttr, TargetSpecificAttr<TargetC166> {
+  let Spellings = [Clang<"c166_near">];
+  let Documentation = [C166NearDocs];
+}
+
+def C166XNear : DeclOrTypeAttr, TargetSpecificAttr<TargetC166> {
+  let Spellings = [Clang<"c166_xnear">];
+  let Documentation = [C166XNearDocs];
+}
+
+def C166Huge : DeclOrTypeAttr, TargetSpecificAttr<TargetC166> {
+  let Spellings = [Clang<"c166_huge">];
+  let Documentation = [C166HugeDocs];
+}
+
+def C166SHuge : DeclOrTypeAttr, TargetSpecificAttr<TargetC166> {
+  let Spellings = [Clang<"c166_shuge">];
+  let Documentation = [C166SHugeDocs];
+}
+
+def C166Interrupt : InheritableAttr, TargetSpecificAttr<TargetC166> {
+  let Spellings = [GCC<"interrupt">];
+  let Subjects = SubjectList<[Function], ErrorDiag>;
+  let Args = [IntArgument<"Number">];
+  let ParseKind = "Interrupt";
+  let HasCustomParsing = 1;
+  let Documentation = [C166InterruptDocs];
+}
+
+def C166RegisterBank : InheritableAttr, TargetSpecificAttr<TargetC166> {
+  let Spellings = [Clang<"c166_register_bank">];
+  let Subjects = SubjectList<[Function], ErrorDiag>;
+  let Args = [StringArgument<"Name">];
+  let Documentation = [C166RegisterBankDocs];
+}
+
+def C166Bank : DeclOrTypeAttr, TargetSpecificAttr<TargetC166> {
+  let Spellings = [Clang<"c166_bank">];
+  let Args = [IntArgument<"Number">];
+  let Documentation = [C166BankDocs];
 }
 
 def PreserveNone : DeclOrTypeAttr,

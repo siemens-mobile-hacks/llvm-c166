@@ -3626,6 +3626,8 @@ as follows:
     * `w`: Windows COFF mangling: Similar to `x`, except that normal C
       symbols do not receive a `_` prefix.
     * `a`: XCOFF mangling: Private symbols get a `L..` prefix.
+    * `u`: ELF mangling with a leading underscore: Private symbols get a `.L`
+      prefix. Other symbols get a `_` prefix.
 
 `n<size1>:<size2>:<size3>...`
 :   This specifies a set of native integer widths for the target CPU in

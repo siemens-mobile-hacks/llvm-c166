@@ -67,6 +67,7 @@ AMDGPUMemoryModel
 SPIRVUsage
 DirectXUsage
 RISCVUsage
+C166Usage
 RISCV/RISCVVectorExtension
 RISCV/RISCVVCIX
 SandboxIR
@@ -382,6 +383,10 @@ yaml2obj
 - {doc}`RISCVUsage`
 
   This document describes using the RISC-V target.
+
+- {doc}`C166Usage`
+
+  This document describes the initial C166 target and its runtime ABI.
 
 - {doc}`RISCV/RISCVVectorExtension`
 

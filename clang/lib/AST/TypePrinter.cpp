@@ -1196,6 +1196,9 @@ void TypePrinter::printFunctionAfter(const FunctionType::ExtInfo &Info,
     case CC_M68kRTD:
       OS << " __attribute__((m68k_rtd))";
       break;
+    case CC_C166StackParm:
+      OS << " __attribute__((c166_stackparm))";
+      break;
     case CC_PreserveNone:
       OS << " __attribute__((preserve_none))";
       break;
@@ -2128,6 +2131,27 @@ void TypePrinter::printAttributedAfter(const AttributedType *T,
     break;
   case attr::M68kRTD:
     OS << "m68k_rtd";
+    break;
+  case attr::C166StackParm:
+    OS << "c166_stackparm";
+    break;
+  case attr::C166Far:
+    OS << "c166_far";
+    break;
+  case attr::C166Near:
+    OS << "c166_near";
+    break;
+  case attr::C166XNear:
+    OS << "c166_xnear";
+    break;
+  case attr::C166Huge:
+    OS << "c166_huge";
+    break;
+  case attr::C166SHuge:
+    OS << "c166_shuge";
+    break;
+  case attr::C166Bank:
+    OS << "c166_bank(" << cast<C166BankAttr>(T->getAttr())->getNumber() << ')';
     break;
   case attr::RISCVVectorCC:
     OS << "riscv_vector_cc";

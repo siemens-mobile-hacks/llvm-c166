@@ -146,6 +146,9 @@ createTargetCodeGenInfo(CodeGenModule &CGM) {
     return createAVRTargetCodeGenInfo(CGM, NPR, NRR);
   }
 
+  case llvm::Triple::c166:
+    return createC166TargetCodeGenInfo(CGM);
+
   case llvm::Triple::aarch64:
   case llvm::Triple::aarch64_32:
   case llvm::Triple::aarch64_be: {
@@ -547,15 +550,19 @@ CodeGenModule::CodeGenModule(ASTContext &C,
   PointerAlignInBytes =
       C.toCharUnitsFromBits(C.getTargetInfo().getPointerAlign(LangAS::Default))
           .getQuantity();
-  SizeSizeInBytes =
-    C.toCharUnitsFromBits(C.getTargetInfo().getMaxPointerWidth()).getQuantity();
+  PointerSizeInBytes = C.getTypeSizeInChars(C.VoidPtrTy).getQuantity();
+  SizeSizeInBytes = C.getTypeSizeInChars(C.getSizeType()).getQuantity();
+  SizeAlignInBytes = C.getTypeAlignInChars(C.getSizeType()).getQuantity();
   IntAlignInBytes =
     C.toCharUnitsFromBits(C.getTargetInfo().getIntAlign()).getQuantity();
   CharTy =
     llvm::IntegerType::get(LLVMContext, C.getTargetInfo().getCharWidth());
   IntTy = llvm::IntegerType::get(LLVMContext, C.getTargetInfo().getIntWidth());
-  IntPtrTy = llvm::IntegerType::get(LLVMContext,
-    C.getTargetInfo().getMaxPointerWidth());
+  IntPtrTy =
+      llvm::IntegerType::get(LLVMContext, C.getTypeSize(C.getIntPtrType()));
+  SizeTy = llvm::IntegerType::get(LLVMContext, C.getTypeSize(C.getSizeType()));
+  PtrDiffTy = llvm::IntegerType::get(LLVMContext,
+                                     C.getTypeSize(C.getPointerDiffType()));
   Int8PtrTy = llvm::PointerType::get(LLVMContext,
                                      C.getTargetAddressSpace(LangAS::Default));
   const llvm::DataLayout &DL = M.getDataLayout();
@@ -5691,8 +5698,14 @@ llvm::Constant *CodeGenModule::GetOrCreateLLVMFunction(
     IsIncompleteFunction = true;
   }
 
+  unsigned FunctionAS = getDataLayout().getProgramAddressSpace();
+  if (const auto *FD = dyn_cast_or_null<FunctionDecl>(GD.getDecl())) {
+    LangAS AS = FD->getType().getAddressSpace();
+    if (AS != LangAS::Default)
+      FunctionAS = getContext().getTargetAddressSpace(AS);
+  }
   llvm::Function *F =
-      llvm::Function::Create(FTy, llvm::Function::ExternalLinkage,
+      llvm::Function::Create(FTy, llvm::Function::ExternalLinkage, FunctionAS,
                              Entry ? StringRef() : MangledName, &getModule());
 
   // Store the declaration associated with this function so it is potentially

@@ -3779,6 +3779,8 @@ StringRef FunctionType::getNameForCallConv(CallingConv CC) {
     return "preserve_all";
   case CC_M68kRTD:
     return "m68k_rtd";
+  case CC_C166StackParm:
+    return "c166_stackparm";
   case CC_PreserveNone:
     return "preserve_none";
     // clang-format off

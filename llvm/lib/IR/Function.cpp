@@ -1223,6 +1223,7 @@ bool llvm::CallingConv::supportsNonVoidReturnType(CallingConv::ID CC) {
   case CallingConv::RISCV_VLSCall_16384:
   case CallingConv::RISCV_VLSCall_32768:
   case CallingConv::RISCV_VLSCall_65536:
+  case CallingConv::C166_StackParm:
     return true;
   default:
     return false;

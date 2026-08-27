@@ -730,6 +730,7 @@ CXCallingConv clang_getFunctionTypeCallingConv(CXType X) {
       TCALLINGCONV(RISCVVLSCall_16384);
       TCALLINGCONV(RISCVVLSCall_32768);
       TCALLINGCONV(RISCVVLSCall_65536);
+    case CC_C166StackParm:
     case CC_DeviceKernel:
       return CXCallingConv_Unexposed;
       break;

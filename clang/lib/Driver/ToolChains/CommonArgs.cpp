@@ -96,6 +96,7 @@ static bool useFramePointerForTargetByDefault(const llvm::opt::ArgList &Args,
   case llvm::Triple::xcore:
   case llvm::Triple::wasm32:
   case llvm::Triple::wasm64:
+  case llvm::Triple::c166:
   case llvm::Triple::msp430:
     // XCore never wants frame pointers, regardless of OS.
     // WebAssembly never wants frame pointers.
@@ -608,6 +609,8 @@ const char *tools::getLDMOption(const llvm::Triple &T, const ArgList &Args) {
   }
   case llvm::Triple::m68k:
     return "m68kelf";
+  case llvm::Triple::c166:
+    return "c166elf";
   case llvm::Triple::ppc:
     if (T.isOSLinux())
       return "elf32ppclinux";
@@ -787,6 +790,11 @@ std::string tools::getCPUName(const Driver &D, const ArgList &Args,
     if (const Arg *A = Args.getLastArg(options::OPT_mmcu_EQ))
       return A->getValue();
     return "";
+
+  case llvm::Triple::c166:
+    if (const Arg *A = Args.getLastArg(options::OPT_mcpu_EQ))
+      return A->getValue();
+    return "c166";
 
   case llvm::Triple::m68k:
     return m68k::getM68kTargetCPU(Args);
@@ -3372,6 +3380,8 @@ void tools::addMCModel(const Driver &D, const llvm::opt::ArgList &Args,
       Ok = CM == "small" || CM == "medium" || CM == "large";
     } else if (Triple.getArch() == llvm::Triple::lanai) {
       Ok = llvm::is_contained({"small", "medium", "large"}, CM);
+    } else if (Triple.isC166()) {
+      Ok = CM == "small" || CM == "medium" || CM == "large";
     }
     if (Ok) {
       CmdArgs.push_back(Args.MakeArgString("-mcmodel=" + CM));

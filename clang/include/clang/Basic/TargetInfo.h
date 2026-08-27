@@ -501,6 +501,13 @@ public:
                                         : getPointerAlignV(AddrSpace);
   }
 
+  /// Return the implicit address space for an otherwise unqualified function
+  /// type. Most targets use the program address space from DataLayout and do
+  /// not need an AST qualifier; segmented ABIs may select it per code model.
+  virtual std::optional<LangAS> getDefaultFunctionAddressSpace() const {
+    return std::nullopt;
+  }
+
   /// Return the maximum width of pointers on this target.
   virtual uint64_t getMaxPointerWidth() const {
     return PointerWidth;
@@ -746,6 +753,16 @@ public:
     return DefaultAlignForAttributeAligned;
   }
 
+  /// Return the minimum ABI alignment of an unpacked record type in bits.
+  /// Most targets derive record alignment entirely from their fields.
+  virtual unsigned getMinRecordAlign() const { return 0; }
+
+  /// Return the minimum alignment, in bits, of a packed-record field within
+  /// an unpacked parent record. Some ABIs keep the packed record's byte-sized
+  /// layout and array stride while aligning an ordinary instance more
+  /// strictly. A value of zero preserves the packed type's own alignment.
+  virtual unsigned getMinPackedRecordFieldAlign() const { return 0; }
+
   /// getMinGlobalAlign - Return the minimum alignment of a global variable,
   /// unless its alignment is explicitly reduced via attributes. If \param
   /// HasNonWeakDef is true, this concerns a VarDecl which has a definition
@@ -866,6 +883,16 @@ public:
   /// True if vectors are element-aligned for this target.
   bool vectorsAreElementAligned() const { return VectorsAreElementAligned; }
 
+  /// Return whether the target accepts the generic fixed-size vector type
+  /// extensions. Targets which cannot lower these types should reject them in
+  /// Sema instead of allowing an unsupported IR type to reach the backend.
+  virtual bool supportsFixedSizeVectorTypes() const { return true; }
+
+  /// Return whether the target can lower the builtin alloca family.  This is
+  /// separate from VLA language support because a target may intentionally
+  /// expose one facility without the other.
+  virtual bool supportsBuiltinAlloca() const { return true; }
+
   /// Return the maximum vector alignment supported for the given target.
   unsigned getMaxVectorAlign() const { return MaxVectorAlign; }
 
@@ -976,6 +1003,15 @@ public:
   bool useExplicitBitFieldAlignment() const {
     return UseExplicitBitFieldAlignment;
   }
+
+  /// Return the largest byte-aligned access unit, in bits, within which a
+  /// packed bit-field must fit. A value of zero selects the ordinary target-
+  /// independent packed layout.
+  virtual unsigned getPackedBitFieldAccessUnitWidth() const { return 0; }
+
+  /// Return whether C accepts implementation-defined bit-field base types in
+  /// addition to _Bool, signed int and unsigned int.
+  virtual bool supportsNonStandardCBitFieldTypes() const { return true; }
 
   /// Check whether this target support '\#pragma options align=mac68k'.
   bool hasAlignMac68kSupport() const {

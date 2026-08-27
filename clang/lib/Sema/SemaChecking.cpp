@@ -3244,6 +3244,11 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
     [[fallthrough]];
   case Builtin::BI__builtin_alloca:
   case Builtin::BI__builtin_alloca_uninitialized:
+    if (!Context.getTargetInfo().supportsBuiltinAlloca()) {
+      Diag(TheCall->getBeginLoc(), diag::err_builtin_target_unsupported)
+          << TheCall->getSourceRange();
+      return ExprError();
+    }
     Diag(TheCall->getBeginLoc(), diag::warn_alloca)
         << TheCall->getDirectCallee();
     if (getLangOpts().OpenCL) {

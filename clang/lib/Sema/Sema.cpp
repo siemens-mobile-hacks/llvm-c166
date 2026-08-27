@@ -45,6 +45,7 @@
 #include "clang/Sema/SemaARM.h"
 #include "clang/Sema/SemaAVR.h"
 #include "clang/Sema/SemaBPF.h"
+#include "clang/Sema/SemaC166.h"
 #include "clang/Sema/SemaCUDA.h"
 #include "clang/Sema/SemaCodeCompletion.h"
 #include "clang/Sema/SemaConsumer.h"
@@ -287,6 +288,7 @@ Sema::Sema(Preprocessor &pp, ASTContext &ctxt, ASTConsumer &consumer,
       ARMPtr(std::make_unique<SemaARM>(*this)),
       AVRPtr(std::make_unique<SemaAVR>(*this)),
       BPFPtr(std::make_unique<SemaBPF>(*this)),
+      C166Ptr(std::make_unique<SemaC166>(*this)),
       CodeCompletionPtr(
           std::make_unique<SemaCodeCompletion>(*this, CodeCompleter)),
       CUDAPtr(std::make_unique<SemaCUDA>(*this)),

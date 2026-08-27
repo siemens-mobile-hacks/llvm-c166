@@ -1,0 +1,47 @@
+# RUN: yaml2obj %s -o %t
+# RUN: llvm-readobj --file-headers --sections --symbols --relocations %t | FileCheck %s --check-prefix=READOBJ
+# RUN: obj2yaml %t | FileCheck %s --check-prefix=YAML
+
+# READOBJ: Format: elf32-c166
+# READOBJ: Machine: EM_C166 (0x74)
+# READOBJ: Flags [ (0x121)
+# READOBJ: EF_C166_CODE_HUGE
+# READOBJ: EF_C166_CORE_8X166
+# READOBJ: EF_C166_DATA_FAR
+# READOBJ: SHF_C166_PROTECTED
+# READOBJ: R_C166_SEG8 target 0x0
+# READOBJ: R_C166_PC8_RELAX target 0x0
+# READOBJ: Name: target
+
+# YAML: Machine: EM_C166
+# YAML: EF_C166_CORE_8X166
+# YAML: EF_C166_DATA_FAR
+# YAML: EF_C166_CODE_HUGE
+# YAML: SHF_C166_PROTECTED
+# YAML: Type: R_C166_SEG8
+# YAML: Type: R_C166_PC8_RELAX
+
+--- !ELF
+FileHeader:
+  Class:   ELFCLASS32
+  Data:    ELFDATA2LSB
+  Type:    ET_REL
+  Machine: EM_C166
+  Flags:   [ EF_C166_CORE_8X166, EF_C166_DATA_FAR, EF_C166_CODE_HUGE ]
+Sections:
+  - Name:  .text
+    Type:  SHT_PROGBITS
+    Flags: [ SHF_ALLOC, SHF_EXECINSTR, SHF_C166_PROTECTED ]
+  - Name: .rela.text
+    Type: SHT_RELA
+    Info: .text
+    Link: .symtab
+    Relocations:
+      - Offset: 0x1
+        Type:   R_C166_SEG8
+        Symbol: target
+      - Offset: 0x0
+        Type:   R_C166_PC8_RELAX
+        Symbol: target
+Symbols:
+  - Name: target

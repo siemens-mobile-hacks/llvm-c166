@@ -912,6 +912,24 @@ set(avr_SOURCES
   ${GENERIC_SOURCES}
 )
 
+# Generic 32-bit integer sources recurse through C166 libcalls.
+set(c166_SOURCES
+  adddf3.c
+  divdf3.c
+  fp_mode.c
+  c166/atomic.c
+  c166/fp32.c
+  c166/fp32_conv.c
+  c166/fp_width.c
+  c166/fp64_conv.c
+  c166/icall.S
+  c166/int32.c
+  c166/memory.c
+  c166/float_helpers.S
+  muldf3.c
+  subdf3.c
+)
+
 # hexagon arch
 set(hexagon_SOURCES
   hexagon/common_entry_exit_abi1.S
@@ -1125,6 +1143,12 @@ else ()
       cmake_push_check_state()
       # TODO: we should probably make most of the checks in builtin-config depend on the target flags.
       set(BUILTIN_CFLAGS_${arch} ${BUILTIN_CFLAGS})
+      if ("${arch}" STREQUAL "c166")
+        list(APPEND BUILTIN_CFLAGS_${arch} -ffreestanding
+          -Xclang -fexperimental-max-bitint-width=64
+          -DCRT_USE_64BIT_BITINT
+          -DCRT_REVERSE_16BIT_FP_WORDS)
+      endif()
       # CMAKE_REQUIRED_FLAGS must be a space separated string
       # Join BUILTIN_CFLAGS_${arch} and TARGET_${arch}_CFLAGS as a
       # space-separated string.
@@ -1186,6 +1210,32 @@ else ()
                               C_STANDARD 11
                               CXX_STANDARD 17
                               PARENT_TARGET builtins)
+
+      # Calls and returns make runtime archives memory-model specific.
+      if ("${arch}" STREQUAL "c166")
+        add_compiler_rt_runtime(clang_rt.builtins-medium
+                                STATIC
+                                ARCHS ${arch}
+                                DEPS ${deps_${arch}}
+                                SOURCES ${${arch}_SOURCES}
+                                DEFS ${BUILTIN_DEFS}
+                                CFLAGS ${BUILTIN_CFLAGS_${arch}}
+                                  -mcmodel=medium
+                                C_STANDARD 11
+                                CXX_STANDARD 17
+                                PARENT_TARGET builtins)
+        add_compiler_rt_runtime(clang_rt.builtins-small
+                                STATIC
+                                ARCHS ${arch}
+                                DEPS ${deps_${arch}}
+                                SOURCES ${${arch}_SOURCES}
+                                DEFS ${BUILTIN_DEFS}
+                                CFLAGS ${BUILTIN_CFLAGS_${arch}}
+                                  -mcmodel=small
+                                C_STANDARD 11
+                                CXX_STANDARD 17
+                                PARENT_TARGET builtins)
+      endif()
 
       # Write out the sources that were used to compile the builtins so that tests can be run in
       # an independent compiler-rt build (see: compiler-rt/test/builtins/CMakeLists.txt)

@@ -437,6 +437,20 @@ def warn_arm_interrupt_save_fp_without_vfp_unit : Warning<
    InGroup<DiagGroup<"arm-interrupt-save-fp-no-vfp-unit">>;
 def err_arm_interrupt_called : Error<
   "interrupt service routine cannot be called directly">;
+def err_c166_interrupt_signature : Error<
+  "C166 interrupt handler must have return type 'void' and prototype '(void)'">;
+def err_c166_interrupt_called : Error<
+  "C166 interrupt handler cannot be called directly">;
+def err_c166_register_bank_name : Error<
+  "C166 register bank name must be a non-empty ASCII identifier">;
+def err_c166_code_bank_out_of_range : Error<
+  "C166 code bank number must be in the range 1 to 255">;
+def err_c166_code_bank_near : Error<
+  "'c166_bank' cannot be combined with a near function type">;
+def err_c166_xnear_memory_model : Error<
+  "'c166_xnear' is only available in the Medium and Large memory models">;
+def err_c166_register_bank_requires_interrupt : Error<
+  "'c166_register_bank' attribute requires a C166 interrupt handler">;
 def warn_interrupt_signal_attribute_invalid
     : Warning<"%select{MIPS|MSP430|RISC-V|AVR}0 '%select{interrupt|signal}1' "
               "attribute only applies to functions that have "
@@ -2235,6 +2249,9 @@ def err_not_integral_type_bitfield : Error<
   "bit-field %0 has non-integral type %1">;
 def err_not_integral_type_anon_bitfield : Error<
   "anonymous bit-field has non-integral type %0">;
+def err_bitfield_type_not_supported_on_target : Error<
+  "bit-field type %0 is not supported on this target; use signed int or "
+  "unsigned int">;
 def err_anon_bitfield_qualifiers : Error<
   "anonymous bit-field cannot have qualifiers">;
 def err_member_function_initialization : Error<
@@ -3398,6 +3415,8 @@ def err_attribute_too_many_arguments : Error<
 def err_attribute_too_few_arguments : Error<
   "%0 attribute takes at least %1 argument%s1">;
 def err_attribute_invalid_vector_type : Error<"invalid vector element type %0">;
+def err_vector_type_not_supported_on_target : Error<
+  "fixed-size vector types are not supported on this target">;
 def err_attribute_invalid_bitint_vector_type : Error<
   "'_BitInt' %select{vector|matrix}0 element width must be a power of 2">;
 def err_attribute_invalid_matrix_type : Error<"invalid matrix element type %0">;

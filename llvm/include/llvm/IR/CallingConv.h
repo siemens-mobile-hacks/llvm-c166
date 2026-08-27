@@ -297,6 +297,14 @@ namespace CallingConv {
     /// stateless compartment.
     CHERIoT_LibraryCall = 127,
 
+    /// C166 convention which passes every argument on the
+    /// user stack while retaining the ordinary C166 return convention.
+    C166_StackParm = 128,
+
+    /// C166 interrupt-handler convention. Hardware supplies
+    /// an IP:CSP:PSW frame on the system stack and the handler returns by RETI.
+    C166_Interrupt = 129,
+
     /// The highest possible ID. Must be some 2^k - 1.
     MaxID = 1023
   };
@@ -324,6 +332,7 @@ constexpr bool isCallableCC(CallingConv::ID CC) {
   case CallingConv::AMDGPU_VS:
   case CallingConv::SPIR_KERNEL:
   case CallingConv::PTX_Kernel:
+  case CallingConv::C166_Interrupt:
     return false;
   default:
     return true;

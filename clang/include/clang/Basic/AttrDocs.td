@@ -3867,6 +3867,127 @@ using the `rtd` instruction.
   }];
 }
 
+def C166StackParmDocs : Documentation {
+  let Category = DocCatCallingConvs;
+  let Content = [{
+On C166 targets, ``c166_stackparm`` selects the all-stack calling convention.
+It is accepted as ``__attribute__((c166_stackparm))`` and as
+``[[clang::c166_stackparm]]``.
+
+Arguments are passed on the R0 user stack in source order and the caller removes
+the argument area. Return values use the normal C166 convention.
+  }];
+}
+
+def C166InterruptDocs : Documentation {
+  let Category = DocCatFunction;
+  let Heading = "interrupt (C166)";
+  let Content = [{
+On C166 targets, ``__attribute__((interrupt(number)))`` declares an interrupt
+handler. The handler must have return type ``void`` and prototype ``(void)``;
+it cannot be called directly. Valid interrupt numbers are 0 through 127. The
+value -1 declares an unnumbered handler.
+
+Clang emits an interrupt prologue and epilogue, preserves the machine state
+used by the handler, and returns with ``RETI``. The attribute does not create a
+startup routine or interrupt-vector table. A handler may additionally use
+``c166_register_bank`` to select a named memory-mapped register bank.
+  }];
+}
+
+def C166FarDocs : Documentation {
+  let Category = DocCatType;
+  let Content = [{
+On C166 targets, ``c166_far`` selects the paged data-address
+class.  It is accepted as ``__attribute__((c166_far))`` and as
+``[[clang::c166_far]]`` on a data type.  Pointers to the qualified type are
+32 bits wide and use a page:offset representation.  A ``c166_far`` object may
+not cross a 16 KiB page boundary.
+  }];
+}
+
+def C166NearDocs : Documentation {
+  let Category = DocCatType;
+  let Content = [{
+On C166 targets, ``c166_near`` selects the near address class.
+It is accepted as ``__attribute__((c166_near))`` and as
+``[[clang::c166_near]]``.
+
+On a data type, pointers are 16-bit offsets through DPP2. On a function type,
+the function pointer is 16 bits wide, direct calls use ``CALLA``, indirect
+calls use ``CALLI``, and the callee returns with ``RET``. The attribute is
+part of the qualified type and is retained by typedefs and pointers. On a
+function it is incompatible with ``c166_huge`` and ``c166_bank``.
+  }];
+}
+
+def C166XNearDocs : Documentation {
+  let Category = DocCatType;
+  let Content = [{
+On C166 targets, ``c166_xnear`` selects the extended-near
+data-address class.  It is accepted as ``__attribute__((c166_xnear))`` and as
+``[[clang::c166_xnear]]`` on a data type.  Pointers to the qualified type are
+16-bit offsets through DPP1.  The attribute cannot be applied to a function
+type.
+  }];
+}
+
+def C166HugeDocs : Documentation {
+  let Category = DocCatType;
+  let Content = [{
+On C166 targets, ``c166_huge`` selects the huge address class.
+It is accepted as ``__attribute__((c166_huge))`` and as
+``[[clang::c166_huge]]``.
+
+On a data type, pointers use a 32-bit linear representation and may cross page
+boundaries. On a function type, the function pointer is 32 bits wide, direct
+calls use ``CALLS``, the callee returns with ``RETS``, and indirect calls use
+the runtime ``__icall`` contract. In Medium memory model the function
+attribute overrides the implicit near code class. On a function it is
+incompatible with ``c166_near`` and ``c166_bank``.
+  }];
+}
+
+def C166SHugeDocs : Documentation {
+  let Category = DocCatType;
+  let Content = [{
+On C166 targets, ``c166_shuge`` selects the signed-huge
+data-address class.  It is accepted as ``__attribute__((c166_shuge))`` and as
+``[[clang::c166_shuge]]`` on a data type.  Pointers use a signed 32-bit linear
+representation.  The attribute cannot be applied to a function type.
+  }];
+}
+
+def C166RegisterBankDocs : Documentation {
+  let Category = DocCatCallingConvs;
+  let Content = [{
+On C166 targets, ``c166_register_bank("name")`` selects a named,
+memory-mapped general-purpose register bank for an interrupt handler. It is
+accepted as ``__attribute__((c166_register_bank("name")))`` and as
+``[[clang::c166_register_bank("name")]]``. The name must be a non-empty ASCII
+identifier, and the attribute may only be used together with the C166
+``interrupt`` attribute.
+
+Handlers using the same name share one 16-register bank. The compiler switches
+CP on entry and restores it before ``RETI``.
+  }];
+}
+
+def C166BankDocs : Documentation {
+  let Category = DocCatFunction;
+  let Content = [{
+On C166 targets, ``c166_bank(number)`` assigns a function to a code-memory
+bank. It is accepted as
+``__attribute__((c166_bank(number)))`` and as
+``[[clang::c166_bank(number)]]``. Valid bank numbers are 1 through 255;
+unqualified functions belong to bank zero.
+
+The bank is part of the function type. Calls across banks use ``__banksw``,
+which must be provided by the platform runtime. Banked functions use the
+inter-segment convention and cannot also be ``c166_near``.
+  }];
+}
+
 def DocCatConsumed : DocumentationCategory<"Consumed Annotation Checking"> {
   let Content = [{
 Clang supports additional attributes for checking basic resource management

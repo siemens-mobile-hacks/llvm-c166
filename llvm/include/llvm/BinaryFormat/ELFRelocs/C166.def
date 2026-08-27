@@ -1,0 +1,25 @@
+#ifndef ELF_RELOC
+#error "ELF_RELOC must be defined"
+#endif
+
+// LLVM C166 ELF relocations.
+ELF_RELOC(R_C166_NONE,          0)
+ELF_RELOC(R_C166_8,             1)
+ELF_RELOC(R_C166_16,            2)
+ELF_RELOC(R_C166_32,            3)
+ELF_RELOC(R_C166_SEG8,          4)
+ELF_RELOC(R_C166_SOF16,         5)
+ELF_RELOC(R_C166_PAG10,         6)
+ELF_RELOC(R_C166_POF14,         7)
+ELF_RELOC(R_C166_PC8,           8)
+ELF_RELOC(R_C166_PC16,          9)
+ELF_RELOC(R_C166_DPP1_16,      10)
+ELF_RELOC(R_C166_DPP2_16,      11)
+ELF_RELOC(R_C166_COF16,        12)
+ELF_RELOC(R_C166_PAGED32,      13)
+ELF_RELOC(R_C166_PC8_RELAX,    14)
+
+// Values 253..255 are reserved and are never emitted by LLVM.
+ELF_RELOC(R_C166_RESERVED_253, 253)
+ELF_RELOC(R_C166_RESERVED_254, 254)
+ELF_RELOC(R_C166_RESERVED_255, 255)

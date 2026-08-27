@@ -47,6 +47,7 @@
 #include "clang/Sema/SemaARM.h"
 #include "clang/Sema/SemaAVR.h"
 #include "clang/Sema/SemaBPF.h"
+#include "clang/Sema/SemaC166.h"
 #include "clang/Sema/SemaCUDA.h"
 #include "clang/Sema/SemaHLSL.h"
 #include "clang/Sema/SemaInternal.h"
@@ -5622,6 +5623,9 @@ static void handleCallConvAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   case ParsedAttr::AT_M68kRTD:
     D->addAttr(::new (S.Context) M68kRTDAttr(S.Context, AL));
     return;
+  case ParsedAttr::AT_C166StackParm:
+    D->addAttr(::new (S.Context) C166StackParmAttr(S.Context, AL));
+    return;
   case ParsedAttr::AT_PreserveNone:
     D->addAttr(::new (S.Context) PreserveNoneAttr(S.Context, AL));
     return;
@@ -5892,6 +5896,9 @@ bool Sema::CheckCallingConvAttr(const ParsedAttr &Attrs, CallingConv &CC,
     break;
   case ParsedAttr::AT_M68kRTD:
     CC = CC_M68kRTD;
+    break;
+  case ParsedAttr::AT_C166StackParm:
+    CC = CC_C166StackParm;
     break;
   case ParsedAttr::AT_PreserveNone:
     CC = CC_PreserveNone;
@@ -6681,6 +6688,9 @@ BTFDeclTagAttr *Sema::mergeBTFDeclTagAttr(Decl *D, const BTFDeclTagAttr &AL) {
 static void handleInterruptAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   // Dispatch the interrupt attribute based on the current target.
   switch (S.Context.getTargetInfo().getTriple().getArch()) {
+  case llvm::Triple::c166:
+    S.C166().handleInterruptAttr(D, AL);
+    break;
   case llvm::Triple::msp430:
     S.MSP430().handleInterruptAttr(D, AL);
     break;
@@ -8157,10 +8167,14 @@ ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D, const ParsedAttr &AL,
   case ParsedAttr::AT_AArch64VectorPcs:
   case ParsedAttr::AT_AArch64SVEPcs:
   case ParsedAttr::AT_M68kRTD:
+  case ParsedAttr::AT_C166StackParm:
   case ParsedAttr::AT_PreserveNone:
   case ParsedAttr::AT_RISCVVectorCC:
   case ParsedAttr::AT_RISCVVLSCC:
     handleCallConvAttr(S, D, AL);
+    break;
+  case ParsedAttr::AT_C166RegisterBank:
+    S.C166().handleRegisterBankAttr(D, AL);
     break;
   case ParsedAttr::AT_DeviceKernel:
     handleDeviceKernelAttr(S, D, AL);
@@ -8570,6 +8584,9 @@ void Sema::ProcessDeclAttributeList(
 
   for (const ParsedAttr &AL : AttrList)
     ProcessDeclAttribute(*this, S, D, AL, Options);
+
+  if (D->hasAttr<C166RegisterBankAttr>())
+    C166().checkRegisterBankAttr(D);
 
   // FIXME: We should be able to handle these cases in TableGen.
   // GCC accepts

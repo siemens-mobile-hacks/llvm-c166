@@ -36,6 +36,7 @@
 #include "clang/Sema/ParsedAttr.h"
 #include "clang/Sema/ParsedTemplate.h"
 #include "clang/Sema/ScopeInfo.h"
+#include "clang/Sema/SemaC166.h"
 #include "clang/Sema/SemaCUDA.h"
 #include "clang/Sema/SemaHLSL.h"
 #include "clang/Sema/SemaObjC.h"
@@ -140,12 +141,26 @@ static void diagnoseBadTypeAttribute(Sema &S, const ParsedAttr &attr,
   case ParsedAttr::AT_PreserveMost:                                            \
   case ParsedAttr::AT_PreserveAll:                                             \
   case ParsedAttr::AT_M68kRTD:                                                 \
+  case ParsedAttr::AT_C166StackParm:                                           \
   case ParsedAttr::AT_PreserveNone:                                            \
   case ParsedAttr::AT_RISCVVectorCC:                                           \
   case ParsedAttr::AT_RISCVVLSCC
 
-// Function type attributes.
+// C166 address-class attributes that can qualify either data or functions.
+#define C166_ADDRESS_CLASS_ATTRS_CASELIST                                      \
+  case ParsedAttr::AT_C166Far:                                                 \
+  case ParsedAttr::AT_C166Near:                                                \
+  case ParsedAttr::AT_C166XNear:                                               \
+  case ParsedAttr::AT_C166Huge:                                                \
+  case ParsedAttr::AT_C166SHuge
+
+#define C166_FUNCTION_ADDRESS_ATTRS_CASELIST                                   \
+  case ParsedAttr::AT_C166Near:                                                \
+  case ParsedAttr::AT_C166Huge
+
+// Function-only type attributes.
 #define FUNCTION_TYPE_ATTRS_CASELIST                                           \
+  case ParsedAttr::AT_C166Bank:                                                \
   case ParsedAttr::AT_NSReturnsRetained:                                       \
   case ParsedAttr::AT_NoReturn:                                                \
   case ParsedAttr::AT_NonBlocking:                                             \
@@ -735,6 +750,10 @@ static void distributeTypeAttrsFromDeclarator(TypeProcessingState &state,
     switch (attr.getKind()) {
     OBJC_POINTER_TYPE_ATTRS_CASELIST:
       distributeObjCPointerTypeAttrFromDeclarator(state, attr, declSpecType);
+      break;
+
+    C166_FUNCTION_ADDRESS_ATTRS_CASELIST:
+      distributeFunctionTypeAttrFromDeclarator(state, attr, declSpecType, CFT);
       break;
 
     FUNCTION_TYPE_ATTRS_CASELIST:
@@ -2368,6 +2387,11 @@ static bool CheckBitIntElementType(Sema &S, SourceLocation AttrLoc,
 
 QualType Sema::BuildVectorType(QualType CurType, Expr *SizeExpr,
                                SourceLocation AttrLoc) {
+  if (!Context.getTargetInfo().supportsFixedSizeVectorTypes()) {
+    Diag(AttrLoc, diag::err_vector_type_not_supported_on_target);
+    return QualType();
+  }
+
   // The base type must be integer (not Boolean or enumeration) or float, and
   // can't already be a vector.
   if ((!CurType->isDependentType() &&
@@ -2439,6 +2463,11 @@ QualType Sema::BuildVectorType(QualType CurType, Expr *SizeExpr,
 
 QualType Sema::BuildExtVectorType(QualType T, Expr *SizeExpr,
                                   SourceLocation AttrLoc) {
+  if (!Context.getTargetInfo().supportsFixedSizeVectorTypes()) {
+    Diag(AttrLoc, diag::err_vector_type_not_supported_on_target);
+    return QualType();
+  }
+
   // Unlike gcc's vector_size attribute, we do not allow vectors to be defined
   // in conjunction with complex types (pointers, arrays, functions, etc.).
   //
@@ -5428,7 +5457,13 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
                                         : ASIdx);
           EPI.TypeQuals.addAddressSpace(AS);
         }
+        std::optional<LangAS> FunctionAS;
+        if (!EPI.TypeQuals.hasAddressSpace())
+          FunctionAS =
+              S.Context.getTargetInfo().getDefaultFunctionAddressSpace();
         T = Context.getFunctionType(T, ParamTys, EPI);
+        if (FunctionAS)
+          T = Context.getAddrSpaceQualType(T, *FunctionAS);
       }
       break;
     }
@@ -7818,6 +7853,8 @@ static Attr *getCCTypeAttr(ASTContext &Ctx, ParsedAttr &Attr) {
     return createSimpleAttr<PreserveAllAttr>(Ctx, Attr);
   case ParsedAttr::AT_M68kRTD:
     return createSimpleAttr<M68kRTDAttr>(Ctx, Attr);
+  case ParsedAttr::AT_C166StackParm:
+    return createSimpleAttr<C166StackParmAttr>(Ctx, Attr);
   case ParsedAttr::AT_PreserveNone:
     return createSimpleAttr<PreserveNoneAttr>(Ctx, Attr);
   case ParsedAttr::AT_RISCVVectorCC:
@@ -7945,9 +7982,7 @@ handleNonBlockingNonAllocatingTypeAttr(TypeProcessingState &TPState,
   return true;
 }
 
-static bool checkMutualExclusion(TypeProcessingState &state,
-                                 const FunctionProtoType::ExtProtoInfo &EPI,
-                                 ParsedAttr &Attr,
+static bool checkMutualExclusion(TypeProcessingState &state, ParsedAttr &Attr,
                                  AttributeCommonInfo::Kind OtherKind) {
   auto OtherAttr = llvm::find_if(
       state.getCurrentAttributes(),
@@ -8263,13 +8298,13 @@ static bool handleFunctionTypeAttr(TypeProcessingState &state, ParsedAttr &attr,
     FunctionProtoType::ExtProtoInfo EPI = FnTy->getExtProtoInfo();
     switch (attr.getKind()) {
     case ParsedAttr::AT_ArmStreaming:
-      if (checkMutualExclusion(state, EPI, attr,
+      if (checkMutualExclusion(state, attr,
                                ParsedAttr::AT_ArmStreamingCompatible))
         return true;
       EPI.setArmSMEAttribute(FunctionType::SME_PStateSMEnabledMask);
       break;
     case ParsedAttr::AT_ArmStreamingCompatible:
-      if (checkMutualExclusion(state, EPI, attr, ParsedAttr::AT_ArmStreaming))
+      if (checkMutualExclusion(state, attr, ParsedAttr::AT_ArmStreaming))
         return true;
       EPI.setArmSMEAttribute(FunctionType::SME_PStateSMCompatibleMask);
       break;
@@ -8363,6 +8398,26 @@ static bool handleFunctionTypeAttr(TypeProcessingState &state, ParsedAttr &attr,
 
   // Delay if the type didn't work out to a function.
   if (!unwrapped.isFunctionType()) return false;
+
+  if (attr.getKind() == ParsedAttr::AT_C166Near ||
+      attr.getKind() == ParsedAttr::AT_C166Huge) {
+    const bool IsNear = attr.getKind() == ParsedAttr::AT_C166Near;
+    const auto OtherKind =
+        IsNear ? ParsedAttr::AT_C166Huge : ParsedAttr::AT_C166Near;
+    if (checkMutualExclusion(state, attr, OtherKind))
+      return true;
+    if (auto Result = S.C166().handleFunctionAddressAttr(type, attr))
+      type = state.getAttributedType(Result->TypeAttr, Result->ModifiedType,
+                                     Result->EquivalentType);
+    return true;
+  }
+
+  if (attr.getKind() == ParsedAttr::AT_C166Bank) {
+    if (auto Result = S.C166().handleBankAttr(type, attr))
+      type = state.getAttributedType(Result->TypeAttr, Result->ModifiedType,
+                                     Result->EquivalentType);
+    return true;
+  }
 
   // Otherwise, a calling convention.
   CallingConv CC;
@@ -9119,6 +9174,50 @@ static void processTypeAttrs(TypeProcessingState &state, QualType &type,
       // it it breaks large amounts of Linux software.
       attr.setUsedAsTypeAttr();
       break;
+
+    C166_ADDRESS_CLASS_ATTRS_CASELIST: {
+      attr.setUsedAsTypeAttr();
+
+      const bool CanQualifyFunction =
+          attr.getKind() == ParsedAttr::AT_C166Near ||
+          attr.getKind() == ParsedAttr::AT_C166Huge;
+
+      // GNU attributes written with the declaration specifiers traditionally
+      // follow the innermost function declarator chunk. Preserve that useful
+      // spelling for c166_near/c166_huge; in a declaration without a function
+      // chunk the same attributes qualify the data type instead.
+      if (CanQualifyFunction && TAL == TAL_DeclSpec) {
+        bool HasFunctionChunk = false;
+        for (unsigned I = 0, E = state.getDeclarator().getNumTypeObjects();
+             I != E; ++I) {
+          if (state.getDeclarator().getTypeObject(I).Kind ==
+              DeclaratorChunk::Function) {
+            HasFunctionChunk = true;
+            break;
+          }
+        }
+        if (HasFunctionChunk) {
+          distributeFunctionTypeAttrFromDeclSpec(state, attr, type, CFT);
+          break;
+        }
+      }
+
+      if (type->isFunctionType()) {
+        if (!CanQualifyFunction ||
+            !handleFunctionTypeAttr(state, attr, type, CFT)) {
+          diagnoseBadTypeAttribute(state.getSema(), attr, type);
+          attr.setInvalid();
+        }
+        break;
+      }
+
+      if (auto Result =
+              state.getSema().C166().handleDataAddressAttr(type, attr))
+        type = state.getAttributedType(Result->TypeAttr, Result->ModifiedType,
+                                       Result->EquivalentType);
+      break;
+    }
+
     case ParsedAttr::AT_OpenCLGlobalDeviceAddressSpace:
     case ParsedAttr::AT_OpenCLGlobalHostAddressSpace:
       state.getSema().Diag(attr.getLoc(), diag::warn_deprecated_attribute)

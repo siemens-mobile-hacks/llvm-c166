@@ -7153,6 +7153,10 @@ ExprResult Sema::BuildResolvedCallExpr(Expr *Fn, NamedDecl *NDecl,
       Diag(Fn->getExprLoc(), diag::err_arm_interrupt_called);
       return ExprError();
     }
+    if (FDecl->hasAttr<C166InterruptAttr>()) {
+      Diag(Fn->getExprLoc(), diag::err_c166_interrupt_called);
+      return ExprError();
+    }
   }
 
   // X86 interrupt handlers may only call routines with attribute
@@ -11930,7 +11934,7 @@ QualType Sema::CheckSubtractionOperands(ExprResult &LHS, ExprResult &RHS,
       }
 
       if (CompLHSTy) *CompLHSTy = LHS.get()->getType();
-      return Context.getPointerDiffType();
+      return Context.getPointerDiffType(lpointee.getAddressSpace());
     }
   }
 

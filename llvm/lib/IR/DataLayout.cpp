@@ -673,6 +673,9 @@ Error DataLayout::parseSpecification(
     case 'a':
       ManglingMode = MM_XCOFF;
       break;
+    case 'u':
+      ManglingMode = MM_ELFLeadingUnderscore;
+      break;
     }
     break;
   default:

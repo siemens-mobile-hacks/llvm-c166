@@ -172,6 +172,7 @@ static std::tuple<ELFKind, uint16_t, uint8_t> parseEmulation(Ctx &ctx,
           .Cases({"elf_amd64", "elf_x86_64"}, {ELF64LEKind, EM_X86_64})
           .Case("elf_i386", {ELF32LEKind, EM_386})
           .Case("elf_iamcu", {ELF32LEKind, EM_IAMCU})
+          .Case("c166elf", {ELF32LEKind, EM_C166})
           .Case("elf64_sparc", {ELF64BEKind, EM_SPARCV9})
           .Case("msp430elf", {ELF32LEKind, EM_MSP430})
           .Case("elf64_amdgpu", {ELF64LEKind, EM_AMDGPU})
@@ -182,7 +183,7 @@ static std::tuple<ELFKind, uint16_t, uint8_t> parseEmulation(Ctx &ctx,
 
   if (ret.first == ELFNoneKind)
     ErrAlways(ctx) << "unknown emulation: " << emul;
-  if (ret.second == EM_MSP430)
+  if (ret.second == EM_MSP430 || ret.second == EM_C166)
     osabi = ELFOSABI_STANDALONE;
   else if (ret.second == EM_AMDGPU)
     osabi = ELFOSABI_AMDGPU_HSA;

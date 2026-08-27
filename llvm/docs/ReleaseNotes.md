@@ -183,6 +183,12 @@ Makes programs 10x faster by doing Special New Thing.
 
 ### Changes to the AVR Backend
 
+### Changes to the C166 Backend
+
+* Added an experimental C166 backend with assembly, disassembly, ELF object
+  emission, static linking, and initial C code generation for the Large,
+  Medium, and Small memory models.
+
 ### Changes to the DirectX Backend
 
 ### Changes to the Hexagon Backend

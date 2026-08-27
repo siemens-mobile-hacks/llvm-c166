@@ -1,0 +1,32 @@
+# REQUIRES: c166
+# RUN: yaml2obj --docnum=1 %s -o %t.large.o
+# RUN: yaml2obj --docnum=2 %s -o %t.near.o
+# RUN: not ld.lld %t.large.o %t.near.o -o %t 2>&1 | FileCheck %s
+
+# CHECK: error: {{.*}}.near.o: incompatible C166 e_flags 0x111; expected 0x121
+
+--- !ELF
+FileHeader:
+  Class:   ELFCLASS32
+  Data:    ELFDATA2LSB
+  Type:    ET_REL
+  Machine: EM_C166
+  Flags:   [ EF_C166_CORE_8X166, EF_C166_DATA_FAR, EF_C166_CODE_HUGE ]
+Sections:
+  - Name:  .text
+    Type:  SHT_PROGBITS
+    Flags: [ SHF_ALLOC, SHF_EXECINSTR ]
+    Content: "DB00"
+
+--- !ELF
+FileHeader:
+  Class:   ELFCLASS32
+  Data:    ELFDATA2LSB
+  Type:    ET_REL
+  Machine: EM_C166
+  Flags:   [ EF_C166_CORE_8X166, EF_C166_DATA_NEAR, EF_C166_CODE_HUGE ]
+Sections:
+  - Name:  .text
+    Type:  SHT_PROGBITS
+    Flags: [ SHF_ALLOC, SHF_EXECINSTR ]
+    Content: "DB00"

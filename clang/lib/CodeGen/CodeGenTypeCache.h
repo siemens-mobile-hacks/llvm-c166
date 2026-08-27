@@ -44,12 +44,11 @@ struct CodeGenTypeCache {
   /// char
   llvm::IntegerType *CharTy;
 
-  /// intptr_t, size_t, and ptrdiff_t, which we assume are the same size.
-  union {
-    llvm::IntegerType *IntPtrTy;
-    llvm::IntegerType *SizeTy;
-    llvm::IntegerType *PtrDiffTy;
-  };
+  /// intptr_t, size_t, and ptrdiff_t.  These need not have the same size on
+  /// segmented targets.
+  llvm::IntegerType *IntPtrTy;
+  llvm::IntegerType *SizeTy;
+  llvm::IntegerType *PtrDiffTy;
 
   /// void*, void** in the target's default address space (often 0)
   union {
@@ -95,16 +94,12 @@ struct CodeGenTypeCache {
   unsigned char PointerWidthInBits;
 
   /// The size and alignment of a pointer into the generic address space.
-  union {
-    unsigned char PointerAlignInBytes;
-    unsigned char PointerSizeInBytes;
-  };
+  unsigned char PointerAlignInBytes;
+  unsigned char PointerSizeInBytes;
 
   /// The size and alignment of size_t.
-  union {
-    unsigned char SizeSizeInBytes; // sizeof(size_t)
-    unsigned char SizeAlignInBytes;
-  };
+  unsigned char SizeSizeInBytes;
+  unsigned char SizeAlignInBytes;
 
   CharUnits getSizeSize() const {
     return CharUnits::fromQuantity(SizeSizeInBytes);

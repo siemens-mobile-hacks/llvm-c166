@@ -34,8 +34,15 @@ typedef uint32_t su_int;
 #error could not determine appropriate clzsi macro for this system
 #endif
 
+#if defined(CRT_USE_64BIT_BITINT)
+// Private compiler-rt containers for targets without a 64-bit standard C
+// integer type. The runtime build explicitly enables _BitInt(64).
+typedef signed _BitInt(64) di_int;
+typedef unsigned _BitInt(64) du_int;
+#else
 typedef int64_t di_int;
 typedef uint64_t du_int;
+#endif
 
 typedef union {
   di_int all;

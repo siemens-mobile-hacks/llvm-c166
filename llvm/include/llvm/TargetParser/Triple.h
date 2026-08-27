@@ -59,6 +59,7 @@ public:
     avr,         // AVR: Atmel AVR microcontroller
     bpfel,       // eBPF or extended BPF or 64-bit BPF (little endian)
     bpfeb,       // eBPF or extended BPF or 64-bit BPF (big endian)
+    c166,        // C166: Infineon C166/C16x
     csky,        // CSKY: csky
     dxil,        // DXIL 32-bit DirectX bytecode
     hexagon,     // Hexagon: hexagon
@@ -1109,6 +1110,8 @@ public:
   }
 
   bool isAVR() const { return getArch() == Triple::avr; }
+
+  bool isC166() const { return getArch() == Triple::c166; }
 
   /// Tests whether the target is 32-bit LoongArch.
   bool isLoongArch32() const { return getArch() == Triple::loongarch32; }

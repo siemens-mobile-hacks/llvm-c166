@@ -1412,6 +1412,14 @@ constexpr EnumStringDef<unsigned, 2> ElfX86_64SectionFlagsDefs[] = {
 constexpr auto ElfX86_64SectionFlags =
     BUILD_ENUM_STRINGS(ElfX86_64SectionFlagsDefs);
 
+constexpr EnumStringDef<unsigned, 2> ElfC166SectionFlagsDefs[] = {
+    ENUM_ENT(SHF_C166_PROTECTED, "p"), ENUM_ENT(SHF_C166_ABSOLUTE, "a"),
+    ENUM_ENT(SHF_C166_SEPARATE, "s"),  ENUM_ENT(SHF_C166_NOCLEAR, "n"),
+    ENUM_ENT(SHF_C166_PAGED, "g"),
+};
+constexpr auto ElfC166SectionFlags =
+    BUILD_ENUM_STRINGS(ElfC166SectionFlagsDefs);
+
 static std::vector<const EnumString<unsigned, 2> *>
 getSectionFlagsForTarget(unsigned EOSAbi, unsigned EMachine) {
   std::vector<const EnumString<unsigned, 2> *> Ret;
@@ -1428,6 +1436,10 @@ getSectionFlagsForTarget(unsigned EOSAbi, unsigned EMachine) {
     break;
   }
   switch (EMachine) {
+  case EM_C166:
+    for (const auto &Entry : EnumStrings(ElfC166SectionFlags))
+      Ret.push_back(&Entry);
+    break;
   case EM_AARCH64:
     for (const auto &Entry : EnumStrings(ElfAArch64SectionFlags))
       Ret.push_back(&Entry);
@@ -1765,6 +1777,21 @@ constexpr EnumStringDef<unsigned, 2> ElfHeaderAVRFlagsDefs[] = {
 };
 constexpr auto ElfHeaderAVRFlags = BUILD_ENUM_STRINGS(ElfHeaderAVRFlagsDefs);
 
+constexpr EnumStringDef<unsigned, 2> ElfHeaderC166FlagsDefs[] = {
+    ENUM_ENT(EF_C166_CORE_8X166, "8xC166"),
+    ENUM_ENT(EF_C166_CORE_C16X, "C16x"),
+    ENUM_ENT(EF_C166_CORE_ST10, "ST10"),
+    ENUM_ENT(EF_C166_DATA_NEAR, "near data"),
+    ENUM_ENT(EF_C166_DATA_FAR, "far data"),
+    ENUM_ENT(EF_C166_DATA_SHUGE, "segmented huge data"),
+    ENUM_ENT(EF_C166_DATA_HUGE, "huge data"),
+    ENUM_ENT(EF_C166_CODE_HUGE, "huge code"),
+    ENUM_ENT(EF_C166_CODE_NEAR, "near code"),
+    ENUM_ENT(EF_C166_USER_STACK, "user return stack"),
+    ENUM_ENT(EF_C166_FLOAT_NODOUBLE, "single precision double"),
+};
+constexpr auto ElfHeaderC166Flags = BUILD_ENUM_STRINGS(ElfHeaderC166FlagsDefs);
+
 constexpr EnumStringDef<unsigned, 2> ElfHeaderLoongArchFlagsDefs[] = {
     ENUM_ENT(EF_LOONGARCH_ABI_SOFT_FLOAT, "SOFT-FLOAT"),
     ENUM_ENT(EF_LOONGARCH_ABI_SINGLE_FLOAT, "SINGLE-FLOAT"),
@@ -1818,6 +1845,21 @@ constexpr EnumStringDef<unsigned, 2> ElfRISCVSymOtherFlagsDefs[] = {
 };
 constexpr auto ElfRISCVSymOtherFlags =
     BUILD_ENUM_STRINGS(ElfRISCVSymOtherFlagsDefs);
+
+constexpr EnumStringDef<unsigned, 2> ElfC166CodeSymOtherFlagsDefs[] = {
+    ENUM_ENT_1(STO_C166_CODE_NEAR),
+    ENUM_ENT_1(STO_C166_CODE_HUGE),
+};
+constexpr auto ElfC166CodeSymOtherFlags =
+    BUILD_ENUM_STRINGS(ElfC166CodeSymOtherFlagsDefs);
+
+constexpr EnumStringDef<unsigned, 2> ElfC166DataSymOtherFlagsDefs[] = {
+    ENUM_ENT_1(STO_C166_DATA_NEAR),  ENUM_ENT_1(STO_C166_DATA_XNEAR),
+    ENUM_ENT_1(STO_C166_DATA_FAR),   ENUM_ENT_1(STO_C166_DATA_HUGE),
+    ENUM_ENT_1(STO_C166_DATA_SHUGE),
+};
+constexpr auto ElfC166DataSymOtherFlags =
+    BUILD_ENUM_STRINGS(ElfC166DataSymOtherFlagsDefs);
 
 static const char *getElfMipsOptionsOdkType(unsigned Odk) {
   switch (Odk) {
@@ -3610,6 +3652,18 @@ ELFDumper<ELFT>::getOtherFlagsFromSymbol(const Elf_Ehdr &Header,
   } else if (Header.e_machine == EM_RISCV) {
     for (const auto &Entry : EnumStrings(ElfRISCVSymOtherFlags))
       SymOtherFlags.push_back(&Entry);
+  } else if (Header.e_machine == EM_C166) {
+    if (Symbol.getType() == ELF::STT_FUNC) {
+      unsigned CodeClass = Symbol.st_other & ELF::STO_C166_CODE_MASK;
+      for (const auto &Entry : EnumStrings(ElfC166CodeSymOtherFlags))
+        if (Entry.value() == CodeClass)
+          SymOtherFlags.push_back(&Entry);
+    } else if (Symbol.getType() == ELF::STT_OBJECT) {
+      unsigned DataClass = Symbol.st_other & ELF::STO_C166_DATA_MASK;
+      for (const auto &Entry : EnumStrings(ElfC166DataSymOtherFlags))
+        if (Entry.value() == DataClass)
+          SymOtherFlags.push_back(&Entry);
+    }
   }
   return SymOtherFlags;
 }
@@ -3764,6 +3818,11 @@ template <class ELFT> void GNUELFDumper<ELFT>::printFileHeaders() {
   else if (e.e_machine == EM_AVR)
     ElfFlags = printFlags(e.e_flags, EnumStrings(ElfHeaderAVRFlags),
                           unsigned(ELF::EF_AVR_ARCH_MASK));
+  else if (e.e_machine == EM_C166)
+    ElfFlags = printFlags(e.e_flags, EnumStrings(ElfHeaderC166Flags),
+                          unsigned(ELF::EF_C166_CORE_MASK),
+                          unsigned(ELF::EF_C166_DATA_MASK),
+                          unsigned(ELF::EF_C166_CODE_MASK));
   else if (e.e_machine == EM_LOONGARCH)
     ElfFlags = printFlags(e.e_flags, EnumStrings(ElfHeaderLoongArchFlags),
                           unsigned(ELF::EF_LOONGARCH_ABI_MODIFIER_MASK),
@@ -7665,6 +7724,11 @@ template <class ELFT> void LLVMELFDumper<ELFT>::printFileHeaders() {
     else if (E.e_machine == EM_AVR)
       W.printFlags("Flags", E.e_flags, EnumStrings(ElfHeaderAVRFlags),
                    unsigned(ELF::EF_AVR_ARCH_MASK));
+    else if (E.e_machine == EM_C166)
+      W.printFlags("Flags", E.e_flags, EnumStrings(ElfHeaderC166Flags),
+                   unsigned(ELF::EF_C166_CORE_MASK),
+                   unsigned(ELF::EF_C166_DATA_MASK),
+                   unsigned(ELF::EF_C166_CODE_MASK));
     else if (E.e_machine == EM_LOONGARCH)
       W.printFlags("Flags", E.e_flags, EnumStrings(ElfHeaderLoongArchFlags),
                    unsigned(ELF::EF_LOONGARCH_ABI_MODIFIER_MASK),

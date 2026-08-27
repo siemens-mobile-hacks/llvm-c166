@@ -425,6 +425,19 @@ void ScalarBitSetTraits<ELFYAML::ELF_EF>::bitset(IO &IO,
 #define BCase(X) IO.bitSetCase(Value, #X, ELF::X)
 #define BCaseMask(X, M) IO.maskedBitSetCase(Value, #X, ELF::X, ELF::M)
   switch (Object->getMachine()) {
+  case ELF::EM_C166:
+    BCaseMask(EF_C166_CORE_8X166, EF_C166_CORE_MASK);
+    BCaseMask(EF_C166_CORE_C16X, EF_C166_CORE_MASK);
+    BCaseMask(EF_C166_CORE_ST10, EF_C166_CORE_MASK);
+    BCaseMask(EF_C166_DATA_NEAR, EF_C166_DATA_MASK);
+    BCaseMask(EF_C166_DATA_FAR, EF_C166_DATA_MASK);
+    BCaseMask(EF_C166_DATA_SHUGE, EF_C166_DATA_MASK);
+    BCaseMask(EF_C166_DATA_HUGE, EF_C166_DATA_MASK);
+    BCaseMask(EF_C166_CODE_HUGE, EF_C166_CODE_MASK);
+    BCaseMask(EF_C166_CODE_NEAR, EF_C166_CODE_MASK);
+    BCase(EF_C166_USER_STACK);
+    BCase(EF_C166_FLOAT_NODOUBLE);
+    break;
   case ELF::EM_ARM:
     BCase(EF_ARM_SOFT_FLOAT);
     BCase(EF_ARM_VFP_FLOAT);
@@ -761,6 +774,13 @@ void ScalarBitSetTraits<ELFYAML::ELF_SHF>::bitset(IO &IO,
     break;
   }
   switch (Object->getMachine()) {
+  case ELF::EM_C166:
+    BCase(SHF_C166_PROTECTED);
+    BCase(SHF_C166_ABSOLUTE);
+    BCase(SHF_C166_SEPARATE);
+    BCase(SHF_C166_NOCLEAR);
+    BCase(SHF_C166_PAGED);
+    break;
   case ELF::EM_AARCH64:
     BCase(SHF_AARCH64_PURECODE);
     break;
@@ -867,6 +887,9 @@ void ScalarEnumerationTraits<ELFYAML::ELF_REL>::enumeration(
   assert(Object && "The IO context is not initialized");
 #define ELF_RELOC(X, Y) IO.enumCase(Value, #X, ELF::X);
   switch (Object->getMachine()) {
+  case ELF::EM_C166:
+#include "llvm/BinaryFormat/ELFRelocs/C166.def"
+    break;
   case ELF::EM_X86_64:
 #include "llvm/BinaryFormat/ELFRelocs/x86_64.def"
     break;

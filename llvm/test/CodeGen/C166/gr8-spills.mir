@@ -1,0 +1,84 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=greedy,virtregrewriter \
+# RUN:   -verify-machineinstrs -o %t.ra.mir %s
+# RUN: FileCheck %s --check-prefix=RA --implicit-check-not='$rl0' \
+# RUN:   --implicit-check-not='$rh0' < %t.ra.mir
+# RUN: llc -mtriple=c166-none-elf -start-after=virtregrewriter \
+# RUN:   -verify-machineinstrs -filetype=obj -o %t.o %t.ra.mir
+# RUN: llvm-objdump -d %t.o | FileCheck %s --check-prefix=OBJ \
+# RUN:   --implicit-check-not='rl0' --implicit-check-not='rh0'
+
+--- |
+  target triple = "c166-none-elf"
+
+  define i8 @gr8_spills() {
+    ret i8 0
+  }
+...
+---
+name:            gr8_spills
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    %0:gr8 = MOVBri4 0, implicit-def $psw
+    %1:gr8 = MOVBri4 1, implicit-def $psw
+    %2:gr8 = MOVBri4 2, implicit-def $psw
+    %3:gr8 = MOVBri4 3, implicit-def $psw
+    %4:gr8 = MOVBri4 4, implicit-def $psw
+    %5:gr8 = MOVBri4 5, implicit-def $psw
+    %6:gr8 = MOVBri4 6, implicit-def $psw
+    %7:gr8 = MOVBri4 7, implicit-def $psw
+    %8:gr8 = MOVBri4 8, implicit-def $psw
+    %9:gr8 = MOVBri4 9, implicit-def $psw
+    %10:gr8 = MOVBri4 10, implicit-def $psw
+    %11:gr8 = MOVBri4 11, implicit-def $psw
+    %12:gr8 = MOVBri4 12, implicit-def $psw
+    %13:gr8 = MOVBri4 13, implicit-def $psw
+    %14:gr8 = MOVBri4 14, implicit-def $psw
+    %15:gr8 = MOVBri4 15, implicit-def $psw
+
+    %16:gr16 = MOVBZrr %0, implicit-def $psw
+    %17:gr16 = MOVBZrr %1, implicit-def $psw
+    %16:gr16 = ADDrr %16, %17, implicit-def $psw
+    %18:gr16 = MOVBZrr %2, implicit-def $psw
+    %16:gr16 = ADDrr %16, %18, implicit-def $psw
+    %19:gr16 = MOVBZrr %3, implicit-def $psw
+    %16:gr16 = ADDrr %16, %19, implicit-def $psw
+    %20:gr16 = MOVBZrr %4, implicit-def $psw
+    %16:gr16 = ADDrr %16, %20, implicit-def $psw
+    %21:gr16 = MOVBZrr %5, implicit-def $psw
+    %16:gr16 = ADDrr %16, %21, implicit-def $psw
+    %22:gr16 = MOVBZrr %6, implicit-def $psw
+    %16:gr16 = ADDrr %16, %22, implicit-def $psw
+    %23:gr16 = MOVBZrr %7, implicit-def $psw
+    %16:gr16 = ADDrr %16, %23, implicit-def $psw
+    %24:gr16 = MOVBZrr %8, implicit-def $psw
+    %16:gr16 = ADDrr %16, %24, implicit-def $psw
+    %25:gr16 = MOVBZrr %9, implicit-def $psw
+    %16:gr16 = ADDrr %16, %25, implicit-def $psw
+    %26:gr16 = MOVBZrr %10, implicit-def $psw
+    %16:gr16 = ADDrr %16, %26, implicit-def $psw
+    %27:gr16 = MOVBZrr %11, implicit-def $psw
+    %16:gr16 = ADDrr %16, %27, implicit-def $psw
+    %28:gr16 = MOVBZrr %12, implicit-def $psw
+    %16:gr16 = ADDrr %16, %28, implicit-def $psw
+    %29:gr16 = MOVBZrr %13, implicit-def $psw
+    %16:gr16 = ADDrr %16, %29, implicit-def $psw
+    %30:gr16 = MOVBZrr %14, implicit-def $psw
+    %16:gr16 = ADDrr %16, %30, implicit-def $psw
+    %31:gr16 = MOVBZrr %15, implicit-def $psw
+    %16:gr16 = ADDrr %16, %31, implicit-def $psw
+    $r4 = COPY %16
+    RETS implicit $r4
+
+# RA-LABEL: name: gr8_spills
+# RA:       stack:
+# RA:       MOVBfiStore
+# RA:       MOVBfi
+
+# OBJ-LABEL: <_gr8_spills>:
+# OBJ:       movb [r0],
+# OBJ:       movb [r0 + #1],
+# OBJ:       movb {{r[lh][1-7]}}, [r0]
+# OBJ:       movb {{r[lh][1-7]}}, [r0 + #1]
+# OBJ:       rets
+...

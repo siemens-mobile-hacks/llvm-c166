@@ -177,6 +177,28 @@ static uint64_t resolveMSP430(uint64_t Type, uint64_t Offset, uint64_t S,
   }
 }
 
+static bool supportsC166(uint64_t Type) {
+  switch (Type) {
+  case ELF::R_C166_NONE:
+  case ELF::R_C166_32:
+    return true;
+  default:
+    return false;
+  }
+}
+
+static uint64_t resolveC166(uint64_t Type, uint64_t /*Offset*/, uint64_t S,
+                            uint64_t LocData, int64_t Addend) {
+  switch (Type) {
+  case ELF::R_C166_NONE:
+    return LocData;
+  case ELF::R_C166_32:
+    return (S + Addend) & 0xFFFFFFFF;
+  default:
+    llvm_unreachable("Invalid relocation type");
+  }
+}
+
 static bool supportsPPC64(uint64_t Type) {
   switch (Type) {
   case ELF::R_PPC64_ADDR32:
@@ -872,6 +894,8 @@ getRelocationResolver(const ObjectFile &Obj) {
       return {supportsMips32, resolveMips32};
     case Triple::msp430:
       return {supportsMSP430, resolveMSP430};
+    case Triple::c166:
+      return {supportsC166, resolveC166};
     case Triple::sparc:
       return {supportsSparc32, resolveSparc32};
     case Triple::hexagon:

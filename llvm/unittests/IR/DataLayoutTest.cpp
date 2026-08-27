@@ -53,7 +53,7 @@ TEST(DataLayoutTest, ParseEndianness) {
 }
 
 TEST(DataLayoutTest, ParseMangling) {
-  for (StringRef Str : {"m:a", "m:e", "m:l", "m:m", "m:o", "m:w", "m:x"})
+  for (StringRef Str : {"m:a", "m:e", "m:l", "m:m", "m:o", "m:u", "m:w", "m:x"})
     EXPECT_THAT_EXPECTED(DataLayout::parse(Str), Succeeded());
 
   for (StringRef Str : {"m", "ms:m", "m:"})
@@ -65,6 +65,11 @@ TEST(DataLayoutTest, ParseMangling) {
   for (StringRef Str : {"m:ms", "m:E", "m:0"})
     EXPECT_THAT_EXPECTED(DataLayout::parse(Str),
                          FailedWithMessage("unknown mangling mode"));
+
+  DataLayout ELFLeadingUnderscore("m:u");
+  EXPECT_EQ('_', ELFLeadingUnderscore.getGlobalPrefix());
+  EXPECT_EQ(".L", ELFLeadingUnderscore.getInternalSymbolPrefix());
+  EXPECT_FALSE(ELFLeadingUnderscore.hasLinkerPrivateGlobalPrefix());
 }
 
 TEST(DataLayoutTest, ParseStackNaturalAlign) {

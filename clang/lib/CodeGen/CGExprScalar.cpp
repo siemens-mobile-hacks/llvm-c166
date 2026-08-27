@@ -4982,20 +4982,23 @@ Value *ScalarExprEmitter::EmitSub(const BinOpInfo &op) {
 
   // Otherwise, this is a pointer subtraction.
 
+  llvm::IntegerType *PointerDiffTy =
+      cast<llvm::IntegerType>(CGF.ConvertType(op.Ty));
+
   // Do the raw subtraction part. When pointer overflow is defined, use ptrtoint
   // as the pointer difference can be used to obtain the pointer without basing
   // it on one of the pointers (e.g. via -(nullptr - ptr)).
   Value *LHS, *RHS;
   if (CGF.getLangOpts().PointerOverflowDefined) {
-    LHS = Builder.CreatePtrToInt(op.LHS, CGF.PtrDiffTy, "sub.ptr.lhs.cast");
-    RHS = Builder.CreatePtrToInt(op.RHS, CGF.PtrDiffTy, "sub.ptr.rhs.cast");
+    LHS = Builder.CreatePtrToInt(op.LHS, PointerDiffTy, "sub.ptr.lhs.cast");
+    RHS = Builder.CreatePtrToInt(op.RHS, PointerDiffTy, "sub.ptr.rhs.cast");
   } else {
     LHS = Builder.CreatePtrToAddr(op.LHS, "sub.ptr.lhs.cast");
     RHS = Builder.CreatePtrToAddr(op.RHS, "sub.ptr.rhs.cast");
-    if (LHS->getType() != CGF.PtrDiffTy)
-      LHS = Builder.CreateZExtOrTrunc(LHS, CGF.PtrDiffTy, "sub.ptr.lhs.ext");
-    if (RHS->getType() != CGF.PtrDiffTy)
-      RHS = Builder.CreateZExtOrTrunc(RHS, CGF.PtrDiffTy, "sub.ptr.lhs.ext");
+    if (LHS->getType() != PointerDiffTy)
+      LHS = Builder.CreateZExtOrTrunc(LHS, PointerDiffTy, "sub.ptr.lhs.ext");
+    if (RHS->getType() != PointerDiffTy)
+      RHS = Builder.CreateZExtOrTrunc(RHS, PointerDiffTy, "sub.ptr.lhs.ext");
   }
   Value *diffInChars = Builder.CreateSub(LHS, RHS, "sub.ptr.sub");
 
@@ -5035,6 +5038,10 @@ Value *ScalarExprEmitter::EmitSub(const BinOpInfo &op) {
 
     divisor = CGF.CGM.getSize(elementSize);
   }
+
+  if (divisor->getType() != PointerDiffTy)
+    divisor =
+        Builder.CreateZExtOrTrunc(divisor, PointerDiffTy, "sub.ptr.divisor");
 
   if (CGF.getLangOpts().StablePointerSubtraction)
     return Builder.CreateSDiv(diffInChars, divisor, "sub.ptr.div");

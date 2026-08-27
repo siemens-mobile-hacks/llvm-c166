@@ -162,6 +162,7 @@ class SemaAMDGPU;
 class SemaARM;
 class SemaAVR;
 class SemaBPF;
+class SemaC166;
 class SemaCodeCompletion;
 class SemaCUDA;
 class SemaDirectX;
@@ -1463,6 +1464,11 @@ public:
     return *BPFPtr;
   }
 
+  SemaC166 &C166() {
+    assert(C166Ptr);
+    return *C166Ptr;
+  }
+
   SemaCodeCompletion &CodeCompletion() {
     assert(CodeCompletionPtr);
     return *CodeCompletionPtr;
@@ -1614,6 +1620,7 @@ private:
   std::unique_ptr<SemaARM> ARMPtr;
   std::unique_ptr<SemaAVR> AVRPtr;
   std::unique_ptr<SemaBPF> BPFPtr;
+  std::unique_ptr<SemaC166> C166Ptr;
   std::unique_ptr<SemaCodeCompletion> CodeCompletionPtr;
   std::unique_ptr<SemaCUDA> CUDAPtr;
   std::unique_ptr<SemaDirectX> DirectXPtr;

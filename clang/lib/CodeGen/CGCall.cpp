@@ -107,6 +107,8 @@ unsigned CodeGenTypes::ClangCallConvToLLVMCallConv(CallingConv CC) {
     return llvm::CallingConv::SwiftTail;
   case CC_M68kRTD:
     return llvm::CallingConv::M68k_RTD;
+  case CC_C166StackParm:
+    return llvm::CallingConv::C166_StackParm;
   case CC_PreserveNone:
     return llvm::CallingConv::PreserveNone;
     // clang-format off
@@ -315,6 +317,9 @@ static CallingConv getCallingConventionForDecl(const ObjCMethodDecl *D,
 
   if (D->hasAttr<M68kRTDAttr>())
     return CC_M68kRTD;
+
+  if (D->hasAttr<C166StackParmAttr>())
+    return CC_C166StackParm;
 
   if (D->hasAttr<PreserveNoneAttr>())
     return CC_PreserveNone;

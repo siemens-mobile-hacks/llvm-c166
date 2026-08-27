@@ -7097,6 +7097,12 @@ QualType ASTContext::getPointerDiffType() const {
   return getPredefinedSugarType(PredefinedSugarType::Kind::PtrdiffT);
 }
 
+QualType ASTContext::getPointerDiffType(LangAS AddrSpace) const {
+  if (AddrSpace == LangAS::Default)
+    return getPointerDiffType();
+  return getFromTargetType(Target->getPtrDiffType(AddrSpace));
+}
+
 /// Return the unique unsigned counterpart of "ptrdiff_t"
 /// integer type. The standard (C11 7.21.6.1p7) refers to this type
 /// in the definition of %tu format specifier.

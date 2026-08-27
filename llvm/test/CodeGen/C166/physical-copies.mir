@@ -1,0 +1,160 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=postrapseudos -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @copy_pair_up() {
+    ret void
+  }
+
+  define void @zext_pair_high_overlap() {
+    ret void
+  }
+
+  define void @sext_pair_high_overlap() {
+    ret void
+  }
+
+  define void @copy_pair_down() {
+    ret void
+  }
+
+  define void @copy_word() {
+    ret void
+  }
+
+  define void @copy_byte() {
+    ret void
+  }
+
+  define void @copy_sfr_to_gpr() {
+    ret void
+  }
+
+  define void @copy_gpr_to_sfr() {
+    ret void
+  }
+...
+---
+name:            copy_pair_up
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2r1
+
+    $r3r2 = COPY killed $r2r1
+    RETS
+
+# The destination low word aliases the source high word, so the high word
+# must be preserved before r2 is overwritten.
+# CHECK-LABEL: name: copy_pair_up
+# CHECK:       $r3 = MOVrr killed $r2
+# CHECK-NEXT:  $r2 = MOVrr killed $r1
+# CHECK-NEXT:  RETS
+...
+---
+name:            zext_pair_high_overlap
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2
+
+    $r2r1 = ZEXT16_32 killed $r2, implicit-def $psw
+    RETS
+
+# Preserve a source allocated to the destination high half before clearing it.
+# CHECK-LABEL: name: zext_pair_high_overlap
+# CHECK:       $r1 = MOVrr $r2
+# CHECK-NEXT:  $r2 = MOVri4 0
+# CHECK-NEXT:  RETS
+...
+---
+name:            sext_pair_high_overlap
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2
+
+    $r2r1 = SEXT16_32 killed $r2, implicit-def $psw
+    RETS
+
+# Signed extension has the same overlap hazard, then derives the high word
+# from the preserved low half.
+# CHECK-LABEL: name: sext_pair_high_overlap
+# CHECK:       $r1 = MOVrr $r2
+# CHECK-NEXT:  $r2 = MOVrr $r1
+# CHECK-NEXT:  $r2 = ASHRri4 $r2, 15
+# CHECK-NEXT:  RETS
+...
+---
+name:            copy_pair_down
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r3r2
+
+    $r2r1 = COPY killed $r3r2
+    RETS
+
+# In the opposite direction the low word must be consumed first.
+# CHECK-LABEL: name: copy_pair_down
+# CHECK:       $r1 = MOVrr killed $r2
+# CHECK-NEXT:  $r2 = MOVrr killed $r3
+# CHECK-NEXT:  RETS
+...
+---
+name:            copy_word
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r4
+
+    $r5 = COPY killed $r4
+    RETS
+
+# CHECK-LABEL: name: copy_word
+# CHECK:       $r5 = MOVrr killed $r4
+# CHECK-NEXT:  RETS
+...
+---
+name:            copy_byte
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $rh4
+
+    $rl5 = COPY killed $rh4
+    RETS
+
+# CHECK-LABEL: name: copy_byte
+# CHECK:       $rl5 = MOVBrr killed $rh4
+# CHECK-NEXT:  RETS
+...
+---
+name:            copy_sfr_to_gpr
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $dpp1
+
+    $r5 = COPY $dpp1
+    RETS
+
+# CHECK-LABEL: name: copy_sfr_to_gpr
+# CHECK:       $r5 = MOVgsfr $dpp1
+# CHECK-NEXT:  RETS
+...
+---
+name:            copy_gpr_to_sfr
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r5
+
+    $dpp1 = COPY killed $r5
+    RETS
+
+# CHECK-LABEL: name: copy_gpr_to_sfr
+# CHECK:       $dpp1 = MOVsfrg killed $r5
+# CHECK-NEXT:  RETS
+...

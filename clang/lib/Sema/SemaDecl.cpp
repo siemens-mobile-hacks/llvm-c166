@@ -49,6 +49,7 @@
 #include "clang/Sema/ScopeInfo.h"
 #include "clang/Sema/SemaAMDGPU.h"
 #include "clang/Sema/SemaARM.h"
+#include "clang/Sema/SemaC166.h"
 #include "clang/Sema/SemaCUDA.h"
 #include "clang/Sema/SemaHLSL.h"
 #include "clang/Sema/SemaInternal.h"
@@ -2996,6 +2997,8 @@ static bool mergeDeclAttribute(Sema &S, NamedDecl *D,
     NewAttr = S.mergeEnforceTCBLeafAttr(D, *TCBLA);
   else if (const auto *BTFA = dyn_cast<BTFDeclTagAttr>(Attr))
     NewAttr = S.mergeBTFDeclTagAttr(D, *BTFA);
+  else if (const auto *CBA = dyn_cast<C166RegisterBankAttr>(Attr))
+    NewAttr = S.C166().mergeRegisterBankAttr(D, *CBA);
   else if (const auto *NT = dyn_cast<HLSLNumThreadsAttr>(Attr))
     NewAttr = S.HLSL().mergeNumThreadsAttr(D, *NT, NT->getX(), NT->getY(),
                                            NT->getZ());
@@ -4324,6 +4327,16 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, NamedDecl *&OldD, Scope *S,
   // C: Function types need to be compatible, not identical. This handles
   // duplicate function decls like "void f(int); void f(enum X);" properly.
   if (!getLangOpts().CPlusPlus) {
+    // Address spaces on function types affect how a function is called and
+    // therefore must agree across declarations.  Keep this check outside
+    // mergeTypes(), whose unqualified compatibility mode is also used by
+    // contexts where top-level qualifiers are intentionally ignored.
+    if (Old->getType().getAddressSpace() != New->getType().getAddressSpace()) {
+      Diag(New->getLocation(), diag::err_conflicting_types) << New;
+      Diag(OldLocation, PrevDiag) << Old << Old->getType();
+      return true;
+    }
+
     // C99 6.7.5.3p15: ...If one type has a parameter type list and the other
     // type is specified by a function definition that contains a (possibly
     // empty) identifier list, both shall agree in the number of parameters
@@ -19392,6 +19405,14 @@ ExprResult Sema::VerifyBitField(SourceLocation FieldLoc,
       << FieldTy << BitWidth->getSourceRange();
   } else if (DiagnoseUnexpandedParameterPack(BitWidth, UPPC_BitFieldWidth))
     return ExprError();
+
+  if (!getLangOpts().CPlusPlus && !FieldTy->isDependentType() &&
+      !Context.getTargetInfo().supportsNonStandardCBitFieldTypes() &&
+      !FieldTy->isBooleanType() &&
+      !FieldTy->isSpecificBuiltinType(BuiltinType::Int) &&
+      !FieldTy->isSpecificBuiltinType(BuiltinType::UInt))
+    return Diag(FieldLoc, diag::err_bitfield_type_not_supported_on_target)
+           << FieldTy << BitWidth->getSourceRange();
 
   // If the bit-width is type- or value-dependent, don't try to check
   // it now.

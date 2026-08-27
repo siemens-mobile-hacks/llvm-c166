@@ -676,6 +676,19 @@ TEST(TripleTest, ParsedIDs) {
   EXPECT_EQ(Triple::UnknownOS, T.getOS());
   EXPECT_EQ(Triple::UnknownEnvironment, T.getEnvironment());
 
+  T = Triple("c166-none-elf");
+  EXPECT_EQ(Triple::c166, T.getArch());
+  EXPECT_EQ(Triple::UnknownVendor, T.getVendor());
+  EXPECT_EQ(Triple::UnknownOS, T.getOS());
+  EXPECT_EQ(Triple::UnknownEnvironment, T.getEnvironment());
+  EXPECT_EQ(Triple::ELF, T.getObjectFormat());
+
+  T = Triple("c166");
+  EXPECT_EQ(Triple::c166, T.getArch());
+  EXPECT_EQ(Triple::UnknownVendor, T.getVendor());
+  EXPECT_EQ(Triple::UnknownOS, T.getOS());
+  EXPECT_EQ(Triple::UnknownEnvironment, T.getEnvironment());
+
   T = Triple("lanai-unknown-unknown");
   EXPECT_EQ(Triple::lanai, T.getArch());
   EXPECT_EQ(Triple::UnknownVendor, T.getVendor());
@@ -1672,6 +1685,7 @@ TEST(TripleTest, DefaultFloatABI) {
 
   // Defaults to soft float.
   EXPECT_EQ(FloatABI::Soft, Triple("avr-unknown-unknown").getDefaultFloatABI());
+  EXPECT_EQ(FloatABI::Soft, Triple("c166-none-elf").getDefaultFloatABI());
   EXPECT_EQ(FloatABI::Soft,
             Triple("csky-unknown-linux-gnu").getDefaultFloatABI());
   EXPECT_EQ(FloatABI::Soft,
@@ -1842,6 +1856,8 @@ TEST(TripleTest, DefaultLongDoubleFormat) {
   // Targets without a special case fall back to IEEE double.
   EXPECT_EQ(LongDoubleFormat::IEEEdouble,
             Triple("msp430-unknown-unknown").getDefaultLongDoubleFormat());
+  EXPECT_EQ(LongDoubleFormat::IEEEdouble,
+            Triple("c166-none-elf").getDefaultLongDoubleFormat());
   EXPECT_EQ(LongDoubleFormat::IEEEdouble,
             Triple("amdgpu-unknown-unknown").getDefaultLongDoubleFormat());
   EXPECT_EQ(LongDoubleFormat::IEEEdouble,
@@ -2204,6 +2220,13 @@ TEST(TripleTest, BitWidthChecks) {
   EXPECT_FALSE(T.isArch32Bit());
   EXPECT_FALSE(T.isArch64Bit());
   EXPECT_EQ(T.getArchPointerBitWidth(), 16U);
+
+  T.setArch(Triple::c166);
+  EXPECT_FALSE(T.isArch16Bit());
+  EXPECT_TRUE(T.isArch32Bit());
+  EXPECT_FALSE(T.isArch64Bit());
+  EXPECT_EQ(T.getArchPointerBitWidth(), 32U);
+  EXPECT_TRUE(T.isC166());
 
   T.setArch(Triple::ppc);
   EXPECT_FALSE(T.isArch16Bit());
@@ -3356,6 +3379,8 @@ TEST(TripleTest, DefaultExceptionHandling) {
       Triple("loongarch64-unknown-unknown").getDefaultExceptionHandling());
   EXPECT_EQ(ExceptionHandling::DwarfCFI,
             Triple("msp430-unknown-unknown").getDefaultExceptionHandling());
+  EXPECT_EQ(ExceptionHandling::None,
+            Triple("c166-none-elf").getDefaultExceptionHandling());
   EXPECT_EQ(ExceptionHandling::DwarfCFI,
             Triple("m68k-unknown-unknown").getDefaultExceptionHandling());
   EXPECT_EQ(ExceptionHandling::DwarfCFI,
@@ -3960,6 +3985,15 @@ TEST(DataLayoutTest, UEFI) {
 
   // Test UEFI X86_64 Mangling Component.
   EXPECT_THAT(TT.computeDataLayout(), testing::HasSubstr("-m:w-"));
+}
+
+TEST(DataLayoutTest, C166Large) {
+  Triple TT = Triple("c166-none-elf");
+
+  EXPECT_EQ("e-m:u-P1-G2-A2-p:32:16-p1:32:16-p2:32:16:16:32-p3:16:16-"
+            "p4:16:16-p5:32:16:16:32-p6:32:16:16:32-i32:16-i64:16-"
+            "f32:16-f64:16-a:0:16-n8:16-S16-ni:2",
+            TT.computeDataLayout());
 }
 
 TEST(TripleTest, WindowsOrUEFI) {

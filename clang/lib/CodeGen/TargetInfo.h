@@ -113,6 +113,13 @@ public:
   virtual void setTargetAttributes(const Decl *D, llvm::GlobalValue *GV,
                                    CodeGen::CodeGenModule &M) const {}
 
+  /// Let targets override a declaration's DWARF calling convention when it
+  /// is selected by a declaration attribute rather than by the function type.
+  virtual unsigned getDwarfCallingConvention(const Decl *D,
+                                             unsigned DefaultCC) const {
+    return DefaultCC;
+  }
+
   /// emitTargetMetadata - Provides a convenient hook to handle extra
   /// target-specific metadata for the given globals.
   virtual void emitTargetMetadata(
@@ -539,6 +546,9 @@ createAVRTargetCodeGenInfo(CodeGenModule &CGM, unsigned NPR, unsigned NRR);
 
 std::unique_ptr<TargetCodeGenInfo>
 createBPFTargetCodeGenInfo(CodeGenModule &CGM);
+
+std::unique_ptr<TargetCodeGenInfo>
+createC166TargetCodeGenInfo(CodeGenModule &CGM);
 
 std::unique_ptr<TargetCodeGenInfo>
 createCSKYTargetCodeGenInfo(CodeGenModule &CGM, unsigned FLen);

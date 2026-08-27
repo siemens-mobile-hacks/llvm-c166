@@ -1313,6 +1313,14 @@ void ItaniumRecordLayoutBuilder::InitializeLayout(const Decl *D) {
 
   Packed = D->hasAttr<PackedAttr>();
 
+  if (!Packed) {
+    unsigned MinRecordAlign = Context.getTargetInfo().getMinRecordAlign();
+    if (MinRecordAlign) {
+      CharUnits Align = Context.toCharUnitsFromBits(MinRecordAlign);
+      UpdateAlignment(Align, Align, Align);
+    }
+  }
+
   // Honor the default struct packing maximum alignment flag.
   if (unsigned DefaultMaxFieldAlignment = Context.getLangOpts().PackStruct) {
     MaxFieldAlignment = CharUnits::fromQuantity(DefaultMaxFieldAlignment);
@@ -1757,6 +1765,21 @@ void ItaniumRecordLayoutBuilder::LayoutBitField(const FieldDecl *D) {
           llvm::alignTo(UnpackedFieldOffset, ExplicitFieldAlign);
   }
 
+  // Some packed ABIs still require an individual bit-field to fit within a
+  // byte-aligned native access unit. Keep the record byte-packed, but advance
+  // the field to the next byte when placing it at the immediately available
+  // bit would make the access span more than that unit. Most targets return
+  // zero and retain the ordinary System V packed layout above.
+  unsigned PackedAccessUnit =
+      Context.getTargetInfo().getPackedBitFieldAccessUnitWidth();
+  if (FieldPacked && FieldSize && PackedAccessUnit) {
+    unsigned CharWidth = Context.getCharWidth();
+    assert(PackedAccessUnit >= CharWidth && PackedAccessUnit % CharWidth == 0 &&
+           "packed bit-field access unit must contain whole bytes");
+    if ((FieldOffset % CharWidth) + FieldSize > PackedAccessUnit)
+      FieldOffset = llvm::alignTo(FieldOffset, CharWidth);
+  }
+
   // If we're using external layout, give the external layout a chance
   // to override this information.
   if (UseExternalLayout)
@@ -1909,6 +1932,23 @@ void ItaniumRecordLayoutBuilder::LayoutField(const FieldDecl *D,
     setDeclInfo(true /* IsIncompleteArrayType */);
   } else {
     setDeclInfo(false /* IsIncompleteArrayType */);
+
+    // A packed record can retain a byte-sized layout and array stride while
+    // an ordinary instance of that type has a stricter placement alignment.
+    // This is target-controlled and intentionally does not change the packed
+    // type's own size or alignment. An explicitly packed field and a packed
+    // parent record still request byte placement.
+    unsigned MinPackedRecordFieldAlign =
+        Context.getTargetInfo().getMinPackedRecordFieldAlign();
+    if (MinPackedRecordFieldAlign && !Packed && !D->hasAttr<PackedAttr>()) {
+      QualType BaseType = Context.getBaseElementType(D->getType());
+      if (const auto *RT = BaseType->getAs<RecordType>()) {
+        if (RT->getDecl()->hasAttr<PackedAttr>())
+          FieldAlign =
+              std::max(FieldAlign,
+                       Context.toCharUnitsFromBits(MinPackedRecordFieldAlign));
+      }
+    }
 
     // A potentially-overlapping field occupies its dsize or nvsize, whichever
     // is larger.

@@ -9,6 +9,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/TargetParser/ARMTargetParser.h"
+#include "llvm/TargetParser/C166TargetParser.h"
 #include "llvm/TargetParser/Triple.h"
 #include <cstring>
 using namespace llvm;
@@ -580,6 +581,8 @@ std::string Triple::computeDataLayout(StringRef ABIName) const {
            "f32:32:32-i64:32-f64:32-a:0:32-n32";
   case Triple::avr:
     return "e-P1-p:16:8-i8:8-i16:8-i32:8-i64:8-f32:8-f64:8-n8:16-a:8";
+  case Triple::c166:
+    return C166::getDataLayout(C166::MemoryModel::Large).str();
   case Triple::bpfel:
   case Triple::bpfeb:
     return computeBPFDataLayout(*this);

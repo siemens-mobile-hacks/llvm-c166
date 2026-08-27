@@ -2232,6 +2232,11 @@ public:
   /// <stddef.h>. Pointer - pointer requires this (C99 6.5.6p9).
   QualType getPointerDiffType() const;
 
+  /// Return the target's pointer-difference type for pointers whose pointee
+  /// type is in \p AddrSpace. Most targets use ptrdiff_t in every address
+  /// space; targets with non-uniform pointer arithmetic may override it.
+  QualType getPointerDiffType(LangAS AddrSpace) const;
+
   /// Return the unique unsigned counterpart of "ptrdiff_t"
   /// integer type. The standard (C11 7.21.6.1p7) refers to this type
   /// in the definition of %tu format specifier.

@@ -1039,6 +1039,60 @@ enum {
 #include "ELFRelocs/MSP430.def"
 };
 
+// C166-specific ELF header flags.
+enum : unsigned {
+  EF_C166_CORE_MASK = 0x0000000f,
+  EF_C166_CORE_8X166 = 0x00000001,
+  EF_C166_CORE_C16X = 0x00000002,
+  EF_C166_CORE_ST10 = 0x00000003,
+
+  EF_C166_DATA_MASK = 0x000000f0,
+  EF_C166_DATA_NEAR = 0x00000010,
+  EF_C166_DATA_FAR = 0x00000020,
+  EF_C166_DATA_SHUGE = 0x00000030,
+  EF_C166_DATA_HUGE = 0x00000040,
+
+  EF_C166_CODE_MASK = 0x00000700,
+  EF_C166_CODE_HUGE = 0x00000100,
+  EF_C166_CODE_NEAR = 0x00000200,
+
+  EF_C166_USER_STACK = 0x00000800,
+  EF_C166_FLOAT_NODOUBLE = 0x00001000,
+
+  EF_C166_LARGE = EF_C166_CORE_8X166 | EF_C166_DATA_FAR | EF_C166_CODE_HUGE,
+  EF_C166_MEDIUM = EF_C166_CORE_8X166 | EF_C166_DATA_FAR | EF_C166_CODE_NEAR,
+  EF_C166_SMALL = EF_C166_CORE_8X166 | EF_C166_DATA_NEAR | EF_C166_CODE_HUGE,
+
+  // Preserve address classes in processor-specific st_other bits.
+  STO_C166_CODE_MASK = 0x60,
+  STO_C166_CODE_NEAR = 0x20,
+  STO_C166_CODE_HUGE = 0x40,
+
+  // Data symbols use a disjoint interpretation of the processor-specific
+  // st_other bits.  The symbol type tells consumers whether the code or data
+  // namespace applies.  This preserves the address class even when a
+  // source-level section attribute replaces the target's canonical section.
+  STO_C166_DATA_MASK = 0xe0,
+  STO_C166_DATA_NEAR = 0x20,
+  STO_C166_DATA_XNEAR = 0x40,
+  STO_C166_DATA_FAR = 0x60,
+  STO_C166_DATA_HUGE = 0x80,
+  STO_C166_DATA_SHUGE = 0xa0,
+};
+
+enum : unsigned {
+  SHF_C166_PROTECTED = 0x08000000,
+  SHF_C166_ABSOLUTE = 0x10000000,
+  SHF_C166_SEPARATE = 0x20000000,
+  SHF_C166_NOCLEAR = 0x40000000,
+  SHF_C166_PAGED = 0x80000000,
+};
+
+// ELF relocation types for the C166 target.
+enum {
+#include "ELFRelocs/C166.def"
+};
+
 // ELF Relocation type for VE.
 enum {
 #include "ELFRelocs/VE.def"
