@@ -501,8 +501,9 @@ SDValue C166TargetLowering::LowerFormalArguments(
       unsigned Size = alignTo(Arg.Flags.getByValSize(), 2u);
       MachineFrameInfo &MFI = MF.getFrameInfo();
       int PublicFI = MFI.CreateFixedObject(Size, StackOffset, true);
-      SDValue PublicAddress =
-          DAG.getFrameIndex(PublicFI, getPointerTy(DAG.getDataLayout()));
+      const DataLayout &Layout = DAG.getDataLayout();
+      SDValue PublicAddress = DAG.getFrameIndex(
+          PublicFI, getPointerTy(Layout, Layout.getAllocaAddrSpace()));
       InVals.push_back(PublicAddress);
       StackOffset += Size;
       continue;
@@ -528,8 +529,9 @@ SDValue C166TargetLowering::LowerFormalArguments(
       MachineFrameInfo &MFI = MF.getFrameInfo();
       auto LoadStackWord = [&](unsigned Offset, SDValue LoadChain) {
         int FI = MFI.CreateFixedObject(2, Offset, true);
-        SDValue FrameIndex =
-            DAG.getFrameIndex(FI, getPointerTy(DAG.getDataLayout()));
+        const DataLayout &Layout = DAG.getDataLayout();
+        SDValue FrameIndex = DAG.getFrameIndex(
+            FI, getPointerTy(Layout, Layout.getAllocaAddrSpace()));
         SDValue Word = DAG.getLoad(MVT::i16, DL, LoadChain, FrameIndex,
                                    MachinePointerInfo::getFixedStack(MF, FI));
         return Word;
@@ -589,8 +591,9 @@ SDValue C166TargetLowering::LowerFormalArguments(
         DAG.getDataLayout().getTypeAllocSize(RetTy).getFixedValue(), 2u);
     MachineFrameInfo &MFI = MF.getFrameInfo();
     int PublicFI = MFI.CreateFixedObject(RetSize, StackOffset, false);
-    SDValue PublicAddress =
-        DAG.getFrameIndex(PublicFI, getPointerTy(DAG.getDataLayout()));
+    const DataLayout &Layout = DAG.getDataLayout();
+    SDValue PublicAddress = DAG.getFrameIndex(
+        PublicFI, getPointerTy(Layout, Layout.getAllocaAddrSpace()));
     InVals.insert(InVals.begin(), PublicAddress);
 
     C166MachineFunctionInfo *FuncInfo = MF.getInfo<C166MachineFunctionInfo>();
@@ -878,14 +881,8 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
                         DAG.getConstant(0, DL, MVT::i16), BankWord);
   }
 
-  EVT PtrVT = getPointerTy(DAG.getDataLayout());
-  // Small has 16-bit ordinary data pointers but 32-bit default function
-  // pointers.  SelectionDAG's synthesized libcalls arrive as untyped external
-  // symbols using the generic pointer VT, so retain a distinct code-pointer
-  // VT for far calls instead of inheriting Small's data representation.
-  EVT FarCodePtrVT = DAG.getTarget().getCodeModel() == CodeModel::Small
-                         ? EVT(MVT::i32)
-                         : PtrVT;
+  EVT FarCodePtrVT =
+      getPointerTy(DAG.getDataLayout(), C166::HugeCodeAddressSpace);
   bool IsNearCall = CLI.Callee.getValueType() == MVT::i16;
   if (!IsNearCall && DAG.getTarget().getCodeModel() == CodeModel::Medium) {
     // Untyped runtime symbols and target-generated default-address-space
@@ -1093,8 +1090,9 @@ SDValue C166TargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
   int FI = FuncInfo->getVarArgsFrameIndex();
 
   SDLoc DL(Op);
-  SDValue FrameAddress =
-      DAG.getFrameIndex(FI, getPointerTy(DAG.getDataLayout()));
+  const DataLayout &DataLayout = DAG.getDataLayout();
+  SDValue FrameAddress = DAG.getFrameIndex(
+      FI, getPointerTy(DataLayout, DataLayout.getAllocaAddrSpace()));
   const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
   if (FrameAddress.getValueType() == MVT::i16)
     return DAG.getStore(Op.getOperand(0), DL, FrameAddress, Op.getOperand(1),
@@ -1121,7 +1119,9 @@ SDValue C166TargetLowering::LowerVAARG(SDValue Op, SelectionDAG &DAG) const {
   const Value *SV = cast<SrcValueSDNode>(Node->getOperand(2))->getValue();
   SDLoc DL(Node);
 
-  MVT PointerVT = getPointerTy(DAG.getDataLayout());
+  const DataLayout &DataLayout = DAG.getDataLayout();
+  MVT PointerVT =
+      getPointerTy(DataLayout, DataLayout.getDefaultGlobalsAddressSpace());
   SDValue VAList = DAG.getLoad(PointerVT, DL, Chain, VAListPtr,
                                MachinePointerInfo(SV), Align(2));
   unsigned ArgBytes = alignTo(VT.getStoreSize().getFixedValue(), 2u);

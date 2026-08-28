@@ -1,4 +1,9 @@
-; RUN: llc -mtriple=c166-none-elf -verify-machineinstrs < %s | FileCheck %s
+; RUN: llc -mtriple=c166-none-elf -code-model=large -verify-machineinstrs < %s \
+; RUN:   | FileCheck %s --check-prefixes=CHECK,HUGE
+; RUN: llc -mtriple=c166-none-elf -code-model=medium -verify-machineinstrs < %s \
+; RUN:   | FileCheck %s --check-prefixes=CHECK,NEAR
+; RUN: llc -mtriple=c166-none-elf -code-model=small -verify-machineinstrs < %s \
+; RUN:   | FileCheck %s --check-prefixes=CHECK,HUGE
 
 ; A SELECT_CC used directly as a branch condition used to leave an
 ; unselectable BRCOND in the C166 DAG.
@@ -20,4 +25,5 @@ false:
 ; CHECK-LABEL: branch_on_selected_comparison:
 ; CHECK:       cmp
 ; CHECK:       jmpr
-; CHECK:       rets
+; HUGE:        rets
+; NEAR:        ret

@@ -186,10 +186,10 @@ def SDT_C166FarAdd
 def C166faradd : SDNode<"C166ISD::FARADD", SDT_C166FarAdd>;
 
 // An aggregate returns its caller-reserved user-stack address
-// as a raw 16-bit near address in R4.  Keep this distinct from an ordinary
-// i32 FrameIndex, which is materialized as a DPP-based far pointer.
+// as a raw 16-bit near address in R4. The FrameIndex input follows the
+// model's alloca address space and may therefore be i16 or i32.
 def SDT_C166FrameAddr
-    : SDTypeProfile<1, 1, [SDTCisVT<0, i16>, SDTCisVT<1, iPTR>]>;
+    : SDTypeProfile<1, 1, [SDTCisVT<0, i16>]>;
 def C166frameaddr : SDNode<"C166ISD::FRAMEADDR", SDT_C166FrameAddr>;
 
 def uimm8 : Operand<i16> {

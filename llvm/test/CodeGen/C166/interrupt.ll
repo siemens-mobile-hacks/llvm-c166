@@ -1,4 +1,9 @@
-; RUN: llc -mtriple=c166-none-elf -verify-machineinstrs < %s | FileCheck %s
+; RUN: llc -mtriple=c166-none-elf -code-model=large -verify-machineinstrs < %s \
+; RUN:   | FileCheck %s --check-prefixes=CHECK,HUGE
+; RUN: llc -mtriple=c166-none-elf -code-model=medium -verify-machineinstrs < %s \
+; RUN:   | FileCheck %s --check-prefixes=CHECK,NEAR
+; RUN: llc -mtriple=c166-none-elf -code-model=small -verify-machineinstrs < %s \
+; RUN:   | FileCheck %s --check-prefixes=CHECK,HUGE
 ; C166-ABI: interrupt
 
 ; A C166 interrupt is entered through a six-byte hardware frame and must
@@ -34,7 +39,8 @@ define cc 129 void @calling_interrupt() {
 ; CHECK:       push r14
 ; CHECK:       push r15
 ; CHECK:       scxt mdc, #16
-; CHECK:       calls seg(_ordinary_callee), sof(_ordinary_callee)
+; HUGE:        calls seg(_ordinary_callee), sof(_ordinary_callee)
+; NEAR:        calla cc_uc, cof(_ordinary_callee)
 ; CHECK:       pop r15
 ; CHECK:       pop r14
 ; CHECK:       pop r13

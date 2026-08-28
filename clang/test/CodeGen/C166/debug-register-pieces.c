@@ -1,8 +1,12 @@
-// RUN: %clang_cc1 -triple c166-none-elf -O1 -debug-info-kind=limited \
+// RUN: %clang_cc1 -triple c166-none-elf -mcmodel=large -O1 -debug-info-kind=limited \
 // RUN:   -main-file-name debug-register-pieces.c -dwarf-version=5 \
 // RUN:   -emit-obj %s -o %t.o
 // RUN: llvm-dwarfdump --verify %t.o 2>&1 | FileCheck %s --check-prefix=VERIFY
 // RUN: llvm-dwarfdump --debug-info %t.o | FileCheck %s --check-prefix=INFO
+// RUN: %clang_cc1 -triple c166-none-elf -mcmodel=medium -O1 -debug-info-kind=limited -dwarf-version=5 -emit-obj %s -o %t.medium.o
+// RUN: llvm-dwarfdump --verify %t.medium.o 2>&1 | FileCheck %s --check-prefix=VERIFY
+// RUN: %clang_cc1 -triple c166-none-elf -mcmodel=small -O1 -debug-info-kind=limited -dwarf-version=5 -emit-obj %s -o %t.small.o
+// RUN: llvm-dwarfdump --verify %t.small.o 2>&1 | FileCheck %s --check-prefix=VERIFY
 
 typedef unsigned long u32;
 

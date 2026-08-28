@@ -36,7 +36,7 @@ define i16 @load(ptr addrspace(2) %object) addrspace(3) {
 }
 
 ;--- small.ll
-target datalayout = "e-m:u-P1-G3-A3-p:16:16-p1:32:16-p2:32:16:16:32-p3:16:16-p4:16:16-p5:32:16:16:32-p6:32:16:16:32-i32:16-i64:16-f32:16-f64:16-a:0:16-n8:16-S16-ni:2"
+target datalayout = "e-m:u-P1-G3-A3-p:32:16-p1:32:16-p2:32:16:16:32-p3:16:16-p4:16:16-p5:32:16:16:32-p6:32:16:16:32-i32:16-i64:16-f32:16-f64:16-a:0:16-n8:16-S16-ni:2"
 target triple = "c166-none-elf"
 
 define i16 @load(ptr addrspace(3) %object) addrspace(1) {

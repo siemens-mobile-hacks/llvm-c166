@@ -1,7 +1,11 @@
-// RUN: %clang_cc1 -triple c166-none-elf -O1 -debug-info-kind=limited \
+// RUN: %clang_cc1 -triple c166-none-elf -mcmodel=large -O1 -debug-info-kind=limited \
 // RUN:   -main-file-name debug-frame.c -dwarf-version=5 -emit-obj %s -o %t.o
 // RUN: llvm-dwarfdump --verify %t.o 2>&1 | FileCheck %s --check-prefix=VERIFY
 // RUN: llvm-dwarfdump --debug-frame %t.o | FileCheck %s --check-prefix=FRAME
+// RUN: %clang_cc1 -triple c166-none-elf -mcmodel=medium -O1 -debug-info-kind=limited -dwarf-version=5 -emit-obj %s -o %t.medium.o
+// RUN: llvm-dwarfdump --verify %t.medium.o 2>&1 | FileCheck %s --check-prefix=VERIFY
+// RUN: %clang_cc1 -triple c166-none-elf -mcmodel=small -O1 -debug-info-kind=limited -dwarf-version=5 -emit-obj %s -o %t.small.o
+// RUN: llvm-dwarfdump --verify %t.small.o 2>&1 | FileCheck %s --check-prefix=VERIFY
 
 // Exercise both C166 stacks in one FDE.  CALLS/RETS use the hardware system
 // stack, while fixed frames, saved register variables, and the fifth argument

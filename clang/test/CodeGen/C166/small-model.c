@@ -22,6 +22,7 @@ typedef u16 __attribute__((c166_huge)) huge_u16;
 typedef u16 __attribute__((c166_shuge)) shuge_u16;
 typedef u16 __attribute__((c166_near)) near_function(u16);
 typedef u16 default_function(u16);
+typedef u16 __attribute__((c166_bank(1))) banked_function(u16);
 
 _Static_assert(sizeof(void *) == 2, "Small default data pointer is direct16");
 _Static_assert(sizeof(near_u16 *) == 2, "explicit near is direct16 in Small");
@@ -33,6 +34,8 @@ _Static_assert(sizeof(default_function *) == 4,
                "Small default function pointer is huge");
 _Static_assert(sizeof(near_function *) == 2,
                "explicit near function pointer is near");
+_Static_assert(sizeof(banked_function *) == 4,
+               "banked function pointer is inter-segment");
 
 volatile u16 default_word;
 volatile u8 default_byte;
@@ -93,7 +96,7 @@ u16 call_take_pointer(u16 *pointer) { return take_pointer(1, pointer); }
 // MACRO: #define __INTPTR_TYPE__ int
 // MACRO: #define __SIZEOF_POINTER__ 2
 
-// IR: target datalayout = "{{.*}}-P1-G3-A3-p:16:16-{{.*}}"
+// IR: target datalayout = "{{.*}}-P1-G3-A3-p:32:16-{{.*}}"
 // IR: @default_word = {{.*}}addrspace(3) global i16
 // IR: @near_word = {{.*}}addrspace(3) global i16
 // IR: @far_word = {{.*}}addrspace(2) global i16

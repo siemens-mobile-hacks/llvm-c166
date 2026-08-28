@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -triple c166-none-elf -O1 -debug-info-kind=limited \
+// RUN: %clang_cc1 -triple c166-none-elf -mcmodel=large -O1 -debug-info-kind=limited \
 // RUN:   -main-file-name debug-info.c \
 // RUN:   -dwarf-version=5 -emit-obj %s -o %t.o
 // RUN: not %clang_cc1 -triple c166-none-elf -O1 -funwind-tables=1 \
@@ -7,6 +7,10 @@
 // RUN: llvm-dwarfdump --verify %t.o 2>&1 | FileCheck %s --check-prefix=VERIFY
 // RUN: llvm-dwarfdump --debug-info --debug-line %t.o | FileCheck %s --check-prefix=DWARF
 // RUN: llvm-dwarfdump --debug-frame %t.o | FileCheck %s --check-prefix=FRAME
+// RUN: %clang_cc1 -triple c166-none-elf -mcmodel=medium -O1 -debug-info-kind=limited -dwarf-version=5 -emit-obj %s -o %t.medium.o
+// RUN: llvm-dwarfdump --verify %t.medium.o 2>&1 | FileCheck %s --check-prefix=VERIFY
+// RUN: %clang_cc1 -triple c166-none-elf -mcmodel=small -O1 -debug-info-kind=limited -dwarf-version=5 -emit-obj %s -o %t.small.o
+// RUN: llvm-dwarfdump --verify %t.small.o 2>&1 | FileCheck %s --check-prefix=VERIFY
 
 // CALLS/RETS keep the return address on the hardware system stack,
 // while R0 addresses the separate user stack.  Debug CFI must therefore use

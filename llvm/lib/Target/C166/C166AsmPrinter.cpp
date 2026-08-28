@@ -115,13 +115,14 @@ public:
     const MCExpr *Expr = nullptr;
     if (const auto *CE = dyn_cast<ConstantExpr>(CV);
         CE && CE->getOpcode() == Instruction::AddrSpaceCast &&
-        CE->getType()->getPointerAddressSpace() == C166::FarDataAddressSpace) {
+        CE->getType()->getPointerAddressSpace() ==
+            getDataLayout().getDefaultGlobalsAddressSpace()) {
       const Constant *Source = CE->getOperand(0);
       if (isa<BlockAddress>(Source)) {
         // GNU label addresses have C type void * and are therefore stored in
-        // a 32-bit data-pointer slot. Emit the underlying code address without
-        // converting it to the paged far-data representation. A near label is
-        // zero-extended into the table slot.
+        // the default data-pointer representation. Emit the underlying code
+        // address without converting it to a data address. A near label is
+        // zero-extended into a far slot and stored directly in a near slot.
         IsCodeBlockAddress = true;
         Expr = AsmPrinter::lowerConstant(Source, BaseCV, Offset);
       }

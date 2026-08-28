@@ -3,11 +3,15 @@
 ; C166-ABI: runtime.code_bank_switch_contract
 ; RUN: llc -mtriple=c166-none-elf -code-model=large -verify-machineinstrs \
 ; RUN:   -o - %s | FileCheck %s --check-prefix=ASM
+; RUN: llc -mtriple=c166-none-elf -code-model=small -verify-machineinstrs \
+; RUN:   -o - %s | FileCheck %s --check-prefix=ASM
 ; RUN: llc -mtriple=c166-none-elf -code-model=large -verify-machineinstrs \
-; RUN:   -filetype=obj -o %t.o %s
-; RUN: llvm-readobj --sections %t.o | FileCheck %s --check-prefix=OBJ
+; RUN:   -filetype=obj -o %t.large.o %s
+; RUN: llc -mtriple=c166-none-elf -code-model=small -verify-machineinstrs \
+; RUN:   -filetype=obj -o %t.small.o %s
+; RUN: llvm-readobj --sections %t.large.o | FileCheck %s --check-prefix=OBJ
+; RUN: llvm-readobj --sections %t.small.o | FileCheck %s --check-prefix=OBJ
 
-target datalayout = "e-m:u-P1-G2-A2-p:32:16-p1:32:16-p2:32:16:16:32-p3:16:16-p4:16:16-p5:32:16:16:32-p6:32:16:16:32-i32:16-i64:16-f32:16-f64:16-a:0:16-n8:16-S16-ni:2"
 target triple = "c166-none-elf"
 
 declare i16 @bank1_target(i16, i16, i16, i16, i16) addrspace(257)

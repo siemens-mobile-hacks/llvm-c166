@@ -1,9 +1,12 @@
-// RUN: %clang_cc1 -triple c166-none-elf -O1 -emit-llvm %s -o - | FileCheck %s --check-prefix=LARGE-IR
-// RUN: %clang_cc1 -triple c166-none-elf -O1 -emit-obj %s -o %t.large.o
-// RUN: llvm-objdump -dr %t.large.o | FileCheck %s --check-prefix=LARGE-ASM
+// RUN: %clang_cc1 -triple c166-none-elf -mcmodel=large -O1 -emit-llvm %s -o - | FileCheck %s --check-prefix=HUGE-IR
+// RUN: %clang_cc1 -triple c166-none-elf -mcmodel=large -O1 -emit-obj %s -o %t.large.o
+// RUN: llvm-objdump -dr %t.large.o | FileCheck %s --check-prefix=HUGE-ASM
 // RUN: %clang_cc1 -triple c166-none-elf -mcmodel=medium -O1 -emit-llvm %s -o - | FileCheck %s --check-prefix=MEDIUM-IR
 // RUN: %clang_cc1 -triple c166-none-elf -mcmodel=medium -O1 -emit-obj %s -o %t.medium.o
 // RUN: llvm-objdump -dr %t.medium.o | FileCheck %s --check-prefix=MEDIUM-ASM
+// RUN: %clang_cc1 -triple c166-none-elf -mcmodel=small -O1 -emit-llvm %s -o - | FileCheck %s --check-prefix=HUGE-IR
+// RUN: %clang_cc1 -triple c166-none-elf -mcmodel=small -O1 -emit-obj %s -o %t.small.o
+// RUN: llvm-objdump -dr %t.small.o | FileCheck %s --check-prefix=HUGE-ASM
 
 typedef unsigned int u16;
 typedef u16 __attribute__((c166_near)) near_fn(u16);
@@ -25,16 +28,16 @@ u16 call_huge_indirect(huge_fn *function, u16 value) {
 }
 
 // C166-ABI: functions.address_attributes
-// LARGE-IR-LABEL: define{{.*}} i16 @near_identity(
-// LARGE-IR-SAME: addrspace(3)
-// LARGE-IR-LABEL: define{{.*}} i16 @huge_identity(
-// LARGE-IR-SAME: addrspace(1)
-// LARGE-IR: call addrspace(3) i16 @near_external
-// LARGE-IR: call addrspace(1) i16 @huge_external
-// LARGE-IR-LABEL: define{{.*}} i16 @call_near_indirect(ptr addrspace(3)
-// LARGE-IR: call addrspace(3) i16 %
-// LARGE-IR-LABEL: define{{.*}} i16 @call_huge_indirect(ptr addrspace(1)
-// LARGE-IR: call addrspace(1) i16 %
+// HUGE-IR-LABEL: define{{.*}} i16 @near_identity(
+// HUGE-IR-SAME: addrspace(3)
+// HUGE-IR-LABEL: define{{.*}} i16 @huge_identity(
+// HUGE-IR-SAME: addrspace(1)
+// HUGE-IR: call addrspace(3) i16 @near_external
+// HUGE-IR: call addrspace(1) i16 @huge_external
+// HUGE-IR-LABEL: define{{.*}} i16 @call_near_indirect(ptr addrspace(3)
+// HUGE-IR: call addrspace(3) i16 %
+// HUGE-IR-LABEL: define{{.*}} i16 @call_huge_indirect(ptr addrspace(1)
+// HUGE-IR: call addrspace(1) i16 %
 
 // MEDIUM-IR-LABEL: define{{.*}} i16 @near_identity(
 // MEDIUM-IR-SAME: addrspace(3)
@@ -47,22 +50,22 @@ u16 call_huge_indirect(huge_fn *function, u16 value) {
 // MEDIUM-IR-LABEL: define{{.*}} i16 @call_huge_indirect(ptr addrspace(1)
 // MEDIUM-IR: call addrspace(1) i16 %
 
-// LARGE-ASM-LABEL: <_huge_identity>:
-// LARGE-ASM: rets
-// LARGE-ASM-LABEL: <_call_near>:
-// LARGE-ASM: calla
-// LARGE-ASM: R_C166_COF16{{[[:space:]]+}}_near_external
-// LARGE-ASM-LABEL: <_call_huge>:
-// LARGE-ASM: calls
-// LARGE-ASM: R_C166_SEG8{{[[:space:]]+}}_huge_external
-// LARGE-ASM-NEXT: {{.*}}R_C166_SOF16{{[[:space:]]+}}_huge_external
-// LARGE-ASM-LABEL: <_call_near_indirect>:
-// LARGE-ASM: calli
-// LARGE-ASM-LABEL: <_call_huge_indirect>:
-// LARGE-ASM: calls
-// LARGE-ASM: R_C166_SEG8{{[[:space:]]+}}__icall
-// LARGE-ASM-LABEL: <_near_identity>:
-// LARGE-ASM: ret
+// HUGE-ASM-LABEL: <_huge_identity>:
+// HUGE-ASM: rets
+// HUGE-ASM-LABEL: <_call_near>:
+// HUGE-ASM: calla
+// HUGE-ASM: R_C166_COF16{{[[:space:]]+}}_near_external
+// HUGE-ASM-LABEL: <_call_huge>:
+// HUGE-ASM: calls
+// HUGE-ASM: R_C166_SEG8{{[[:space:]]+}}_huge_external
+// HUGE-ASM-NEXT: {{.*}}R_C166_SOF16{{[[:space:]]+}}_huge_external
+// HUGE-ASM-LABEL: <_call_near_indirect>:
+// HUGE-ASM: calli
+// HUGE-ASM-LABEL: <_call_huge_indirect>:
+// HUGE-ASM: calls
+// HUGE-ASM: R_C166_SEG8{{[[:space:]]+}}__icall
+// HUGE-ASM-LABEL: <_near_identity>:
+// HUGE-ASM: ret
 
 // MEDIUM-ASM-LABEL: <_huge_identity>:
 // MEDIUM-ASM: rets

@@ -1,11 +1,16 @@
-; RUN: llc -mtriple=c166-none-elf -verify-machineinstrs < %s | FileCheck %s
+; RUN: llc -mtriple=c166-none-elf -code-model=large -verify-machineinstrs < %s \
+; RUN:   | FileCheck %s
+; RUN: llc -mtriple=c166-none-elf -code-model=medium -verify-machineinstrs < %s \
+; RUN:   | FileCheck %s
+; RUN: llc -mtriple=c166-none-elf -code-model=small -verify-machineinstrs < %s \
+; RUN:   | FileCheck %s
 
 ; Keep enough independently reachable blocks between the first comparisons
 ; and the late destinations to exceed JMPR's signed 8-bit word displacement.
 ; The relaxation pass must preserve short local branches while using JMPS for
 ; the out-of-range edges.
-define i16 @large_switch(i16 %value) {
-; CHECK-LABEL: large_switch:
+define i16 @wide_switch(i16 %value) {
+; CHECK-LABEL: wide_switch:
 ; CHECK: jmpr
 ; CHECK: jmps seg(.LBB{{[0-9_]+}}), sof(.LBB{{[0-9_]+}})
 entry:

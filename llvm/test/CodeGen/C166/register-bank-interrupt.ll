@@ -1,4 +1,9 @@
-; RUN: llc -mtriple=c166-none-elf -verify-machineinstrs < %s | FileCheck %s
+; RUN: llc -mtriple=c166-none-elf -code-model=large -verify-machineinstrs < %s \
+; RUN:   | FileCheck %s --check-prefixes=CHECK,HUGE
+; RUN: llc -mtriple=c166-none-elf -code-model=medium -verify-machineinstrs < %s \
+; RUN:   | FileCheck %s --check-prefixes=CHECK,NEAR
+; RUN: llc -mtriple=c166-none-elf -code-model=small -verify-machineinstrs < %s \
+; RUN:   | FileCheck %s --check-prefixes=CHECK,HUGE
 ; C166-ABI: calls.interrupt_named_register_bank
 
 @__c166_register_bank_TEST = common addrspace(3) global [16 x i16] zeroinitializer, align 2
@@ -30,7 +35,8 @@ define cc 129 void @banked_call() #0 {
 ; CHECK:       push dpp2
 ; CHECK:       push mdh
 ; CHECK:       push mdl
-; CHECK:       calls seg(_ordinary_callee), sof(_ordinary_callee)
+; HUGE:        calls seg(_ordinary_callee), sof(_ordinary_callee)
+; NEAR:        calla cc_uc, cof(_ordinary_callee)
 ; CHECK:       pop mdl
 ; CHECK:       pop mdh
 ; CHECK:       pop dpp2

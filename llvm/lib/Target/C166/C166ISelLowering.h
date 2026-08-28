@@ -46,6 +46,10 @@ public:
 
   unsigned getJumpTableEncoding() const override;
 
+  MVT getJumpTableRegTy(const DataLayout &DL) const override {
+    return getPointerTy(DL, DL.getDefaultGlobalsAddressSpace());
+  }
+
 private:
   SDValue LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv,
                                bool IsVarArg,

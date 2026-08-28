@@ -181,8 +181,8 @@ Pass *llvm::createC166FarPointerLoweringPass() {
 }
 
 bool llvm::lowerC166PointerCasts(Function &F) {
-  const bool IsSmallModel =
-      F.getDataLayout().getPointerSizeInBits(/*AddressSpace=*/0) == 16;
+  const bool IsSmallModel = F.getDataLayout().getDefaultGlobalsAddressSpace() ==
+                            C166::NearAddressSpace;
   SmallVector<GetElementPtrInst *, 8> SHugeGEPs;
   SmallVector<PtrToIntInst *, 8> PtrToInts;
   SmallVector<IntToPtrInst *, 8> IntToPtrs;

@@ -1,10 +1,16 @@
-; RUN: llc -mtriple=c166-none-elf -verify-machineinstrs < %s | FileCheck %s
+; RUN: llc -mtriple=c166-none-elf -code-model=large -verify-machineinstrs < %s \
+; RUN:   | FileCheck %s --check-prefixes=CHECK,HUGE
+; RUN: llc -mtriple=c166-none-elf -code-model=medium -verify-machineinstrs < %s \
+; RUN:   | FileCheck %s --check-prefixes=CHECK,NEAR
+; RUN: llc -mtriple=c166-none-elf -code-model=small -verify-machineinstrs < %s \
+; RUN:   | FileCheck %s --check-prefixes=CHECK,HUGE
 
 define i16 @unsigned_high_product(i16 %lhs, i16 %rhs) {
 ; CHECK-LABEL: unsigned_high_product:
 ; CHECK: mulu
 ; CHECK: mov {{.*}}, mdh
-; CHECK: rets
+; HUGE:  rets
+; NEAR:  ret
   %lhs.wide = zext i16 %lhs to i32
   %rhs.wide = zext i16 %rhs to i32
   %product = mul i32 %lhs.wide, %rhs.wide
@@ -18,7 +24,8 @@ define i16 @signed_high_product(i16 %lhs, i16 %rhs) {
 ; CHECK: mul
 ; CHECK-NOT: mulu
 ; CHECK: mov {{.*}}, mdh
-; CHECK: rets
+; HUGE:  rets
+; NEAR:  ret
   %lhs.wide = sext i16 %lhs to i32
   %rhs.wide = sext i16 %rhs to i32
   %product = mul i32 %lhs.wide, %rhs.wide
