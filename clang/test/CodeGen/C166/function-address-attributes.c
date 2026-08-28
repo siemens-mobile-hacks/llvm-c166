@@ -57,13 +57,12 @@ u16 call_huge_indirect(huge_fn *function, u16 value) {
 // HUGE-ASM: R_C166_COF16{{[[:space:]]+}}_near_external
 // HUGE-ASM-LABEL: <_call_huge>:
 // HUGE-ASM: calls
-// HUGE-ASM: R_C166_SEG8{{[[:space:]]+}}_huge_external
-// HUGE-ASM-NEXT: {{.*}}R_C166_SOF16{{[[:space:]]+}}_huge_external
+// HUGE-ASM: R_C166_SEG24{{[[:space:]]+}}_huge_external
 // HUGE-ASM-LABEL: <_call_near_indirect>:
 // HUGE-ASM: calli
 // HUGE-ASM-LABEL: <_call_huge_indirect>:
 // HUGE-ASM: calls
-// HUGE-ASM: R_C166_SEG8{{[[:space:]]+}}__icall
+// HUGE-ASM: R_C166_SEG24{{[[:space:]]+}}__icall
 // HUGE-ASM-LABEL: <_near_identity>:
 // HUGE-ASM: ret
 
@@ -76,8 +75,7 @@ u16 call_huge_indirect(huge_fn *function, u16 value) {
 // MEDIUM-ASM: R_C166_COF16{{[[:space:]]+}}_near_external
 // MEDIUM-ASM-LABEL: <_call_huge>:
 // MEDIUM-ASM: calls
-// MEDIUM-ASM: R_C166_SEG8{{[[:space:]]+}}_huge_external
-// MEDIUM-ASM-NEXT: {{.*}}R_C166_SOF16{{[[:space:]]+}}_huge_external
+// MEDIUM-ASM: R_C166_SEG24{{[[:space:]]+}}_huge_external
 // MEDIUM-ASM-LABEL: <_call_near_indirect>:
 // MEDIUM-ASM: calli
 // MEDIUM-ASM-LABEL: <_call_huge_indirect>:

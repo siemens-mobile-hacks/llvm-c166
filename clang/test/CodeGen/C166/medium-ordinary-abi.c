@@ -165,7 +165,9 @@ u32 medium_recursive(u16 depth, u16 head, u32 value, u16 tail) {
 
 // NEAR: file format elf32-c166
 // NEAR-NOT: rets
+// NEAR-NOT: R_C166_SEG24
 // NEAR-NOT: R_C166_SEG8
+// NEAR-NOT: R_C166_SOF16
 
 // CHECK-LABEL: <_scalar_w0>:
 // CHECK:       mov r4, r12

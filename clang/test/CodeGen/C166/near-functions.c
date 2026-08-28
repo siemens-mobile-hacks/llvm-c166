@@ -64,5 +64,4 @@ u16 call_near_indirect(near_function_pointer function, u16 a, u16 b) {
 
 // ELF: Name: .c166.near.text
 // ELF: R_C166_COF16 _near_external
-// ELF: R_C166_SEG8 _default_external
-// ELF: R_C166_SOF16 _default_external
+// ELF: R_C166_SEG24 _default_external

@@ -26,8 +26,7 @@ u16 __attribute__((c166_bank(1))) debug_bank_cross(u16 value) {
 
 // ASM-LABEL: <_debug_bank_cross>:
 // ASM:       calls
-// ASM:       R_C166_SEG8{{[[:space:]]+}}__banksw
-// ASM-NEXT:  {{.*}}R_C166_SOF16{{[[:space:]]+}}__banksw
+// ASM:       R_C166_SEG24{{[[:space:]]+}}__banksw
 
 // FRAME: .debug_frame contents:
 // FRAME: CIE

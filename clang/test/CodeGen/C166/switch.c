@@ -59,8 +59,7 @@ void dense_dispatch(unsigned int value) {
 // LARGE:       mov
 // LARGE:       jmpi
 // LARGE:       calls
-// LARGE:       R_C166_SEG8 _case_zero
-// LARGE:       R_C166_SOF16 _case_zero
+// LARGE:       R_C166_SEG24 _case_zero
 
 // MEDIUM-LABEL: <_dense_dispatch>:
 // MEDIUM:       shl
@@ -81,8 +80,7 @@ void dense_dispatch(unsigned int value) {
 // SMALL:       mov
 // SMALL:       jmpi
 // SMALL:       calls
-// SMALL:       R_C166_SEG8 _case_zero
-// SMALL:       R_C166_SOF16 _case_zero
+// SMALL:       R_C166_SEG24 _case_zero
 
 // LARGE-ELF:      .rodata           PROGBITS
 // LARGE-ELF-SAME: 00000c

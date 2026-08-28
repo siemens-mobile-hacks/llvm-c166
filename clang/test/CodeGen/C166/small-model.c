@@ -144,12 +144,9 @@ u16 call_take_pointer(u16 *pointer) { return take_pointer(1, pointer); }
 // ELF-DAG: R_C166_SOF16 _huge_word
 // ELF-DAG: R_C166_SEG8 _shuge_word
 // ELF-DAG: R_C166_SOF16 _shuge_word
-// ELF-DAG: R_C166_SEG8 _default_external
-// ELF-DAG: R_C166_SOF16 _default_external
-// ELF-DAG: R_C166_SEG8 ___ashlsi3
-// ELF-DAG: R_C166_SOF16 ___ashlsi3
-// ELF-DAG: R_C166_SEG8 __icall
-// ELF-DAG: R_C166_SOF16 __icall
+// ELF-DAG: R_C166_SEG24 _default_external
+// ELF-DAG: R_C166_SEG24 ___ashlsi3
+// ELF-DAG: R_C166_SEG24 __icall
 // ELF-DAG: R_C166_COF16 _near_external
 
 // ASM-LABEL: <_read_default_word>:
@@ -158,8 +155,7 @@ u16 call_take_pointer(u16 *pointer) { return take_pointer(1, pointer); }
 // ASM: rets
 // ASM-LABEL: <_shift_runtime>:
 // ASM: calls
-// ASM: R_C166_SEG8{{[[:space:]]+}}___ashlsi3
-// ASM-NEXT: {{.*}}R_C166_SOF16{{[[:space:]]+}}___ashlsi3
+// ASM: R_C166_SEG24{{[[:space:]]+}}___ashlsi3
 // ASM: rets
 // ASM-LABEL: <_read_far_word>:
 // ASM: extp
@@ -174,12 +170,11 @@ u16 call_take_pointer(u16 *pointer) { return take_pointer(1, pointer); }
 // ASM: rets
 // ASM-LABEL: <_call_default>:
 // ASM: calls
-// ASM: R_C166_SEG8{{[[:space:]]+}}_default_external
-// ASM-NEXT: {{.*}}R_C166_SOF16{{[[:space:]]+}}_default_external
+// ASM: R_C166_SEG24{{[[:space:]]+}}_default_external
 // ASM: rets
 // ASM-LABEL: <_call_default_indirect>:
 // ASM: calls
-// ASM: R_C166_SEG8{{[[:space:]]+}}__icall
+// ASM: R_C166_SEG24{{[[:space:]]+}}__icall
 // ASM: rets
 // ASM-LABEL: <_call_near>:
 // ASM: calla

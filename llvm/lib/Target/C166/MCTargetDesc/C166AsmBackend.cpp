@@ -74,6 +74,11 @@ class C166AsmBackend : public MCAsmBackend {
         getContext().reportError(Fixup.getLoc(),
                                  "code address exceeds 24 bits");
       return (Value >> 16) & 0xff;
+    case C166::fixup_c166_seg24:
+      if (Value > 0xffffff)
+        getContext().reportError(Fixup.getLoc(),
+                                 "code address exceeds 24 bits");
+      return ((Value & 0xffff) << 8) | ((Value >> 16) & 0xff);
     case C166::fixup_c166_sof16:
       return Value & 0xffff;
     case C166::fixup_c166_cof16:
@@ -212,11 +217,12 @@ public:
 
   MCFixupKindInfo getFixupKindInfo(MCFixupKind Kind) const override {
     static const MCFixupKindInfo Infos[C166::NumTargetFixupKinds] = {
-        {"fixup_c166_seg8", 0, 8, 0},      {"fixup_c166_sof16", 0, 16, 0},
-        {"fixup_c166_cof16", 0, 16, 0},    {"fixup_c166_pag10", 0, 10, 0},
-        {"fixup_c166_pof14", 0, 14, 0},    {"fixup_c166_pc8", 0, 8, 0},
-        {"fixup_c166_pc8_relax", 8, 8, 0}, {"fixup_c166_pc16", 0, 16, 0},
-        {"fixup_c166_dpp1_16", 0, 16, 0},  {"fixup_c166_dpp2_16", 0, 16, 0},
+        {"fixup_c166_seg8", 0, 8, 0},      {"fixup_c166_seg24", 0, 24, 0},
+        {"fixup_c166_sof16", 0, 16, 0},    {"fixup_c166_cof16", 0, 16, 0},
+        {"fixup_c166_pag10", 0, 10, 0},    {"fixup_c166_pof14", 0, 14, 0},
+        {"fixup_c166_pc8", 0, 8, 0},       {"fixup_c166_pc8_relax", 8, 8, 0},
+        {"fixup_c166_pc16", 0, 16, 0},     {"fixup_c166_dpp1_16", 0, 16, 0},
+        {"fixup_c166_dpp2_16", 0, 16, 0},
     };
     static_assert(std::size(Infos) == C166::NumTargetFixupKinds);
 

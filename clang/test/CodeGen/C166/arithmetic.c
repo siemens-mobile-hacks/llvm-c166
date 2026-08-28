@@ -53,41 +53,33 @@ unsigned long lshr_long(unsigned long value, unsigned int amount) {
 // spelling, hence the three underscores in ELF.
 // CHECK-LABEL: <_mul_long>:
 // CHECK:       calls
-// CHECK:       R_C166_SEG8 ___mulsi3
-// CHECK:       R_C166_SOF16 ___mulsi3
+// CHECK:       R_C166_SEG24 ___mulsi3
 // CHECK:       rets
 // CHECK-LABEL: <_div_long>:
 // CHECK:       calls
-// CHECK:       R_C166_SEG8 ___divsi3
-// CHECK:       R_C166_SOF16 ___divsi3
+// CHECK:       R_C166_SEG24 ___divsi3
 // CHECK:       rets
 // CHECK-LABEL: <_div_ulong>:
 // CHECK:       calls
-// CHECK:       R_C166_SEG8 ___udivsi3
-// CHECK:       R_C166_SOF16 ___udivsi3
+// CHECK:       R_C166_SEG24 ___udivsi3
 // CHECK:       rets
 // CHECK-LABEL: <_rem_long>:
 // CHECK:       calls
-// CHECK:       R_C166_SEG8 ___modsi3
-// CHECK:       R_C166_SOF16 ___modsi3
+// CHECK:       R_C166_SEG24 ___modsi3
 // CHECK:       rets
 // CHECK-LABEL: <_rem_ulong>:
 // CHECK:       calls
-// CHECK:       R_C166_SEG8 ___umodsi3
-// CHECK:       R_C166_SOF16 ___umodsi3
+// CHECK:       R_C166_SEG24 ___umodsi3
 // CHECK:       rets
 // CHECK-LABEL: <_shl_long>:
 // CHECK:       calls
-// CHECK:       R_C166_SEG8 ___ashlsi3
-// CHECK:       R_C166_SOF16 ___ashlsi3
+// CHECK:       R_C166_SEG24 ___ashlsi3
 // CHECK:       rets
 // CHECK-LABEL: <_ashr_long>:
 // CHECK:       calls
-// CHECK:       R_C166_SEG8 ___ashrsi3
-// CHECK:       R_C166_SOF16 ___ashrsi3
+// CHECK:       R_C166_SEG24 ___ashrsi3
 // CHECK:       rets
 // CHECK-LABEL: <_lshr_long>:
 // CHECK:       calls
-// CHECK:       R_C166_SEG8 ___lshrsi3
-// CHECK:       R_C166_SOF16 ___lshrsi3
+// CHECK:       R_C166_SEG24 ___lshrsi3
 // CHECK:       rets

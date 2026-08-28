@@ -47,17 +47,17 @@ int double_unordered(double lhs, double rhs) {
 
 // The standard compiler-rt entry points are private implementation details;
 // their public C signatures still use the stack-only float boundary.
-// CHECK: R_C166_SEG8 ___fixsfsi
-// CHECK: R_C166_SEG8 ___fixunssfsi
-// CHECK: R_C166_SEG8 ___floatsisf
-// CHECK: R_C166_SEG8 ___floatunsisf
-// CHECK: R_C166_SEG8 ___eqsf2
-// CHECK: R_C166_SEG8 ___nesf2
-// CHECK: R_C166_SEG8 ___ltsf2
-// CHECK: R_C166_SEG8 ___lesf2
-// CHECK: R_C166_SEG8 ___gtsf2
-// CHECK: R_C166_SEG8 ___gesf2
-// CHECK: R_C166_SEG8 ___unordsf2
+// CHECK: R_C166_SEG24 ___fixsfsi
+// CHECK: R_C166_SEG24 ___fixunssfsi
+// CHECK: R_C166_SEG24 ___floatsisf
+// CHECK: R_C166_SEG24 ___floatunsisf
+// CHECK: R_C166_SEG24 ___eqsf2
+// CHECK: R_C166_SEG24 ___nesf2
+// CHECK: R_C166_SEG24 ___ltsf2
+// CHECK: R_C166_SEG24 ___lesf2
+// CHECK: R_C166_SEG24 ___gtsf2
+// CHECK: R_C166_SEG24 ___gesf2
+// CHECK: R_C166_SEG24 ___unordsf2
 
 // Binary64 conversions and comparisons use the standard compiler-rt names.
 // Their double operands remain stack-only/MSW-first at the call
@@ -65,50 +65,49 @@ int double_unordered(double lhs, double rhs) {
 // through caller cleanup instead of allowing the cleanup to be deleted.
 // CHECK-LABEL: <_double_to_int>:
 // CHECK:       calls
-// CHECK:       R_C166_SEG8 ___fixdfsi
-// CHECK:       R_C166_SOF16 ___fixdfsi
+// CHECK:       R_C166_SEG24 ___fixdfsi
 // CHECK:       add r0, #6
 // CHECK-NEXT:  add r0, #2
 // CHECK-NEXT:  rets
 // CHECK-LABEL: <_double_to_uint>:
-// CHECK:       R_C166_SEG8 ___fixunsdfsi
+// CHECK:       R_C166_SEG24 ___fixunsdfsi
 // CHECK-LABEL: <_double_to_long>:
-// CHECK:       R_C166_SEG8 ___fixdfsi
+// CHECK:       R_C166_SEG24 ___fixdfsi
 // CHECK-LABEL: <_double_to_ulong>:
-// CHECK:       R_C166_SEG8 ___fixunsdfsi
+// CHECK:       R_C166_SEG24 ___fixunsdfsi
 
 // A binary64 return uses the caller-owned eight-byte block addressed through
 // R4.  Read the block before releasing it, then copy into the public sret slot.
 // CHECK-LABEL: <_int_to_double>:
-// CHECK:       R_C166_SEG8 ___floatsidf
+// CHECK:       R_C166_SEG24 ___floatsidf
 // CHECK:       mov {{r[0-9]+}}, [r4]
 // CHECK:       add r0, #6
 // CHECK-NEXT:  add r0, #2
 // CHECK:       rets
 // CHECK-LABEL: <_uint_to_double>:
-// CHECK:       R_C166_SEG8 ___floatunsidf
+// CHECK:       R_C166_SEG24 ___floatunsidf
 // CHECK-LABEL: <_long_to_double>:
-// CHECK:       R_C166_SEG8 ___floatsidf
+// CHECK:       R_C166_SEG24 ___floatsidf
 // CHECK-LABEL: <_ulong_to_double>:
-// CHECK:       R_C166_SEG8 ___floatunsidf
+// CHECK:       R_C166_SEG24 ___floatunsidf
 
 // Comparison libcalls consume a sixteen-byte stack frame.  The scalar result
 // remains available in R4:R5 after cleanup for the predicate materialization.
 // CHECK-LABEL: <_double_equal>:
-// CHECK:       R_C166_SEG8 ___eqdf2
+// CHECK:       R_C166_SEG24 ___eqdf2
 // CHECK:       add r0, #6
 // CHECK-NEXT:  add r0, #6
 // CHECK-NEXT:  add r0, #4
 // CHECK:       cmp r5,
 // CHECK-LABEL: <_double_not_equal>:
-// CHECK:       R_C166_SEG8 ___nedf2
+// CHECK:       R_C166_SEG24 ___nedf2
 // CHECK-LABEL: <_double_less>:
-// CHECK:       R_C166_SEG8 ___ltdf2
+// CHECK:       R_C166_SEG24 ___ltdf2
 // CHECK-LABEL: <_double_less_equal>:
-// CHECK:       R_C166_SEG8 ___ledf2
+// CHECK:       R_C166_SEG24 ___ledf2
 // CHECK-LABEL: <_double_greater>:
-// CHECK:       R_C166_SEG8 ___gtdf2
+// CHECK:       R_C166_SEG24 ___gtdf2
 // CHECK-LABEL: <_double_greater_equal>:
-// CHECK:       R_C166_SEG8 ___gedf2
+// CHECK:       R_C166_SEG24 ___gedf2
 // CHECK-LABEL: <_double_unordered>:
-// CHECK:       R_C166_SEG8 ___unorddf2
+// CHECK:       R_C166_SEG24 ___unorddf2

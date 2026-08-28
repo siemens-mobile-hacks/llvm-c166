@@ -56,8 +56,7 @@ float call_external_float(unsigned int head, float value,
 // CHECK-NEXT:  mov r15, [r0 + #4]
 // CHECK-NEXT:  mov r14, [r0 + #6]
 // CHECK:       calls
-// CHECK:       R_C166_SEG8 ___addsf3
-// CHECK:       R_C166_SOF16 ___addsf3
+// CHECK:       R_C166_SEG24 ___addsf3
 // CHECK:       mov r1, r5
 // CHECK-NEXT:  mov r2, r4
 // CHECK-NEXT:  mov r4, r1
@@ -87,18 +86,15 @@ float call_external_float(unsigned int head, float value,
 // MEDIUM:       ret
 // CHECK-LABEL: <_sub_float>:
 // CHECK:       calls
-// CHECK:       R_C166_SEG8 ___subsf3
-// CHECK:       R_C166_SOF16 ___subsf3
+// CHECK:       R_C166_SEG24 ___subsf3
 // CHECK:       rets
 // CHECK-LABEL: <_mul_float>:
 // CHECK:       calls
-// CHECK:       R_C166_SEG8 ___mulsf3
-// CHECK:       R_C166_SOF16 ___mulsf3
+// CHECK:       R_C166_SEG24 ___mulsf3
 // CHECK:       rets
 // CHECK-LABEL: <_div_float>:
 // CHECK:       calls
-// CHECK:       R_C166_SEG8 ___divsf3
-// CHECK:       R_C166_SOF16 ___divsf3
+// CHECK:       R_C166_SEG24 ___divsf3
 // CHECK:       rets
 
 // CHECK-LABEL: <_identity_double>:
@@ -112,8 +108,7 @@ float call_external_float(unsigned int head, float value,
 // the returned address in R4 has been read.
 // CHECK-LABEL: <_call_identity_double>:
 // CHECK:       calls
-// CHECK:       R_C166_SEG8 _identity_double
-// CHECK:       R_C166_SOF16 _identity_double
+// CHECK:       R_C166_SEG24 _identity_double
 // CHECK:       mov r1, [r4]
 // CHECK:       add r0, #6
 // CHECK-NEXT:  add r0, #6
@@ -125,17 +120,13 @@ float call_external_float(unsigned int head, float value,
 // caller-reserved eight-byte block returned through R4.
 // CHECK-LABEL: <_add_double>:
 // CHECK:       calls
-// CHECK:       R_C166_SEG8 ___adddf3
-// CHECK:       R_C166_SOF16 ___adddf3
+// CHECK:       R_C166_SEG24 ___adddf3
 // CHECK-LABEL: <_sub_double>:
-// CHECK:       R_C166_SEG8 ___subdf3
-// CHECK:       R_C166_SOF16 ___subdf3
+// CHECK:       R_C166_SEG24 ___subdf3
 // CHECK-LABEL: <_mul_double>:
-// CHECK:       R_C166_SEG8 ___muldf3
-// CHECK:       R_C166_SOF16 ___muldf3
+// CHECK:       R_C166_SEG24 ___muldf3
 // CHECK-LABEL: <_div_double>:
-// CHECK:       R_C166_SEG8 ___divdf3
-// CHECK:       R_C166_SOF16 ___divdf3
+// CHECK:       R_C166_SEG24 ___divdf3
 
 // Ordinary object loads/stores use the same type-dependent representation as
 // public arguments; their values still cross the caller-reserved double return
@@ -156,7 +147,6 @@ float call_external_float(unsigned int head, float value,
 // CHECK-NEXT:  mov [r0 + #2], r2
 // CHECK:       mov [r0 + #4],
 // CHECK:       calls
-// CHECK:       R_C166_SEG8 _external_float
-// CHECK:       R_C166_SOF16 _external_float
+// CHECK:       R_C166_SEG24 _external_float
 // CHECK:       add r0, #6
 // CHECK:       rets

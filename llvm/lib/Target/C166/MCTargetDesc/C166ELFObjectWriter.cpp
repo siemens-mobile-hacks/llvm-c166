@@ -53,6 +53,8 @@ protected:
       return ELF::R_C166_32;
     case C166::fixup_c166_seg8:
       return ELF::R_C166_SEG8;
+    case C166::fixup_c166_seg24:
+      return ELF::R_C166_SEG24;
     case C166::fixup_c166_sof16:
       return ELF::R_C166_SOF16;
     case C166::fixup_c166_cof16:

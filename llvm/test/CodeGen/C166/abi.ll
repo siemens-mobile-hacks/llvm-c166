@@ -60,8 +60,7 @@
 ; SMALL-OBJ-DAG: EF_C166_CODE_HUGE (0x100)
 ; SMALL-OBJ-DAG: EF_C166_CORE_8X166 (0x1)
 ; SMALL-OBJ-DAG: EF_C166_DATA_NEAR (0x10)
-; HUGE-RELOC:      R_C166_SEG8 _callee_mix
-; HUGE-RELOC-NEXT: R_C166_SOF16 _callee_mix
+; HUGE-RELOC:      R_C166_SEG24 _callee_mix
 ; NEAR-RELOC:      R_C166_COF16 _callee_mix
 ; MIR-LABEL:  name: forward_mix
 ; HUGE-MIR:   CALLS @callee_mix, @callee_mix, $r12, $r14r13, $r15, csr_c166_callpreserved

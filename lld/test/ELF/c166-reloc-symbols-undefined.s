@@ -8,6 +8,7 @@
 # UNDEF-DAG: undefined symbol: undef_16
 # UNDEF-DAG: undefined symbol: undef_32
 # UNDEF-DAG: undefined symbol: undef_seg8
+# UNDEF-DAG: undefined symbol: undef_seg24
 # UNDEF-DAG: undefined symbol: undef_sof16
 # UNDEF-DAG: undefined symbol: undef_pag10
 # UNDEF-DAG: undefined symbol: undef_pof14
@@ -30,6 +31,9 @@ r32:
 seg8:
   .byte 0
   .reloc seg8, R_C166_SEG8, undef_seg8
+seg24:
+  .space 3
+  .reloc seg24, R_C166_SEG24, undef_seg24
 sof16:
   .short 0
   .reloc sof16, R_C166_SOF16, undef_sof16

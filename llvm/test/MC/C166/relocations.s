@@ -2,8 +2,8 @@
 ; RUN: llvm-mc -triple=c166-none-elf -filetype=obj %s | llvm-readobj --file-headers --sections --symbols --relocations - | FileCheck %s --check-prefix=ELF
 ; RUN: llvm-mc -triple=c166-none-elf -filetype=obj %s | llvm-objdump -dr - | FileCheck %s --check-prefix=DIS
 
-; Relocation numbers and SEG/SOF expression syntax belong to LLVM's C166 ELF
-; ABI.
+; Relocation numbers and segmented expression syntax belong to LLVM's C166
+; ELF ABI.
 
 .text
 .globl caller
@@ -31,22 +31,36 @@ caller:
 
   calls seg(callee), sof(callee)
 ; ENC: calls seg(callee), sof(callee)
-; ENC-SAME: encoding: [0xda,A,B,B]
-; ENC: fixup A - offset: 1, value: callee, kind: fixup_c166_seg8
-; ENC: fixup B - offset: 2, value: callee, kind: fixup_c166_sof16
+; ENC-SAME: encoding: [0xda,A,A,A]
+; ENC: fixup A - offset: 1, value: callee, kind: fixup_c166_seg24
 
   jmps seg(far_branch), sof(far_branch)
 ; ENC: jmps seg(far_branch), sof(far_branch)
-; ENC-SAME: encoding: [0xfa,A,B,B]
-; ENC: fixup A - offset: 1, value: far_branch, kind: fixup_c166_seg8
-; ENC: fixup B - offset: 2, value: far_branch, kind: fixup_c166_sof16
+; ENC-SAME: encoding: [0xfa,A,A,A]
+; ENC: fixup A - offset: 1, value: far_branch, kind: fixup_c166_seg24
 
   calls seg(0x123456), sof(0x123456)
 ; ENC: calls seg(1193046), sof(1193046)
-; ENC-SAME: encoding: [0xda,A,B,B]
-; ENC: fixup A - offset: 1, value: 1193046, kind: fixup_c166_seg8
-; ENC: fixup B - offset: 2, value: 1193046, kind: fixup_c166_sof16
+; ENC-SAME: encoding: [0xda,A,A,A]
+; ENC: fixup A - offset: 1, value: 1193046, kind: fixup_c166_seg24
 ; DIS: da 12 56 34{{.*}}calls 18, 13398
+
+  calls seg(callee), sof(far_branch)
+; ENC: calls seg(callee), sof(far_branch)
+; ENC-SAME: encoding: [0xda,A,B,B]
+; ENC: fixup A - offset: 1, value: callee, kind: fixup_c166_seg8
+; ENC: fixup B - offset: 2, value: far_branch, kind: fixup_c166_sof16
+
+  calls seg(callee+2), sof(callee+2)
+; ENC: calls seg(callee+2), sof(callee+2)
+; ENC-SAME: encoding: [0xda,A,A,A]
+; ENC: fixup A - offset: 1, value: callee+2, kind: fixup_c166_seg24
+
+  calls seg(callee+2), sof(callee+4)
+; ENC: calls seg(callee+2), sof(callee+4)
+; ENC-SAME: encoding: [0xda,A,B,B]
+; ENC: fixup A - offset: 1, value: callee+2, kind: fixup_c166_seg8
+; ENC: fixup B - offset: 2, value: callee+4, kind: fixup_c166_sof16
 
   extp pag(far_data), #1
 ; ENC: extp pag(far_data), #1
@@ -127,13 +141,16 @@ caller:
 ; ELF: EF_C166_DATA_FAR
 ; ELF: Name: .rela.text
 ; ELF: Name: .rela.data
-; ELF: R_C166_COF16 near_callee
-; ELF: R_C166_COF16 near_branch
-; ELF: R_C166_SEG8 callee
-; ELF: R_C166_SOF16 callee
-; ELF: R_C166_SEG8 far_branch
-; ELF: R_C166_SOF16 far_branch
-; ELF: R_C166_PAG10 far_data
+; ELF:      R_C166_COF16 near_callee
+; ELF-NEXT: R_C166_COF16 near_branch
+; ELF-NEXT: R_C166_SEG24 callee 0x0
+; ELF-NEXT: R_C166_SEG24 far_branch 0x0
+; ELF-NEXT: R_C166_SEG8 callee 0x0
+; ELF-NEXT: R_C166_SOF16 far_branch 0x0
+; ELF-NEXT: R_C166_SEG24 callee 0x2
+; ELF-NEXT: R_C166_SEG8 callee 0x2
+; ELF-NEXT: R_C166_SOF16 callee 0x4
+; ELF-NEXT: R_C166_PAG10 far_data
 ; ELF: R_C166_POF14 far_data
 ; ELF: R_C166_POF14 far_data
 ; ELF: R_C166_PAG10 far_data

@@ -24,42 +24,47 @@ unsigned long load_atomic_long(void) {
 // MEDIUM-LABEL: <_mul_long>:
 // MEDIUM:       calla
 // MEDIUM:       R_C166_COF16 ___mulsi3
+// MEDIUM-NOT:   R_C166_SEG24 ___mulsi3
 // MEDIUM-NOT:   R_C166_SEG8 ___mulsi3
+// MEDIUM-NOT:   R_C166_SOF16 ___mulsi3
 // MEDIUM-LABEL: <_shift_long>:
 // MEDIUM:       calla
 // MEDIUM:       R_C166_COF16 ___ashlsi3
+// MEDIUM-NOT:   R_C166_SEG24 ___ashlsi3
 // MEDIUM-NOT:   R_C166_SEG8 ___ashlsi3
+// MEDIUM-NOT:   R_C166_SOF16 ___ashlsi3
 // MEDIUM-LABEL: <_add_float>:
 // MEDIUM:       calla
 // MEDIUM:       R_C166_COF16 ___addsf3
+// MEDIUM-NOT:   R_C166_SEG24 ___addsf3
 // MEDIUM-NOT:   R_C166_SEG8 ___addsf3
+// MEDIUM-NOT:   R_C166_SOF16 ___addsf3
 // MEDIUM-LABEL: <_add_double>:
 // MEDIUM:       calla
 // MEDIUM:       R_C166_COF16 ___adddf3
+// MEDIUM-NOT:   R_C166_SEG24 ___adddf3
 // MEDIUM-NOT:   R_C166_SEG8 ___adddf3
+// MEDIUM-NOT:   R_C166_SOF16 ___adddf3
 // MEDIUM-LABEL: <_load_atomic_long>:
 // MEDIUM:       calla
 // MEDIUM:       R_C166_COF16 ___atomic_load
+// MEDIUM-NOT:   R_C166_SEG24 ___atomic_load
 // MEDIUM-NOT:   R_C166_SEG8 ___atomic_load
+// MEDIUM-NOT:   R_C166_SOF16 ___atomic_load
 
 // The same helpers remain inter-segment ordinary functions in Large and Small.
 // HUGE-LABEL: <_mul_long>:
 // HUGE:       calls
-// HUGE:       R_C166_SEG8 ___mulsi3
-// HUGE-NEXT:  {{.*}}R_C166_SOF16 ___mulsi3
+// HUGE:       R_C166_SEG24 ___mulsi3
 // HUGE-LABEL: <_shift_long>:
 // HUGE:       calls
-// HUGE:       R_C166_SEG8 ___ashlsi3
-// HUGE-NEXT:  {{.*}}R_C166_SOF16 ___ashlsi3
+// HUGE:       R_C166_SEG24 ___ashlsi3
 // HUGE-LABEL: <_add_float>:
 // HUGE:       calls
-// HUGE:       R_C166_SEG8 ___addsf3
-// HUGE-NEXT:  {{.*}}R_C166_SOF16 ___addsf3
+// HUGE:       R_C166_SEG24 ___addsf3
 // HUGE-LABEL: <_add_double>:
 // HUGE:       calls
-// HUGE:       R_C166_SEG8 ___adddf3
-// HUGE-NEXT:  {{.*}}R_C166_SOF16 ___adddf3
+// HUGE:       R_C166_SEG24 ___adddf3
 // HUGE-LABEL: <_load_atomic_long>:
 // HUGE:       calls
-// HUGE:       R_C166_SEG8 ___atomic_load
-// HUGE-NEXT:  {{.*}}R_C166_SOF16 ___atomic_load
+// HUGE:       R_C166_SEG24 ___atomic_load

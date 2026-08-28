@@ -23,6 +23,7 @@ relocations:
 .reloc relocations + 20, R_C166_DPP2_16, target + 11
 .reloc relocations + 22, R_C166_COF16, target + 12
 .reloc relocations + 24, R_C166_PAGED32, target + 13
+.reloc relocations + 28, R_C166_SEG24, target + 14
 
 ; CHECK:      Relocations [
 ; CHECK-NEXT:   Section {{.*}} .rela.text {
@@ -40,6 +41,7 @@ relocations:
 ; CHECK-NEXT:     0x14 R_C166_DPP2_16 target 0xB
 ; CHECK-NEXT:     0x16 R_C166_COF16 target 0xC
 ; CHECK-NEXT:     0x18 R_C166_PAGED32 target 0xD
+; CHECK-NEXT:     0x1C R_C166_SEG24 target 0xE
 ; CHECK-NEXT:   }
 ; CHECK-NEXT: ]
 

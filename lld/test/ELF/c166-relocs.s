@@ -32,4 +32,4 @@ _start:
 ; DIS-NEXT:  12344: db 00        rets
 
 ; UNDEF: error: undefined symbol: _target
-; OVERFLOW: error: {{.*}}relocation R_C166_SEG8 out of range: 16777220 is not in [0, 16777215]
+; OVERFLOW: error: {{.*}}relocation R_C166_SEG24 out of range: 16777220 is not in [0, 16777215]

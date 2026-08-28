@@ -101,8 +101,7 @@ unsigned int forward_five_words(unsigned int a, unsigned int b, unsigned int c,
 // OBJ-DAG:  R_C166_POF14 _far_byte_global
 // OBJ-DAG:  R_C166_PAG10 _far_signed_byte_global
 // OBJ-DAG:  R_C166_POF14 _far_signed_byte_global
-// OBJ:      R_C166_SEG8 _callee_mix
-// OBJ-NEXT: R_C166_SOF16 _callee_mix
+// OBJ:      R_C166_SEG24 _callee_mix
 // OBJ-DAG:    Name: _add_words
 // OBJ-DAG:    Name: _add_mixed
 // OBJ-DAG:    Name: _load_far

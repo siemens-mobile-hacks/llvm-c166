@@ -18,6 +18,7 @@ ELF_RELOC(R_C166_DPP2_16,      11)
 ELF_RELOC(R_C166_COF16,        12)
 ELF_RELOC(R_C166_PAGED32,      13)
 ELF_RELOC(R_C166_PC8_RELAX,    14)
+ELF_RELOC(R_C166_SEG24,        15)
 
 // Values 253..255 are reserved and are never emitted by LLVM.
 ELF_RELOC(R_C166_RESERVED_253, 253)

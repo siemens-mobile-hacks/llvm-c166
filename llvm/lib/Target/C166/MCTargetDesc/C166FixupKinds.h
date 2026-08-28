@@ -15,6 +15,7 @@ namespace llvm::C166 {
 
 enum Fixups {
   fixup_c166_seg8 = FirstTargetFixupKind,
+  fixup_c166_seg24,
   fixup_c166_sof16,
   fixup_c166_cof16,
   fixup_c166_pag10,

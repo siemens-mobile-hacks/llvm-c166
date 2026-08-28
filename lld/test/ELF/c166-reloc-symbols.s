@@ -16,6 +16,12 @@
 # INPUT-DAG:  R_C166_8 weak_undefined_object 0x6
 # INPUT-DAG:  R_C166_8 common_object 0xFFEDCC00
 # INPUT-DAG:  R_C166_8 .symbols 0xFFEDCC00
+# INPUT-DAG:  R_C166_SEG24 local_object 0x0
+# INPUT-DAG:  R_C166_SEG24 global_object 0x0
+# INPUT-DAG:  R_C166_SEG24 weak_object 0x0
+# INPUT-DAG:  R_C166_SEG24 weak_undefined_object 0x123406
+# INPUT-DAG:  R_C166_SEG24 common_object 0x0
+# INPUT-DAG:  R_C166_SEG24 .symbols 0x0
 # INPUT-DAG:  Name: .symbols
 # INPUT-DAG:  Type: Section
 # INPUT-DAG:  Name: local_object
@@ -45,7 +51,8 @@
 # ABS-NEXT:  {{[0-9a-f]+}} 00340234 04340634 10340034 48a848a8
 # ABS-NEXT:  {{[0-9a-f]+}} 48a860a8 48a848a8 00f402f4 04f406f4
 # ABS-NEXT:  {{[0-9a-f]+}} 10f400f4 00740274 04740674 10740074
-# ABS-NEXT:  {{[0-9a-f]+}} 00b402b4 04b406b4 10b400b4
+# ABS-NEXT:  {{[0-9a-f]+}} 00b402b4 04b406b4 10b400b4 12003412
+# ABS-NEXT:  {{[0-9a-f]+}} 02341204 34120634 12103412 0034
 
 ## PC8, PC16, and COF16 need nearby code symbols.  The use object's .text is
 ## laid out first; its local target is at +0x30, the aligned definitions from
@@ -213,6 +220,29 @@ reloc_six_page pag10, R_C166_PAG10, 0xa800, 0x180000
 reloc_six_page pof14, R_C166_POF14, 0xc000, 0x3406
 reloc_six_page dpp1, R_C166_DPP1_16, 0, 0x3406
 reloc_six_page dpp2, R_C166_DPP2_16, 0, 0x3406
+
+.macro reloc_six_seg24 prefix, kind
+\prefix\()_local:
+  .space 3
+  .reloc \prefix\()_local, \kind, local_object
+\prefix\()_global:
+  .space 3
+  .reloc \prefix\()_global, \kind, global_object
+\prefix\()_weak:
+  .space 3
+  .reloc \prefix\()_weak, \kind, weak_object
+\prefix\()_weak_undefined:
+  .space 3
+  .reloc \prefix\()_weak_undefined, \kind, weak_undefined_object + 0x123406
+\prefix\()_common:
+  .space 3
+  .reloc \prefix\()_common, \kind, common_object
+\prefix\()_section:
+  .space 3
+  .reloc \prefix\()_section, \kind, .symbols
+.endm
+
+reloc_six_seg24 seg24, R_C166_SEG24
 
 ## The PC-relative groups are kept in a dedicated input section so the first
 ## absolute-relocation image above can ignore them and the link can place the

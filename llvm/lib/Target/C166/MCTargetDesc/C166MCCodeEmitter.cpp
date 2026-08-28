@@ -16,6 +16,7 @@
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
+#include "llvm/MC/MCValue.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/EndianStream.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -23,6 +24,18 @@
 using namespace llvm;
 
 namespace {
+
+static bool haveSameRelocatableValue(const MCExpr *LHS, const MCExpr *RHS) {
+  MCValue Left;
+  MCValue Right;
+  if (!LHS->evaluateAsRelocatable(Left, nullptr) ||
+      !RHS->evaluateAsRelocatable(Right, nullptr))
+    return false;
+  return Left.getAddSym() == Right.getAddSym() &&
+         Left.getSubSym() == Right.getSubSym() &&
+         Left.getConstant() == Right.getConstant() &&
+         Left.getSpecifier() == Right.getSpecifier();
+}
 
 class C166MCCodeEmitter : public MCCodeEmitter {
   MCContext &Ctx;
@@ -218,7 +231,23 @@ void C166MCCodeEmitter::encodeInstruction(const MCInst &MI,
     return;
   }
 
+  const size_t FirstFixup = Fixups.size();
   uint64_t Encoding = getBinaryCodeForInstr(MI, Fixups, STI);
+  if ((MI.getOpcode() == C166::CALLS || MI.getOpcode() == C166::JMPS) &&
+      Fixups.size() == FirstFixup + 2) {
+    const MCFixup &Segment = Fixups[FirstFixup];
+    const MCFixup &Offset = Fixups[FirstFixup + 1];
+    if (Segment.getKind() == C166::fixup_c166_seg8 &&
+        Segment.getOffset() == 1 &&
+        Offset.getKind() == C166::fixup_c166_sof16 &&
+        Offset.getOffset() == 2 &&
+        haveSameRelocatableValue(Segment.getValue(), Offset.getValue())) {
+      const MCExpr *Value = Segment.getValue();
+      Fixups.resize(FirstFixup);
+      Fixups.push_back(MCFixup::create(
+          1, Value, static_cast<MCFixupKind>(C166::fixup_c166_seg24)));
+    }
+  }
   switch (MCII.get(MI.getOpcode()).getSize()) {
   case 2:
     support::endian::write(CB, static_cast<uint16_t>(Encoding),

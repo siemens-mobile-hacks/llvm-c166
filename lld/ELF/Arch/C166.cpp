@@ -248,6 +248,7 @@ RelExpr C166::getRelExpr(RelType type, const Symbol &s,
   case R_C166_32:
   case R_C166_PAGED32:
   case R_C166_SEG8:
+  case R_C166_SEG24:
   case R_C166_SOF16:
   case R_C166_PAG10:
   case R_C166_POF14:
@@ -305,6 +306,11 @@ void C166::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
   case R_C166_SEG8:
     checkUInt(ctx, loc, val, 24, rel);
     *loc = (val >> 16) & 0xff;
+    return;
+  case R_C166_SEG24:
+    checkUInt(ctx, loc, val, 24, rel);
+    *loc = (val >> 16) & 0xff;
+    write16le(loc + 1, val & 0xffff);
     return;
   case R_C166_SOF16:
     checkUInt(ctx, loc, val, 24, rel);

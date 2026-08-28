@@ -98,8 +98,7 @@ u16 call_huge_indirect(huge_function *function, u16 a, u16 b) {
 // ASM-NOT: R_C166_DPP2_16{{[[:space:]]+}}_default_external
 // ASM-LABEL: <_call_huge>:
 // ASM: calls
-// ASM: R_C166_SEG8{{[[:space:]]+}}_huge_external
-// ASM-NEXT: {{.*}}R_C166_SOF16{{[[:space:]]+}}_huge_external
+// ASM: R_C166_SEG24{{[[:space:]]+}}_huge_external
 // ASM: ret
 // ASM-LABEL: <_call_huge_indirect>:
 // ASM: calla

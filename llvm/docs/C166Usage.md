@@ -113,13 +113,19 @@ functions.
 
 ## ELF Linking
 
-LLVM uses RELA records for its C166 ELF objects. The object ABI defines 14
+LLVM uses RELA records for its C166 ELF objects. The object ABI defines 15
 value-bearing relocations for absolute, segmented, paged, DPP-relative,
 PC-relative, and same-segment code references, plus `R_C166_NONE` as a marker.
 LLD resolves local, global, weak, common, and section symbols using ordinary
 static ELF rules. An undefined weak symbol has value zero and may still carry
 an addend; an unresolved strong symbol is an error. Field-width, alignment,
 page, and code-segment checks are applied after symbol resolution.
+
+`R_C166_SEG24` represents the contiguous 24-bit operand of `CALLS` and `JMPS`:
+one segment byte followed by a little-endian 16-bit offset. MC emits this single
+relocation when both instruction fields refer to the same expression. The
+independent `R_C166_SEG8` and `R_C166_SOF16` relocations remain available when
+the fields use different expressions or are stored separately.
 
 `R_C166_PAGED32` represents a complete 32-bit far-data pointer in a
 static initializer. LLD converts a 24-bit linear symbol address to the stored
