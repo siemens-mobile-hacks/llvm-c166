@@ -32,6 +32,7 @@
 ; RUN:   -stop-before=c166-asm-printer < %s \
 ; RUN:   | FileCheck %s --check-prefixes=MIR,HUGE-MIR
 ; C166-ABI: calls.direct
+; C166-ABI: calls.direct_far
 ; C166-ABI: args.first_four_words
 ; C166-ABI: args.packed_two_word
 ; C166-ABI: args.stack_stop
