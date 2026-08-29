@@ -30,18 +30,31 @@ declare cc 128 i16 @stackparm_external(i16, i32, i16)
 
 define i16 @stackparm_caller(i16 %a, i32 %b, i16 %c) {
 ; CHECK-LABEL: _stackparm_caller:
-; CHECK:       sub r0, #6
-; CHECK-NEXT:  sub r0, #2
-; CHECK-DAG:   mov [r0], r12
-; CHECK-DAG:   mov [r0 + #2], r13
-; CHECK-DAG:   mov [r0 + #4], r14
-; CHECK-DAG:   mov [r0 + #6], r15
+; CHECK-NOT:   sub r0
+; CHECK:       mov [-r0], r15
+; CHECK-NEXT:  mov [-r0], r14
+; CHECK-NEXT:  mov [-r0], r13
+; CHECK-NEXT:  mov [-r0], r12
 ; HUGE:        calls seg(_stackparm_external), sof(_stackparm_external)
 ; NEAR:        calla cc_uc, cof(_stackparm_external)
-; CHECK-NEXT:  add r0, #6
-; CHECK-NEXT:  add r0, #2
+; CHECK-NEXT:  add r0, #8
 ; HUGE-NEXT:   rets
 ; NEAR-NEXT:   ret
   %result = call cc 128 i16 @stackparm_external(i16 %a, i32 %b, i16 %c)
+  ret i16 %result
+}
+
+declare i16 @normal_six(i16, i16, i16, i16, i16, i16)
+
+define i16 @normal_six_caller(i16 %a, i16 %b, i16 %c, i16 %d) {
+; CHECK-LABEL: _normal_six_caller:
+; CHECK-NOT:   sub r0
+; CHECK:       mov [-r0],
+; CHECK-NEXT:  mov [-r0],
+; HUGE:        calls seg(_normal_six), sof(_normal_six)
+; NEAR:        calla cc_uc, cof(_normal_six)
+; CHECK-NEXT:  add r0, #4
+  %result = call i16 @normal_six(i16 %a, i16 %b, i16 %c, i16 %d,
+                                 i16 %a, i16 %b)
   ret i16 %result
 }

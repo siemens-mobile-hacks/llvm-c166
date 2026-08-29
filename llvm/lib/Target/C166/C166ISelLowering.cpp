@@ -11,7 +11,6 @@
 #include "C166MachineFunctionInfo.h"
 #include "C166SelectionDAGInfo.h"
 #include "C166Subtarget.h"
-#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -19,6 +18,8 @@
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAG.h"
+#include "llvm/IR/Argument.h"
+#include "llvm/IR/IntrinsicsC166.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Target/TargetMachine.h"
@@ -71,9 +72,87 @@ C166TargetLowering::C166TargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::BR_JT, MVT::Other, Custom);
   setOperationAction(ISD::VAEND, MVT::Other, Expand);
   setOperationAction(ISD::VACOPY, MVT::Other, Expand);
+  setIndexedLoadAction(ISD::POST_INC, MVT::i16, Legal);
+  setTargetDAGCombine(ISD::INTRINSIC_WO_CHAIN);
   setMinFunctionAlignment(Align(2));
   setPrefFunctionAlignment(Align(2));
   setMaxAtomicSizeInBitsSupported(0);
+}
+
+SDValue C166TargetLowering::PerformDAGCombine(SDNode *N,
+                                              DAGCombinerInfo &DCI) const {
+  if (N->getOpcode() != ISD::INTRINSIC_WO_CHAIN ||
+      !isa<ConstantSDNode>(N->getOperand(0)) ||
+      cast<ConstantSDNode>(N->getOperand(0))->getZExtValue() !=
+          Intrinsic::c166_far_add)
+    return SDValue();
+
+  auto *Increment = dyn_cast<ConstantSDNode>(N->getOperand(2));
+  if (!Increment || Increment->getZExtValue() != 2)
+    return SDValue();
+
+  SDValue Base = N->getOperand(1);
+  if (!Base->hasNUsesOfValue(2, Base.getResNo()))
+    return SDValue();
+
+  LoadSDNode *Load = nullptr;
+  for (SDUse &Use : Base->uses()) {
+    if (Use.getResNo() != Base.getResNo() || Use.getUser() == N)
+      continue;
+    Load = dyn_cast<LoadSDNode>(Use.getUser());
+  }
+  if (!Load)
+    return SDValue();
+
+  const auto *PointerValue =
+      dyn_cast_if_present<const Value *>(Load->getPointerInfo().V);
+  const auto *ByValArgument = dyn_cast_if_present<llvm::Argument>(PointerValue);
+  if (!Load->isSimple() || Load->getExtensionType() != ISD::NON_EXTLOAD ||
+      Load->getMemoryVT() != MVT::i16 || Load->getAlign() < Align(2) ||
+      Load->getAddressSpace() != C166::FarDataAddressSpace ||
+      Load->getBasePtr() != Base ||
+      isa<const PseudoSourceValue *>(Load->getPointerInfo().V) ||
+      (ByValArgument && ByValArgument->hasByValAttr()))
+    return SDValue();
+
+  SelectionDAG &DAG = DCI.DAG;
+  SDValue Indexed = DAG.getIndexedLoad(
+      SDValue(Load, 0), SDLoc(Load), Base,
+      DAG.getConstant(2, SDLoc(Load), MVT::i32), ISD::POST_INC);
+  DCI.CombineTo(Load, Indexed.getValue(0), Indexed.getValue(2));
+  return Indexed.getValue(1);
+}
+
+bool C166TargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
+                                                    SDValue &Base,
+                                                    SDValue &Offset,
+                                                    ISD::MemIndexedMode &AM,
+                                                    SelectionDAG &DAG) const {
+  auto *Load = dyn_cast<LoadSDNode>(N);
+  if (!Load || !Load->isSimple() ||
+      Load->getExtensionType() != ISD::NON_EXTLOAD ||
+      Load->getMemoryVT() != MVT::i16 || Load->getAlign() < Align(2) ||
+      (Load->getAddressSpace() != C166::NearAddressSpace &&
+       Load->getAddressSpace() != C166::XNearDataAddressSpace) ||
+      isa<const PseudoSourceValue *>(Load->getPointerInfo().V) ||
+      Op->getOpcode() != ISD::ADD)
+    return false;
+
+  const auto *PointerValue =
+      dyn_cast_if_present<const Value *>(Load->getPointerInfo().V);
+  const auto *ByValArgument = dyn_cast_if_present<Argument>(PointerValue);
+  if (ByValArgument && ByValArgument->hasByValAttr())
+    return false;
+
+  auto *Increment = dyn_cast<ConstantSDNode>(Op->getOperand(1));
+  if (!Increment || Increment->getZExtValue() != 2 ||
+      Load->getBasePtr() != Op->getOperand(0))
+    return false;
+
+  Base = Op->getOperand(0);
+  Offset = DAG.getConstant(2, SDLoc(N), Base.getValueType());
+  AM = ISD::POST_INC;
+  return true;
 }
 
 EVT C166TargetLowering::getSetCCResultType(const DataLayout &DL,
@@ -130,14 +209,18 @@ const char *C166TargetLowering::getTargetNodeName(unsigned Opcode) const {
     return "C166ISD::CALL";
   case C166ISD::NEARCALL:
     return "C166ISD::NEARCALL";
+  case C166ISD::TAILCALL:
+    return "C166ISD::TAILCALL";
+  case C166ISD::NEARTAILCALL:
+    return "C166ISD::NEARTAILCALL";
   case C166ISD::RET:
     return "C166ISD::RET";
   case C166ISD::NEARRET:
     return "C166ISD::NEARRET";
   case C166ISD::INTERRUPTRET:
     return "C166ISD::INTERRUPTRET";
-  case C166ISD::STOREARG:
-    return "C166ISD::STOREARG";
+  case C166ISD::PUSHARG:
+    return "C166ISD::PUSHARG";
   case C166ISD::ADJSP:
     return "C166ISD::ADJSP";
   case C166ISD::ALLOCSP:
@@ -364,6 +447,26 @@ C166TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   };
 
   if (MI.getOpcode() == C166::CMP32BR) {
+    MachineFunction *MF = MBB->getParent();
+    MachineRegisterInfo &MRI = MF->getRegInfo();
+    Register LHS = MI.getOperand(0).getReg();
+    Register RHS = MI.getOperand(1).getReg();
+    unsigned CC = MI.getOperand(2).getImm();
+    MachineInstr *RHSDef = MRI.getUniqueVRegDef(RHS);
+    if (RHSDef && RHSDef->getOpcode() == C166::CONST32 &&
+        RHSDef->getOperand(1).getImm() == 0 &&
+        (CC == C166::CC_EQ || CC == C166::CC_NE)) {
+      const TargetInstrInfo *TII = MF->getSubtarget().getInstrInfo();
+      BuildMI(*MBB, MI, MI.getDebugLoc(), TII->get(C166::TEST32BR))
+          .addReg(LHS, {}, sub_lo16)
+          .addReg(LHS, {}, sub_hi16)
+          .addImm(CC)
+          .addMBB(MI.getOperand(3).getMBB());
+      MI.eraseFromParent();
+      if (MRI.use_nodbg_empty(RHS))
+        RHSDef->eraseFromParent();
+      return MBB;
+    }
     MachineBasicBlock *TrueMBB = MI.getOperand(3).getMBB();
     MachineBasicBlock *FalseMBB = nullptr;
     for (MachineBasicBlock *Successor : MBB->successors())
@@ -376,8 +479,7 @@ C166TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     auto Following = std::next(MachineBasicBlock::iterator(MI));
     if (Following != MBB->end() && Following->getOpcode() == C166::BR)
       Following->eraseFromParent();
-    EmitI32CompareBranch(MI.getOperand(0).getReg(), MI.getOperand(1).getReg(),
-                         MI.getOperand(2).getImm(), TrueMBB, FalseMBB);
+    EmitI32CompareBranch(LHS, RHS, CC, TrueMBB, FalseMBB);
     MI.eraseFromParent();
     return MBB;
   }
@@ -414,17 +516,62 @@ C166TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   FalseMBB->addSuccessor(SinkMBB);
 
   MachineBasicBlock *TrueValueMBB = MBB;
+  MachineInstr *DeadCompareLHS = nullptr;
+  MachineInstr *DeadCompareRHS = nullptr;
   if (MI.getOpcode() == C166::SELECT16 ||
       MI.getOpcode() == C166::SELECT32_16CMP) {
-    BuildMI(*MBB, MI, MI.getDebugLoc(), TII->get(C166::CMPBR))
-        .addReg(MI.getOperand(1).getReg())
-        .addReg(MI.getOperand(2).getReg())
-        .addImm(MI.getOperand(5).getImm())
-        .addMBB(SinkMBB);
+    Register LHS = MI.getOperand(1).getReg();
+    Register RHS = MI.getOperand(2).getReg();
+    unsigned CC = MI.getOperand(5).getImm();
+    MachineRegisterInfo &MRI = MF->getRegInfo();
+    MachineInstr *RHSDef = MRI.getUniqueVRegDef(RHS);
+    MachineInstr *LHSDef = MRI.getUniqueVRegDef(LHS);
+    bool IsZero = RHSDef &&
+                  (RHSDef->getOpcode() == C166::MOVri4 ||
+                   RHSDef->getOpcode() == C166::MOVri16) &&
+                  RHSDef->getOperand(1).getImm() == 0;
+    if (IsZero && (CC == C166::CC_EQ || CC == C166::CC_NE) && LHSDef &&
+        LHSDef->getOpcode() == C166::ORrr) {
+      BuildMI(*MBB, MI, MI.getDebugLoc(), TII->get(C166::TEST32BR))
+          .addReg(LHSDef->getOperand(1).getReg())
+          .addReg(LHSDef->getOperand(2).getReg())
+          .addImm(CC)
+          .addMBB(SinkMBB);
+      DeadCompareLHS = LHSDef;
+      DeadCompareRHS = RHSDef;
+    } else if (RHSDef && (RHSDef->getOpcode() == C166::MOVri4 ||
+                          RHSDef->getOpcode() == C166::MOVri16)) {
+      BuildMI(*MBB, MI, MI.getDebugLoc(), TII->get(C166::CMPBRi))
+          .addReg(LHS)
+          .addImm(RHSDef->getOperand(1).getImm())
+          .addImm(CC)
+          .addMBB(SinkMBB);
+      DeadCompareRHS = RHSDef;
+    } else {
+      BuildMI(*MBB, MI, MI.getDebugLoc(), TII->get(C166::CMPBR))
+          .addReg(LHS)
+          .addReg(RHS)
+          .addImm(CC)
+          .addMBB(SinkMBB);
+    }
   } else {
-    TrueValueMBB = EmitI32CompareBranch(
-        MI.getOperand(1).getReg(), MI.getOperand(2).getReg(),
-        MI.getOperand(5).getImm(), SinkMBB, FalseMBB);
+    Register LHS = MI.getOperand(1).getReg();
+    Register RHS = MI.getOperand(2).getReg();
+    unsigned CC = MI.getOperand(5).getImm();
+    MachineRegisterInfo &MRI = MF->getRegInfo();
+    MachineInstr *RHSDef = MRI.getUniqueVRegDef(RHS);
+    if (RHSDef && RHSDef->getOpcode() == C166::CONST32 &&
+        RHSDef->getOperand(1).getImm() == 0 &&
+        (CC == C166::CC_EQ || CC == C166::CC_NE)) {
+      BuildMI(*MBB, MI, MI.getDebugLoc(), TII->get(C166::TEST32BR))
+          .addReg(LHS, {}, sub_lo16)
+          .addReg(LHS, {}, sub_hi16)
+          .addImm(CC)
+          .addMBB(SinkMBB);
+      DeadCompareRHS = RHSDef;
+    } else {
+      TrueValueMBB = EmitI32CompareBranch(LHS, RHS, CC, SinkMBB, FalseMBB);
+    }
   }
 
   BuildMI(*SinkMBB, SinkMBB->begin(), MI.getDebugLoc(),
@@ -435,6 +582,10 @@ C166TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
       .addMBB(FalseMBB);
 
   MI.eraseFromParent();
+  MachineRegisterInfo &MRI = MF->getRegInfo();
+  for (MachineInstr *DeadDef : {DeadCompareLHS, DeadCompareRHS})
+    if (DeadDef && MRI.use_nodbg_empty(DeadDef->getOperand(0).getReg()))
+      DeadDef->eraseFromParent();
   return SinkMBB;
 }
 
@@ -532,9 +683,8 @@ SDValue C166TargetLowering::LowerFormalArguments(
         const DataLayout &Layout = DAG.getDataLayout();
         SDValue FrameIndex = DAG.getFrameIndex(
             FI, getPointerTy(Layout, Layout.getAllocaAddrSpace()));
-        SDValue Word = DAG.getLoad(MVT::i16, DL, LoadChain, FrameIndex,
-                                   MachinePointerInfo::getFixedStack(MF, FI));
-        return Word;
+        return DAG.getLoad(MVT::i16, DL, LoadChain, FrameIndex,
+                           MachinePointerInfo::getFixedStack(MF, FI));
       };
 
       if (LocVT == MVT::i16) {
@@ -614,11 +764,8 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
   if (CLI.CallConv != CallingConv::C && CLI.CallConv != CallingConv::Fast &&
       CLI.CallConv != CallingConv::C166_StackParm)
     report_fatal_error("unsupported C166 calling convention");
-  if (CLI.IsTailCall) {
-    CLI.IsTailCall = false;
-    if (CLI.CB && CLI.CB->isMustTailCall())
-      report_fatal_error("C166 tail calls are not implemented yet");
-  }
+  const bool RequestedTailCall = CLI.IsTailCall;
+  CLI.IsTailCall = false;
 
   SelectionDAG &DAG = CLI.DAG;
   const SDLoc &DL = CLI.DL;
@@ -807,79 +954,42 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
     }
   }
 
-  // R0 is both the C user-stack pointer and the base of fixed incoming
-  // arguments.  Complete every load used to form call arguments before the
-  // first predecrement store changes R0.
-  if (!StackWords.empty()) {
-    auto CollectLoads = [](ArrayRef<SDValue> Values,
-                           SmallPtrSetImpl<SDNode *> &Loads) {
-      SmallPtrSet<SDNode *, 16> Visited;
-      SmallVector<SDValue, 16> Worklist(Values.begin(), Values.end());
-      while (!Worklist.empty()) {
-        SDNode *Node = Worklist.pop_back_val().getNode();
-        if (!Node || !Visited.insert(Node).second)
-          continue;
-        if (isa<LoadSDNode>(Node))
-          Loads.insert(Node);
-        for (SDValue Operand : Node->ops())
-          if (Operand.getValueType() != MVT::Other &&
-              Operand.getValueType() != MVT::Glue)
-            Worklist.push_back(Operand);
-      }
-    };
-
-    // A value dependency already orders the loads used by the first pushed
-    // word.  Do not also add their chains: duplicate data/chain edges confuse
-    // the register-pressure scheduler.
-    SmallPtrSet<SDNode *, 4> FirstPushLoads;
-    CollectLoads(ArrayRef(StackWords.back()), FirstPushLoads);
-    while (Chain.getResNo() == 1 && FirstPushLoads.contains(Chain.getNode()))
-      Chain = cast<LoadSDNode>(Chain.getNode())->getChain();
-
-    SmallVector<SDValue, 8> ArgChains = {Chain};
-    SmallPtrSet<SDNode *, 16> ArgLoads;
-    CollectLoads(StackWords, ArgLoads);
-    for (SDNode *Node : ArgLoads) {
-      if (FirstPushLoads.contains(Node))
-        continue;
-      auto *Load = cast<LoadSDNode>(Node);
-      SDValue LoadChain(Load, 1);
-      if (LoadChain != Chain)
-        ArgChains.push_back(LoadChain);
-    }
-    Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, ArgChains);
-  }
-
   unsigned StackBytes = StackWords.size() * 2;
   unsigned CallFrameBytes = BankSlotBytes + SRetBytes + StackBytes;
   if (CallFrameBytes)
     Chain = DAG.getCALLSEQ_START(Chain, CallFrameBytes, 0, DL);
 
-  // Allocate the complete outgoing area before storing any argument.  The
-  // external layout is the same as reverse-order predecrement pushes, but the
-  // physical R0 displacement now agrees with CALLSEQ_START at every point.
-  // Keeping the adjustment in one pseudo also prevents post-isel block splits
-  // from observing a partially allocated call frame.
-  if (CallFrameBytes)
+  unsigned DynamicOffset = 0;
+  if (SRetBytes) {
+    DynamicOffset = SRetBytes;
     Chain = DAG.getNode(C166ISD::ALLOCSP, DL, MVT::Other, Chain,
-                        DAG.getConstant(CallFrameBytes, DL, MVT::i16));
+                        DAG.getConstant(SRetBytes, DL, MVT::i16),
+                        DAG.getConstant(DynamicOffset, DL, MVT::i16));
+  }
 
-  if (!StackWords.empty()) {
-    // A banked function reserves [R0] for the bank word.  Public stack
-    // arguments follow it in source order, and the caller-owned aggregate
-    // result block follows those arguments.
-    for (auto [Index, Word] : llvm::enumerate(StackWords))
-      Chain = DAG.getNode(
-          C166ISD::STOREARG, DL, MVT::Other, Chain,
-          DAG.getConstant(BankSlotBytes + Index * 2, DL, MVT::i16), Word);
+  // Build the final layout from high addresses to low addresses.  Keeping
+  // each predecrement store in the call chain lets the scheduler form one
+  // argument at a time instead of keeping every stack argument live at once.
+  for (SDValue Word : llvm::reverse(StackWords)) {
+    DynamicOffset += 2;
+    Chain = DAG.getNode(C166ISD::PUSHARG, DL, MVT::Other, Chain,
+                        DAG.getConstant(DynamicOffset, DL, MVT::i16), Word);
   }
 
   SDValue BankWord;
   if (NeedsBankSwitch) {
     BankWord = DAG.getConstant((CallerBank << 8) | CalleeBank, DL, MVT::i16);
-    Chain = DAG.getNode(C166ISD::STOREARG, DL, MVT::Other, Chain,
-                        DAG.getConstant(0, DL, MVT::i16), BankWord);
+    DynamicOffset += 2;
+    Chain = DAG.getNode(C166ISD::PUSHARG, DL, MVT::Other, Chain,
+                        DAG.getConstant(DynamicOffset, DL, MVT::i16), BankWord);
+  } else if (BankSlotBytes) {
+    DynamicOffset += BankSlotBytes;
+    Chain = DAG.getNode(C166ISD::ALLOCSP, DL, MVT::Other, Chain,
+                        DAG.getConstant(BankSlotBytes, DL, MVT::i16),
+                        DAG.getConstant(DynamicOffset, DL, MVT::i16));
   }
+  assert(DynamicOffset == CallFrameBytes &&
+         "C166 outgoing call frame was not fully allocated");
 
   EVT FarCodePtrVT =
       getPointerTy(DAG.getDataLayout(), C166::HugeCodeAddressSpace);
@@ -971,6 +1081,24 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
   Ops.push_back(DAG.getRegisterMask(Mask));
   if (Glue)
     Ops.push_back(Glue);
+
+  const bool CallerReturnsNear =
+      MF.getFunction().getAddressSpace() == C166::NearAddressSpace;
+  const bool DirectCallee =
+      isa<GlobalAddressSDNode, ExternalSymbolSDNode>(CLI.Callee);
+  CLI.IsTailCall = RequestedTailCall && !CLI.IsVarArg && DirectCallee &&
+                   CallFrameBytes == 0 && !SRetDestination &&
+                   !NeedsBankSwitch && CallerBank == 0 && CalleeBank == 0 &&
+                   CLI.CallConv == MF.getFunction().getCallingConv() &&
+                   EmitNearCall == CallerReturnsNear;
+  if (!CLI.IsTailCall && CLI.CB && CLI.CB->isMustTailCall())
+    report_fatal_error("C166 call is not eligible for tail-call elimination");
+
+  if (CLI.IsTailCall) {
+    MF.getFrameInfo().setHasTailCall();
+    return DAG.getNode(EmitNearCall ? C166ISD::NEARTAILCALL : C166ISD::TAILCALL,
+                       DL, MVT::Other, Ops);
+  }
 
   Chain = DAG.getNode(EmitNearCall ? C166ISD::NEARCALL : C166ISD::CALL, DL,
                       DAG.getVTList(MVT::Other, MVT::Glue), Ops);

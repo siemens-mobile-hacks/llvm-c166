@@ -58,6 +58,13 @@ unsigned int nested_stack_and_locals(unsigned int a0, unsigned int a1,
   return left + right + local0 + local1;
 }
 
+unsigned int outgoing_stack_with_local(unsigned int a, unsigned int b,
+                                       unsigned int c, unsigned int d,
+                                       unsigned int e) {
+  volatile unsigned int local = a;
+  return callee_five(local, b, c, d, e);
+}
+
 struct frame_offsets {
   unsigned int at_0;
   unsigned int at_2;
@@ -97,23 +104,19 @@ unsigned int boundary_offsets(unsigned int value) {
 // CHECK-NEXT:  rets
 
 // CHECK-LABEL: <_live_across_call>:
-// CHECK:       sub r0, #2
-// CHECK-NEXT:  mov [r0], r6
+// CHECK:       mov [-r0], r6
 // CHECK:       calls
-// CHECK:       mov r6, [r0]
-// CHECK-NEXT:  add r0, #2
+// CHECK:       mov r6, [r0+]
 // CHECK-NEXT:  rets
 
 // CHECK-LABEL: <_long_across_call>:
-// CHECK:       sub r0, #4
-// CHECK-NEXT:  mov [r0 + #2], r6
-// CHECK-NEXT:  mov [r0], r7
+// CHECK:       mov [-r0], r6
+// CHECK-NEXT:  mov [-r0], r7
 // CHECK:       calls
 // CHECK:       add r4, r6
 // CHECK-NEXT:  addc r5, r7
-// CHECK-NEXT:  mov r7, [r0]
-// CHECK-NEXT:  mov r6, [r0 + #2]
-// CHECK-NEXT:  add r0, #4
+// CHECK-NEXT:  mov r7, [r0+]
+// CHECK-NEXT:  mov r6, [r0+]
 // CHECK-NEXT:  rets
 
 // CHECK-LABEL: <_stack_arg_with_local>:
@@ -127,22 +130,28 @@ unsigned int boundary_offsets(unsigned int value) {
 // Three calls cover nested outgoing stack arguments while incoming stack
 // arguments, volatile locals and callee-saved values remain live.
 // CHECK-LABEL: <_nested_stack_and_locals>:
-// CHECK-DAG:   mov [r0 + #{{[0-9]+}}], r6
-// CHECK-DAG:   mov [r0 + #{{[0-9]+}}], r7
+// CHECK-DAG:   mov [-r0], r6
+// CHECK-DAG:   mov [-r0], r7
 // CHECK:       calls
 // CHECK:       add r0, #2
 // CHECK:       calls
 // CHECK:       add r0, #2
 // CHECK:       calls
-// CHECK-DAG:   mov r7, [r0 + #{{[0-9]+}}]
-// CHECK-DAG:   mov r6, [r0 + #{{[0-9]+}}]
+// CHECK-DAG:   mov r7, [r0+]
+// CHECK-DAG:   mov r6, [r0+]
 // CHECK:       rets
+
+// A final caller-cleanup adjustment and the fixed-frame epilogue are one R0
+// restoration.
+// CHECK-LABEL: <_outgoing_stack_with_local>:
+// CHECK:       calls
+// CHECK-NEXT:  add r0, #4
+// CHECK-NEXT:  rets
 
 // At O0 the volatile aggregate remains one 258-byte frame object, so these
 // checks exercise both compact and full 16-bit user-stack displacements.
 // OFFSET-LABEL: <_boundary_offsets>:
-// OFFSET:       mov r1, #260
-// OFFSET-NEXT:  sub r0, r1
+// OFFSET:       sub r0, #260
 // OFFSET:       mov [r0], r{{[0-9]+}}
 // OFFSET:       mov [r0 + #2], r{{[0-9]+}}
 // OFFSET:       mov [r0 + #6], r{{[0-9]+}}
@@ -155,6 +164,5 @@ unsigned int boundary_offsets(unsigned int value) {
 // OFFSET:       mov r{{[0-9]+}}, [r0 + #8]
 // OFFSET:       mov r{{[0-9]+}}, [r0 + #14]
 // OFFSET:       mov r{{[0-9]+}}, [r0 + #256]
-// OFFSET:       mov r1, #260
-// OFFSET-NEXT:  add r0, r1
+// OFFSET:       add r0, #260
 // OFFSET-NEXT:  rets

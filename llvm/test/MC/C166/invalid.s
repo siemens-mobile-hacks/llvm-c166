@@ -3,7 +3,7 @@
 mov r4, #65536
 ; CHECK: error: immediate must be in the range 0..15
 
-add r0, #8
+add r0, #65536
 ; CHECK: error: immediate must be in the range 0..7
 
 atomic #0

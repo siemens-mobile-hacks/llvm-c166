@@ -295,10 +295,7 @@ u32 medium_recursive(u16 depth, u16 head, u32 value, u16 tail) {
 // CHECK:       mov r5, [{{r[0-9]+}} + #2]
 // CHECK:       ret
 // CHECK-LABEL: <_call_sum_words>:
-// CHECK:       sub r0, #6
-// CHECK:       mov [r0], {{r[0-9]+}}
-// CHECK:       mov [r0 + #2], {{r[0-9]+}}
-// CHECK:       mov [r0 + #4], {{r[0-9]+}}
+// CHECK-COUNT-3: mov [-r0], {{r[0-9]+}}
 // CHECK:       calla
 // CHECK-NEXT:  {{.*}}R_C166_COF16{{[[:space:]]+}}_sum_words
 // CHECK:       add r0, #6
@@ -308,10 +305,7 @@ u32 medium_recursive(u16 depth, u16 head, u32 value, u16 tail) {
 // CHECK:       extp {{r[0-9]+}}, #1
 // CHECK:       ret
 // CHECK-LABEL: <_call_va_pair>:
-// CHECK:       sub r0, #6
-// CHECK:       mov [r0], {{r[0-9]+}}
-// CHECK:       mov [r0 + #2], {{r[0-9]+}}
-// CHECK:       mov [r0 + #4], {{r[0-9]+}}
+// CHECK-COUNT-3: mov [-r0], {{r[0-9]+}}
 // CHECK:       calla
 // CHECK-NEXT:  {{.*}}R_C166_COF16{{[[:space:]]+}}_take_va_pair
 // CHECK:       add r0, #6
@@ -320,8 +314,7 @@ u32 medium_recursive(u16 depth, u16 head, u32 value, u16 tail) {
 // CHECK-LABEL: <_medium_recursive>:
 // CHECK:       sub r0, #6
 // CHECK:       mov {{r[0-9]+}}, [r0 + #6]
-// CHECK:       sub r0, #2
-// CHECK:       mov [r0], {{r[0-9]+}}
+// CHECK:       mov [-r0], {{r[0-9]+}}
 // CHECK:       calla
 // CHECK-NEXT:  {{.*}}R_C166_COF16{{[[:space:]]+}}_medium_recursive
 // CHECK:       add r0, #2

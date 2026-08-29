@@ -56,7 +56,7 @@ u16 call_huge_indirect(huge_fn *function, u16 value) {
 // HUGE-ASM: calla
 // HUGE-ASM: R_C166_COF16{{[[:space:]]+}}_near_external
 // HUGE-ASM-LABEL: <_call_huge>:
-// HUGE-ASM: calls
+// HUGE-ASM: jmps
 // HUGE-ASM: R_C166_SEG24{{[[:space:]]+}}_huge_external
 // HUGE-ASM-LABEL: <_call_near_indirect>:
 // HUGE-ASM: calli
@@ -71,7 +71,7 @@ u16 call_huge_indirect(huge_fn *function, u16 value) {
 // MEDIUM-ASM-LABEL: <_near_identity>:
 // MEDIUM-ASM: ret
 // MEDIUM-ASM-LABEL: <_call_near>:
-// MEDIUM-ASM: calla
+// MEDIUM-ASM: jmpa
 // MEDIUM-ASM: R_C166_COF16{{[[:space:]]+}}_near_external
 // MEDIUM-ASM-LABEL: <_call_huge>:
 // MEDIUM-ASM: calls

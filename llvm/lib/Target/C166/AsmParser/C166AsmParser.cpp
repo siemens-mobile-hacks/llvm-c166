@@ -132,6 +132,13 @@ public:
     return !Expr->evaluateAsAbsolute(Value) ||
            (Value >= 16 && isUInt<16>(static_cast<uint64_t>(Value)));
   }
+  bool isUImm16ALU() const {
+    if (!isImm() || !HasHash)
+      return false;
+    int64_t Value;
+    return !Expr->evaluateAsAbsolute(Value) ||
+           (Value >= 8 && isUInt<16>(static_cast<uint64_t>(Value)));
+  }
   bool isSequenceCount() const {
     int64_t Value;
     return isImm() && Expr->evaluateAsAbsolute(Value) && Value >= 1 &&
@@ -258,6 +265,7 @@ public:
     Match_InvalidUImm8,
     Match_InvalidUImm16,
     Match_InvalidUImm16Large,
+    Match_InvalidUImm16ALU,
     Match_InvalidSequenceCount,
     Match_InvalidAtomicCount,
     Match_InvalidBitAddress,
@@ -544,13 +552,17 @@ bool C166AsmParser::parseOperand(OperandVector &Operands) {
       Operands.push_back(C166Operand::createToken("+", Loc));
       Parser.Lex();
 
-      Start = getLexer().getLoc();
-      (void)parseOptionalToken(AsmToken::Hash);
-      const MCExpr *Disp;
-      if (Parser.parseExpression(Disp))
-        return Error(Start, "expected displacement expression");
-      End = getLexer().getLoc();
-      Operands.push_back(C166Operand::createImmediate(Disp, Start, End));
+      // A trailing plus denotes the architectural post-increment form.
+      // Otherwise the plus introduces an indexed displacement.
+      if (getLexer().isNot(AsmToken::RBrac)) {
+        Start = getLexer().getLoc();
+        (void)parseOptionalToken(AsmToken::Hash);
+        const MCExpr *Disp;
+        if (Parser.parseExpression(Disp))
+          return Error(Start, "expected displacement expression");
+        End = getLexer().getLoc();
+        Operands.push_back(C166Operand::createImmediate(Disp, Start, End));
+      }
     }
 
     Loc = getLexer().getLoc();
@@ -721,6 +733,9 @@ bool C166AsmParser::matchAndEmitInstruction(SMLoc Loc, unsigned &Opcode,
   case Match_InvalidUImm16Large:
     return Error(Operands[ErrorInfo]->getStartLoc(),
                  "immediate must be in the range 16..65535");
+  case Match_InvalidUImm16ALU:
+    return Error(Operands[ErrorInfo]->getStartLoc(),
+                 "immediate must be in the range 8..65535");
   case Match_InvalidSequenceCount:
     return Error(Operands[ErrorInfo]->getStartLoc(),
                  "instruction count must be in the range 1..4");

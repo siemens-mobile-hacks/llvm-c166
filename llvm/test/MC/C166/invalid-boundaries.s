@@ -2,7 +2,7 @@
 
 add r0, #-1
 ; CHECK: error: immediate must be in the range 0..7
-sub r0, #8
+sub r0, #65536
 ; CHECK: error: immediate must be in the range 0..7
 
 movb rl0, #16

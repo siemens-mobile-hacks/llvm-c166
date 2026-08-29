@@ -35,10 +35,10 @@ int double_is_lock_free(void) {
 // ASM:       R_C166_POF14 _atomic_float
 // ASM:       R_C166_POF14 _atomic_float+0x2
 // ASM-LABEL: <_init_atomic_double>:
-// ASM:       R_C166_POF14 _atomic_double
-// ASM:       R_C166_POF14 _atomic_double+0x2
-// ASM:       R_C166_POF14 _atomic_double+0x4
-// ASM:       R_C166_POF14 _atomic_double+0x6
+// ASM-DAG:   R_C166_POF14 _atomic_double{{$}}
+// ASM-DAG:   R_C166_POF14 _atomic_double+0x2{{$}}
+// ASM-DAG:   R_C166_POF14 _atomic_double+0x4{{$}}
+// ASM-DAG:   R_C166_POF14 _atomic_double+0x6{{$}}
 
 #ifdef UNSUPPORTED
 float load_atomic_float(void) {

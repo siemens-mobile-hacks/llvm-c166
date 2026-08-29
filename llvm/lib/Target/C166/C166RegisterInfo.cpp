@@ -144,20 +144,67 @@ bool C166RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     return false;
   }
 
+  if (MI.getOpcode() == C166::FRAMEADDR32) {
+    if (MI.getOperand(0).isDead()) {
+      MI.eraseFromParent();
+      return true;
+    }
+    Register Pair = MI.getOperand(0).getReg();
+    Register Low = getSubReg(Pair, sub_lo16);
+    Register High = getSubReg(Pair, sub_hi16);
+    MachineBasicBlock &MBB = *MI.getParent();
+
+    if (Offset >= 8 && Offset <= 15) {
+      BuildMI(MBB, II, MI.getDebugLoc(), TII.get(C166::MOVri4), Low)
+          .addImm(Offset);
+      BuildMI(MBB, II, MI.getDebugLoc(), TII.get(C166::ADDrr), Low)
+          .addReg(Low)
+          .addReg(C166::R0);
+    } else {
+      BuildMI(MBB, II, MI.getDebugLoc(), TII.get(C166::MOVrr), Low)
+          .addReg(C166::R0);
+    }
+    if (Offset && (Offset < 8 || Offset > 15))
+      BuildMI(MBB, II, MI.getDebugLoc(),
+              TII.get(Offset <= 7 ? C166::ADDri3 : C166::ADDri16), Low)
+          .addReg(Low)
+          .addImm(Offset);
+    BuildMI(MBB, II, MI.getDebugLoc(), TII.get(C166::ANDri16), Low)
+        .addReg(Low)
+        .addImm(0x3fff);
+    BuildMI(MBB, II, MI.getDebugLoc(), TII.get(C166::MOVgsfr), High)
+        .addReg(C166::DPP1);
+    MI.eraseFromParent();
+    return true;
+  }
+
   if (MI.getOpcode() == C166::LEAfi) {
+    if (MI.getOperand(0).isDead()) {
+      MI.eraseFromParent();
+      return true;
+    }
     Register Dst = MI.getOperand(0).getReg();
+    if (Offset >= 8 && Offset <= 15) {
+      MachineBasicBlock &MBB = *MI.getParent();
+      BuildMI(MBB, II, MI.getDebugLoc(), TII.get(C166::MOVri4), Dst)
+          .addImm(Offset);
+      BuildMI(MBB, II, MI.getDebugLoc(), TII.get(C166::ADDrr), Dst)
+          .addReg(Dst)
+          .addReg(C166::R0);
+      MI.eraseFromParent();
+      return true;
+    }
     MI.setDesc(TII.get(C166::MOVrr));
     MI.getOperand(FIOperandNum).ChangeToRegister(C166::R0, false);
     MI.removeOperand(FIOperandNum + 1);
 
-    MachineBasicBlock::iterator InsertAt = std::next(II);
-    while (Offset) {
-      unsigned Amount = std::min<int64_t>(Offset, 7);
+    if (Offset) {
+      assert(isUInt<16>(Offset) && "C166 frame address is out of range");
+      MachineBasicBlock::iterator InsertAt = std::next(II);
       BuildMI(*MI.getParent(), InsertAt, MI.getDebugLoc(),
-              TII.get(C166::ADDri3), Dst)
+              TII.get(Offset <= 7 ? C166::ADDri3 : C166::ADDri16), Dst)
           .addReg(Dst)
-          .addImm(Amount);
-      Offset -= Amount;
+          .addImm(Offset);
     }
     return false;
   }

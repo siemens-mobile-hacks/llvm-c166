@@ -106,7 +106,7 @@ u16 matrix_promote_enum(enum matrix_enum value) {
 // CHECK-LABEL: <_matrix_packed_u8_u32>:
 // CHECK:       mov r4, r13
 // CHECK-NEXT:  mov r5, r14
-// CHECK:       and r15, {{r[0-9]+}}
+// CHECK:       and r15, #255
 // CHECK-NOT:   [r0]
 // CHECK:       rets
 
@@ -142,26 +142,23 @@ u16 matrix_promote_enum(enum matrix_enum value) {
 // CHECK:       mov {{r[0-9]+}}, [r0 + #2]
 // CHECK:       rets
 
-// Default argument promotions produce a single 16-bit stack word.  Signed
-// and unsigned bytes are extended appropriately before the fixed-offset
-// store; enum is already int-sized.
+// Default argument promotions produce a single 16-bit stack word.  Signed and
+// unsigned bytes are extended during call setup and all three forms use the
+// ordinary predecrement push.
 // CHECK-LABEL: <_matrix_promote_s8>:
-// CHECK:       sub r0, #2
 // CHECK:       movbs {{r[0-9]+}}, r{{[lh][0-7]}}
-// CHECK:       mov [r0], {{r[0-9]+}}
+// CHECK:       mov [-r0], {{r[0-9]+}}
 // CHECK:       calls
 // CHECK:       add r0, #2
 // CHECK:       rets
 // CHECK-LABEL: <_matrix_promote_u8>:
-// CHECK:       and r12, {{r[0-9]+}}
-// CHECK:       sub r0, #2
-// CHECK:       mov [r0], {{r[0-9]+}}
+// CHECK:       and r12, #255
+// CHECK:       mov [-r0], {{r[0-9]+}}
 // CHECK:       calls
 // CHECK:       add r0, #2
 // CHECK:       rets
 // CHECK-LABEL: <_matrix_promote_enum>:
-// CHECK:       sub r0, #2
-// CHECK:       mov [r0], r12
+// CHECK:       mov [-r0], r12
 // CHECK:       calls
 // CHECK:       add r0, #2
 // CHECK:       rets

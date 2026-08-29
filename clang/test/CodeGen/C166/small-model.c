@@ -169,9 +169,8 @@ u16 call_take_pointer(u16 *pointer) { return take_pointer(1, pointer); }
 // ASM: exts
 // ASM: rets
 // ASM-LABEL: <_call_default>:
-// ASM: calls
+// ASM: jmps
 // ASM: R_C166_SEG24{{[[:space:]]+}}_default_external
-// ASM: rets
 // ASM-LABEL: <_call_default_indirect>:
 // ASM: calls
 // ASM: R_C166_SEG24{{[[:space:]]+}}__icall

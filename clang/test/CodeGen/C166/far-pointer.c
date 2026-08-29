@@ -74,6 +74,16 @@ unsigned int function_is_null(callback function) {
   return function == 0;
 }
 
+extern unsigned int consume_far(const unsigned char *address);
+
+unsigned int select_far_offset(const unsigned char *base,
+                               unsigned int offset) {
+  const unsigned char *selected = base != 0 ? base + offset : 0;
+  if (selected == 0)
+    return 0;
+  return consume_far(selected);
+}
+
 // Large-model data-pointer comparisons use only the page offset except when
 // one operand is null.  Function-pointer equality always compares both words.
 // IR-LABEL: define{{.*}}i16 @far_eq
@@ -82,6 +92,7 @@ unsigned int function_is_null(callback function) {
 // IR:       icmp eq i16
 // IR-LABEL: define{{.*}}i16 @far_is_null
 // IR:       call{{.*}} i16 @llvm.c166.high.word(i32 {{.*}})
+// IR:       or i16
 // IR:       icmp eq i16
 // IR-LABEL: define{{.*}}i16 @far_difference
 // IR:       trunc i32 {{.*}} to i16
@@ -114,9 +125,10 @@ unsigned int function_is_null(callback function) {
 // DIS-NOT:   cmp r13, r15
 // DIS:       rets
 // DIS-LABEL: <_far_is_null>:
-// DIS:       cmp r13, {{r[0-9]+}}
-// DIS:       cmp r12, {{r[0-9]+}}
-// DIS:       and
+// DIS:       mov r1, {{r1[23]}}
+// DIS-NEXT:  or r1, {{r1[23]}}
+// DIS-NEXT:  jmpr cc_eq
+// DIS-NOT:   cmp
 // DIS:       rets
 // DIS-LABEL: <_far_difference>:
 // DIS:       sub r4, r14
@@ -129,38 +141,43 @@ unsigned int function_is_null(callback function) {
 // DIS:       rets
 // DIS-LABEL: <_add_3fff>:
 // DIS:       mov r5, r13
-// DIS:       mov {{r[0-9]+}}, #16383
-// DIS:       add r4, {{r[0-9]+}}
+// DIS:       add r4, #16383
 // DIS-NOT:   addc
 // DIS:       rets
 // DIS-LABEL: <_add_4000>:
 // DIS:       mov r5, r13
-// DIS:       mov {{r[0-9]+}}, #16384
-// DIS:       add r4, {{r[0-9]+}}
+// DIS:       add r4, #16384
 // DIS-NOT:   addc
 // DIS:       rets
 // DIS-LABEL: <_add_ffff>:
 // DIS:       mov r5, r13
-// DIS:       mov {{r[0-9]+}}, #65535
-// DIS:       add r4, {{r[0-9]+}}
+// DIS:       add r4, #65535
 // DIS-NOT:   addc
 // DIS:       rets
 // DIS-LABEL: <_subtract_one>:
 // DIS:       mov r5, r13
-// DIS:       add r4, {{r[0-9]+}}
+// DIS:       add r4, #65535
 // DIS-NOT:   addc
 // DIS:       rets
 // DIS-LABEL: <_function_eq>:
 // DIS:       cmp r13, r15
-// DIS:       jmpr cc_ne
+// DIS:       jmpr cc_{{(eq|ne)}}
 // DIS:       cmp r12, r14
-// DIS:       jmpr cc_ne
+// DIS:       jmpr cc_{{(eq|ne)}}
 // DIS-NOT:   and
 // DIS:       rets
 // DIS-LABEL: <_function_is_null>:
-// DIS:       cmp r13, {{r[0-9]+}}
-// DIS:       jmpr cc_ne
-// DIS:       cmp r12, {{r[0-9]+}}
-// DIS:       jmpr cc_ne
-// DIS-NOT:   and
+// DIS:       mov r1, {{r1[23]}}
+// DIS-NEXT:  or r1, {{r1[23]}}
+// DIS-NEXT:  jmpr cc_eq
+// DIS-NOT:   cmp
+// DIS:       rets
+// DIS-LABEL: <_select_far_offset>:
+// DIS-NOT:   mov r2, r13
+// DIS-NOT:   mov r3, r1
+// DIS:       mov r1, r13
+// DIS-NEXT:  or r1, r12
+// DIS-NEXT:  jmpr cc_eq
+// DIS:       add r12, r14
+// DIS:       calls
 // DIS:       rets

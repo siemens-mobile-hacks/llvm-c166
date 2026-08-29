@@ -28,6 +28,10 @@ public:
 
   const C166RegisterInfo &getRegisterInfo() const { return RI; }
 
+  bool isReMaterializableImpl(const MachineInstr &MI) const override;
+
+  int getSPAdjust(const MachineInstr &MI) const override;
+
   unsigned getInstSizeInBytes(const MachineInstr &MI) const override;
 
   void copyPhysReg(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
@@ -67,6 +71,8 @@ public:
                             int64_t BranchOffset,
                             RegScavenger *RS = nullptr) const override;
 
+  bool expandBranchPseudo(MachineInstr &MI) const;
+  bool expandCallFramePseudo(MachineInstr &MI) const;
   bool expandPostRAPseudo(MachineInstr &MI) const override;
 };
 

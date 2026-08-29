@@ -13,12 +13,19 @@
 
 extern unsigned int debug_sink(unsigned int, unsigned int, unsigned int,
                                unsigned int, unsigned int);
+extern unsigned int debug_sink6(unsigned int, unsigned int, unsigned int,
+                                unsigned int, unsigned int, unsigned int);
 
 unsigned int debug_frame(unsigned int a, unsigned int b, unsigned int c,
                          unsigned int d) {
   unsigned int left = a + b;
   unsigned int right = c ^ d;
   return left + right + debug_sink(a, b, c, d, left ^ right);
+}
+
+unsigned int debug_two_stack_arguments(unsigned int a, unsigned int b,
+                                       unsigned int c, unsigned int d) {
+  return debug_sink6(a, b, c, d, a, b);
 }
 
 // VERIFY: No errors.
@@ -41,6 +48,10 @@ unsigned int debug_frame(unsigned int a, unsigned int b, unsigned int c,
 // FRAME: DW_CFA_val_expression: R0 DW_OP_breg0 R0+4
 // FRAME: DW_CFA_expression: R6 DW_OP_bregx DPP1+0, DW_OP_lit14, DW_OP_shl, DW_OP_breg0 R0+2, DW_OP_constu 0x3fff, DW_OP_and, DW_OP_or
 // FRAME: DW_CFA_expression: R7 DW_OP_bregx DPP1+0, DW_OP_lit14, DW_OP_shl, DW_OP_breg0 R0+0, DW_OP_constu 0x3fff, DW_OP_and, DW_OP_or
-// FRAME: DW_CFA_restore: R6
 // FRAME: DW_CFA_restore: R7
+// FRAME: DW_CFA_restore: R6
 // FRAME: DW_CFA_restore: R0
+// FRAME: FDE
+// FRAME: DW_CFA_val_expression: R0 DW_OP_breg0 R0+2
+// FRAME: DW_CFA_val_expression: R0 DW_OP_breg0 R0+4
+// FRAME: DW_CFA_val_expression: R0 DW_OP_breg0 R0+0

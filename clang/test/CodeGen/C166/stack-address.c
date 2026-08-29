@@ -39,16 +39,14 @@ u16 access_stack_offset_256(u16 value) {
 // pointer as { R0 & 0x3fff, DPP1 }.  A zero high word would incorrectly place
 // the user stack in page zero.
 // ADDR-LABEL: <_pass_local_address>:
-// ADDR:       mov {{r[0-9]+}}, #16383
-// ADDR:       and
+// ADDR:       and {{r[0-9]+}}, #16383
 // ADDR:       mov {{r[0-9]+}}, dpp1
 // ADDR:       calls
 // ADDR:       rets
 
 // A dynamically indexed automatic array must use the same DPP1 far address.
 // ADDR-LABEL: <_index_local_array>:
-// ADDR:       mov {{r[0-9]+}}, #16383
-// ADDR:       and
+// ADDR:       and {{r[0-9]+}}, #16383
 // ADDR:       mov {{r[0-9]+}}, dpp1
 // ADDR:       extp {{r[0-9]+}}, #1
 // ADDR:       mov [{{r[0-9]+}}], {{r[0-9]+}}

@@ -69,7 +69,6 @@ void count_down(unsigned int n) {
 // CHECK-NEXT:  jmpr cc_eq
 // CHECK:       calls
 // CHECK:       sub [[COUNT:r[0-9]+]], #1
-// CHECK-NEXT:  mov {{r[0-9]+}}, #0
-// CHECK-NEXT:  cmp [[COUNT]],
+// CHECK-NEXT:  cmp [[COUNT]], #0
 // CHECK-NEXT:  jmpr cc_ne
 // CHECK:       rets

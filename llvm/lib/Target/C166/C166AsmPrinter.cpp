@@ -209,10 +209,12 @@ public:
                                          getSubtargetInfo().getFeatureBits());
     MCInst Out;
     Out.setOpcode(MI->getOpcode());
-    const bool IsSegmentedControl =
-        MI->getOpcode() == C166::CALLS || MI->getOpcode() == C166::JMPS;
-    const bool IsAbsoluteControl =
-        MI->getOpcode() == C166::CALLA || MI->getOpcode() == C166::JMPA;
+    const bool IsSegmentedControl = MI->getOpcode() == C166::CALLS ||
+                                    MI->getOpcode() == C166::JMPS ||
+                                    MI->getOpcode() == C166::TAILJMPS;
+    const bool IsAbsoluteControl = MI->getOpcode() == C166::CALLA ||
+                                   MI->getOpcode() == C166::JMPA ||
+                                   MI->getOpcode() == C166::TAILJMPA;
     auto GetSpecifier = [&](const MachineOperand &MO,
                             unsigned OperandIndex) -> C166::Specifier {
       switch (MO.getTargetFlags()) {

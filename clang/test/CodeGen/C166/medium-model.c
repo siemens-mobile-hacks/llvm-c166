@@ -87,9 +87,8 @@ u16 call_huge_indirect(huge_function *function, u16 a, u16 b) {
 // ASM-LABEL: <_huge_identity>:
 // ASM: rets
 // ASM-LABEL: <_call_default>:
-// ASM: calla
+// ASM: jmpa
 // ASM: R_C166_COF16{{[[:space:]]+}}_default_external
-// ASM: ret
 // ASM-LABEL: <_call_default_indirect>:
 // ASM: calli
 // ASM: ret

@@ -233,14 +233,14 @@ void C166MCCodeEmitter::encodeInstruction(const MCInst &MI,
 
   const size_t FirstFixup = Fixups.size();
   uint64_t Encoding = getBinaryCodeForInstr(MI, Fixups, STI);
-  if ((MI.getOpcode() == C166::CALLS || MI.getOpcode() == C166::JMPS) &&
+  if ((MI.getOpcode() == C166::CALLS || MI.getOpcode() == C166::JMPS ||
+       MI.getOpcode() == C166::TAILJMPS) &&
       Fixups.size() == FirstFixup + 2) {
     const MCFixup &Segment = Fixups[FirstFixup];
     const MCFixup &Offset = Fixups[FirstFixup + 1];
     if (Segment.getKind() == C166::fixup_c166_seg8 &&
         Segment.getOffset() == 1 &&
-        Offset.getKind() == C166::fixup_c166_sof16 &&
-        Offset.getOffset() == 2 &&
+        Offset.getKind() == C166::fixup_c166_sof16 && Offset.getOffset() == 2 &&
         haveSameRelocatableValue(Segment.getValue(), Offset.getValue())) {
       const MCExpr *Value = Segment.getValue();
       Fixups.resize(FirstFixup);

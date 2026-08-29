@@ -279,9 +279,8 @@ declare i16 @callee_five_words(i16, i16, i16, i16, i16)
 
 define i16 @forward_five_words(i16 %a, i16 %b, i16 %c, i16 %d, i16 %e) {
 ; CHECK-LABEL: _forward_five_words:
-; CHECK:       sub r0, #2
-; CHECK-NEXT:  mov [[ARG:r[0-9]+]], [r0 + #2]
-; CHECK-NEXT:  mov [r0], [[ARG]]
+; CHECK:       mov [[ARG:r[0-9]+]], [r0]
+; CHECK-NEXT:  mov [-r0], [[ARG]]
 ; HUGE-NEXT:   calls seg(_callee_five_words), sof(_callee_five_words)
 ; NEAR-NEXT:   calla cc_uc, cof(_callee_five_words)
 ; CHECK-NEXT:  add r0, #2
@@ -296,13 +295,12 @@ declare i16 @callee_stack_stop(i16, i16, i16, i32, i16)
 
 define i16 @forward_stack_stop(i16 %a, i16 %b, i16 %c, i32 %d, i16 %e) {
 ; CHECK-LABEL: _forward_stack_stop:
-; CHECK:       mov [[DHI:r[0-9]+]], [r0 + #2]
-; CHECK-NEXT:  mov [[DLO:r[0-9]+]], [r0]
-; CHECK-NEXT:  sub r0, #6
-; CHECK-NEXT:  mov [r0], [[DLO]]
-; CHECK-NEXT:  mov [r0 + #2], [[DHI]]
-; CHECK-NEXT:  mov [[E:r[0-9]+]], [r0 + #10]
-; CHECK-NEXT:  mov [r0 + #4], [[E]]
+; CHECK:       mov [[E:r[0-9]+]], [r0 + #4]
+; CHECK-NEXT:  mov [-r0], [[E]]
+; CHECK-NEXT:  mov [[DLO:r[0-9]+]], [r0 + #2]
+; CHECK-NEXT:  mov [[DHI:r[0-9]+]], [r0 + #4]
+; CHECK-NEXT:  mov [-r0], [[DHI]]
+; CHECK-NEXT:  mov [-r0], [[DLO]]
 ; HUGE-NEXT:   calls seg(_callee_stack_stop), sof(_callee_stack_stop)
 ; NEAR-NEXT:   calla cc_uc, cof(_callee_stack_stop)
 ; CHECK-NEXT:  add r0, #6
@@ -323,19 +321,18 @@ define i16 @forward_packed3(ptr addrspace(2) %value, i16 %tail) {
 ; the object, and leave the high padding byte zero.  A word load here traps on
 ; C166 and the final such load would also read beyond the source object.
 ; CHECK-LABEL: _forward_packed3:
+; CHECK:       mov [-r0], r14
+; CHECK:       movb [[LAST_BYTE:r[lh][0-7]]], [{{r[0-9]+}}]
+; CHECK-NEXT:  movbz [[LAST_WORD:r[0-9]+]], [[LAST_BYTE]]
+; CHECK-NEXT:  mov [-r0], [[LAST_WORD]]
 ; CHECK:       movb [[HIGH_BYTE:r[lh][0-7]]], [{{r[0-9]+}}]
 ; CHECK-NEXT:  movbz [[HIGH_WORD:r[0-9]+]], [[HIGH_BYTE]]
 ; CHECK-NEXT:  shl [[HIGH_WORD]], #8
 ; CHECK:       movb [[LOW_BYTE:r[lh][0-7]]], [{{r[0-9]+}}]
 ; CHECK-NEXT:  movbz [[FIRST_WORD:r[0-9]+]], [[LOW_BYTE]]
 ; CHECK-NEXT:  or [[FIRST_WORD]], [[HIGH_WORD]]
-; CHECK:       movb [[LAST_BYTE:r[lh][0-7]]], [{{r[0-9]+}}]
-; CHECK-NEXT:  movbz [[LAST_WORD:r[0-9]+]], [[LAST_BYTE]]
 ; CHECK-NOT:   mov {{r[0-9]+}}, [{{r[0-9]+}}]
-; CHECK:       sub r0, #6
-; CHECK-DAG:   mov [r0], [[FIRST_WORD]]
-; CHECK-DAG:   mov [r0 + #2], [[LAST_WORD]]
-; CHECK-DAG:   mov [r0 + #4], r14
+; CHECK:       mov [-r0], [[FIRST_WORD]]
 ; HUGE:        calls seg(_callee_packed3), sof(_callee_packed3)
 ; NEAR:        calla cc_uc, cof(_callee_packed3)
 ; CHECK:       add r0, #6

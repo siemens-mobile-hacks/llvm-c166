@@ -1,6 +1,7 @@
 // REQUIRES: c166-registered-target
 // RUN: %clang --target=c166-none-elf -mcmodel=medium -O1 -mllvm -verify-machineinstrs -c %s -o %t.medium.o
 // RUN: %clang --target=c166-none-elf -mcmodel=small -O1 -mllvm -verify-machineinstrs -c %s -o %t.small.o
+// RUN: llvm-objdump -d %t.small.o | FileCheck %s --check-prefix=SMALL
 // RUN: %clang --target=c166-none-elf -mcmodel=large -O0 -mllvm -verify-machineinstrs -c %s -o %t-o0.o
 // RUN: %clang --target=c166-none-elf -mcmodel=large -O1 -mllvm -verify-machineinstrs -c %s -o %t-o1.o
 // RUN: llvm-objdump -d %t-o1.o | FileCheck %s
@@ -10,6 +11,9 @@
 extern volatile unsigned int pressure_word_seed;
 extern volatile unsigned long pressure_long_seed;
 extern unsigned int pressure_barrier(void);
+extern void pressure_observe4(char *, char *, char *, char *);
+extern void pressure_void_barrier(void);
+extern unsigned int pressure_consume4(char *, char *, char *, char *);
 
 unsigned int pressure_words(unsigned int a0, unsigned int a1,
                             unsigned int a2, unsigned int a3,
@@ -56,37 +60,82 @@ unsigned long pressure_longs(unsigned long a0, unsigned long a1,
   }
 }
 
-// Large frames use one scratch-register adjustment rather than a linear chain
-// of compact six-byte increments.  Matching adjustments in the epilogue
-// protect the user-stack delta on every return path.
+unsigned int pressure_frame_addresses(void) {
+  char a[2];
+  char b[2];
+  char c[2];
+  char d[2];
+  pressure_observe4(a, b, c, d);
+  pressure_void_barrier();
+  return pressure_consume4(a, b, c, d);
+}
+
+// Large frames use one full-immediate adjustment. Matching adjustments in the
+// epilogue protect the user-stack delta on every return path.
 // CHECK-LABEL: <_pressure_words>:
-// CHECK:       mov r1, #24
-// CHECK-NEXT:  sub r0, r1
-// CHECK-DAG:   mov [r0 + #{{[0-9]+}}], r6
-// CHECK-DAG:   mov [r0 + #{{[0-9]+}}], r7
-// CHECK-DAG:   mov [r0 + #{{[0-9]+}}], r8
-// CHECK-DAG:   mov [r0 + #{{[0-9]+}}], r9
+// CHECK-DAG:   mov [-r0], r6
+// CHECK-DAG:   mov [-r0], r7
+// CHECK-DAG:   mov [-r0], r8
+// CHECK-DAG:   mov [-r0], r9
+// CHECK:       sub r0, #16
 // CHECK:       calls
-// CHECK-DAG:   mov r9, [r0 + #{{[0-9]+}}]
-// CHECK-DAG:   mov r8, [r0 + #{{[0-9]+}}]
-// CHECK-DAG:   mov r7, [r0 + #{{[0-9]+}}]
-// CHECK-DAG:   mov r6, [r0 + #{{[0-9]+}}]
-// CHECK:       mov r1, #24
-// CHECK-NEXT:  add r0, r1
+// CHECK:       add r0, #16
+// CHECK-DAG:   mov r9, [r0+]
+// CHECK-DAG:   mov r8, [r0+]
+// CHECK-DAG:   mov r7, [r0+]
+// CHECK-DAG:   mov r6, [r0+]
 // CHECK:       rets
 
+// Near frame addresses are cheap to recompute after calls. Keeping their live
+// ranges local avoids introducing callee-saved registers in the Small model.
+// SMALL-LABEL: <_pressure_frame_addresses>:
+// SMALL-NOT:   mov [-r0]
+// SMALL:       sub r0, #8
+// SMALL:       calls
+// SMALL-NEXT:  calls
+// SMALL:       mov r12, r0
+// SMALL:       calls
+// SMALL-NOT:   mov [-r0]
+// SMALL:       rets
+
 // CHECK-LABEL: <_pressure_longs>:
-// CHECK:       mov r1, #48
-// CHECK-NEXT:  sub r0, r1
-// CHECK-DAG:   mov [r0 + #{{[0-9]+}}], r6
-// CHECK-DAG:   mov [r0 + #{{[0-9]+}}], r7
-// CHECK-DAG:   mov [r0 + #{{[0-9]+}}], r8
-// CHECK-DAG:   mov [r0 + #{{[0-9]+}}], r9
+// CHECK-DAG:   mov [-r0], r6
+// CHECK-DAG:   mov [-r0], r7
+// CHECK-DAG:   mov [-r0], r8
+// CHECK-DAG:   mov [-r0], r9
+// CHECK:       sub r0, #24
 // CHECK:       calls
-// CHECK-DAG:   mov r9, [r0 + #{{[0-9]+}}]
-// CHECK-DAG:   mov r8, [r0 + #{{[0-9]+}}]
-// CHECK-DAG:   mov r7, [r0 + #{{[0-9]+}}]
-// CHECK-DAG:   mov r6, [r0 + #{{[0-9]+}}]
-// CHECK:       mov r1, #48
-// CHECK-NEXT:  add r0, r1
+// CHECK:       add r0, #24
+// CHECK-DAG:   mov r9, [r0+]
+// CHECK-DAG:   mov r8, [r0+]
+// CHECK-DAG:   mov r7, [r0+]
+// CHECK-DAG:   mov r6, [r0+]
+// CHECK:       rets
+
+// Far frame addresses are formed at each call instead of occupying
+// callee-saved pairs across calls. Stack arguments are pushed as they become
+// available, and subsequent frame-index offsets account for each push.
+// CHECK-LABEL: <_pressure_frame_addresses>:
+// CHECK:       sub r0, #8
+// CHECK-NEXT:  mov r1, r0
+// CHECK:       mov [-r0], r2
+// CHECK-NEXT:  mov [-r0], r1
+// CHECK-NEXT:  mov r1, r0
+// CHECK-NEXT:  add r1, #6
+// CHECK:       mov [-r0], r2
+// CHECK-NEXT:  mov [-r0], r1
+// CHECK:       mov r12, #14
+// CHECK-NEXT:  add r12, r0
+// CHECK:       mov r14, #12
+// CHECK-NEXT:  add r14, r0
+// CHECK:       calls
+// CHECK-NEXT:  add r0, #8
+// CHECK-NEXT:  calls
+// CHECK-NOT:   mov [-r0], r6
+// CHECK-NOT:   mov [-r0], r7
+// CHECK-NOT:   mov [-r0], r8
+// CHECK-NOT:   mov [-r0], r9
+// CHECK:       mov [-r0], r2
+// CHECK-NEXT:  mov [-r0], r1
+// CHECK:       calls
 // CHECK:       rets

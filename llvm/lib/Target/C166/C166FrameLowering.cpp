@@ -10,6 +10,7 @@
 #include "C166.h"
 #include "C166CFI.h"
 #include "C166InstrInfo.h"
+#include "C166MachineFunctionInfo.h"
 #include "C166Subtarget.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -17,6 +18,7 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCRegisterInfo.h"
+#include "llvm/Support/MathExtras.h"
 #include "llvm/TargetParser/C166TargetParser.h"
 
 using namespace llvm;
@@ -127,43 +129,27 @@ static void emitInterruptSystemStackCFI(MachineFunction &MF,
 static void adjustUserStack(MachineFunction &MF, MachineBasicBlock &MBB,
                             MachineBasicBlock::iterator I, const DebugLoc &DL,
                             const C166InstrInfo &TII, uint64_t Amount,
-                            bool Allocate, bool UseScratch = true) {
-  // Three compact adjustments occupy the same six bytes as MOV R1,#imm16
-  // followed by SUB/ADD R0,R1.  Larger frames should use the scratch register
-  // instead of growing the prologue and every epilogue linearly with size.
-  // R1 is caller-clobbered and carries no C166 C argument or return value.
-  if (Amount > 18 && UseScratch) {
-    MachineInstr::MIFlag Flag =
-        Allocate ? MachineInstr::FrameSetup : MachineInstr::FrameDestroy;
-    BuildMI(MBB, I, DL, TII.get(C166::MOVri16), C166::R1)
-        .addImm(Amount)
-        .setMIFlag(Flag);
-    BuildMI(MBB, I, DL, TII.get(Allocate ? C166::SUBrr : C166::ADDrr), C166::R0)
-        .addReg(C166::R0)
-        .addReg(C166::R1, RegState::Kill)
-        .setMIFlag(Flag);
-    emitR0CFI(MF, MBB, I, DL, TII, Allocate ? Amount : 0, Flag);
-    return;
-  }
-  const uint64_t Total = Amount;
-  while (Amount) {
-    unsigned Chunk = std::min<uint64_t>(Amount, 6);
-    unsigned Opcode = Allocate ? C166::SUBri3 : C166::ADDri3;
-    BuildMI(MBB, I, DL, TII.get(Opcode), C166::R0)
-        .addReg(C166::R0)
-        .addImm(Chunk)
-        .setMIFlag(Allocate ? MachineInstr::FrameSetup
-                            : MachineInstr::FrameDestroy);
-    Amount -= Chunk;
-    const uint64_t CallerOffset = Allocate ? Total - Amount : Amount;
-    emitR0CFI(MF, MBB, I, DL, TII, CallerOffset,
-              Allocate ? MachineInstr::FrameSetup : MachineInstr::FrameDestroy);
-  }
+                            bool Allocate, uint64_t CallerOffset) {
+  MachineInstr::MIFlag Flag =
+      Allocate ? MachineInstr::FrameSetup : MachineInstr::FrameDestroy;
+  unsigned Opcode;
+  if (Allocate)
+    Opcode = Amount <= 7 ? C166::SUBri3 : C166::SUBri16;
+  else
+    Opcode = Amount <= 7 ? C166::ADDri3 : C166::ADDri16;
+  BuildMI(MBB, I, DL, TII.get(Opcode), C166::R0)
+      .addReg(C166::R0)
+      .addImm(Amount)
+      .setMIFlag(Flag);
+  emitR0CFI(MF, MBB, I, DL, TII, CallerOffset, Flag);
 }
 
 void C166FrameLowering::emitPrologue(MachineFunction &MF,
                                      MachineBasicBlock &MBB) const {
   uint64_t StackSize = MF.getFrameInfo().getStackSize();
+  unsigned CSSize =
+      MF.getInfo<C166MachineFunctionInfo>()->getCalleeSavedFrameSize();
+  uint64_t LocalSize = StackSize - CSSize;
   const C166InstrInfo &TII = *MF.getSubtarget<C166Subtarget>().getInstrInfo();
   MachineBasicBlock::iterator I = MBB.begin();
   const DebugLoc DL = I != MBB.end() ? I->getDebugLoc() : DebugLoc();
@@ -211,6 +197,9 @@ void C166FrameLowering::emitPrologue(MachineFunction &MF,
       ++I;
   } else {
     emitNearSystemStackCFI(MF, MBB, I, DL, TII);
+    while (I != MBB.end() && I->getOpcode() == C166::MOVmrPreDec &&
+           I->getFlag(MachineInstr::FrameSetup))
+      ++I;
   }
 
   if (!StackSize)
@@ -222,52 +211,25 @@ void C166FrameLowering::emitPrologue(MachineFunction &MF,
         "C166 automatic data exceeds the 16K user stack");
     return;
   }
-  bool R1Saved = false;
-  for (const CalleeSavedInfo &CSI : MF.getFrameInfo().getCalleeSavedInfo())
-    R1Saved |= CSI.getReg() == C166::R1;
-  adjustUserStack(MF, MBB, I, DL, TII, StackSize, true,
-                  !IsInterrupt || R1Saved);
+  if (LocalSize)
+    adjustUserStack(MF, MBB, I, DL, TII, LocalSize, true, StackSize);
+  else
+    emitR0CFI(MF, MBB, I, DL, TII, CSSize, MachineInstr::FrameSetup);
 
   if (!MF.needsFrameMoves() || IsInterrupt)
     return;
 
   const MCRegisterInfo *MRI = MF.getContext().getRegisterInfo();
-  // Generic PEI inserted all callee-save stores at the old block beginning.
-  // Find those frame-index stores explicitly: C166's folded stores do not
-  // carry FrameSetup after frame-index elimination.  The registers still
-  // contain their caller values while the stores run, so changing all rules
-  // immediately after the last store is precise throughout the prologue.
-  MachineBasicBlock::iterator AfterSpills = I;
-  unsigned RemainingSpills = 0;
-  for (const CalleeSavedInfo &CSI : MF.getFrameInfo().getCalleeSavedInfo())
-    RemainingSpills += !CSI.isSpilledToReg();
-  while (AfterSpills != MBB.end() && RemainingSpills) {
-    bool IsCalleeSaveSpill = false;
-    for (const MachineOperand &MO : AfterSpills->operands()) {
-      if (!MO.isFI())
-        continue;
-      for (const CalleeSavedInfo &CSI : MF.getFrameInfo().getCalleeSavedInfo())
-        IsCalleeSaveSpill |=
-            !CSI.isSpilledToReg() && MO.getIndex() == CSI.getFrameIdx();
-    }
-    if (IsCalleeSaveSpill)
-      --RemainingSpills;
-    ++AfterSpills;
-  }
-  assert(!RemainingSpills && "C166 callee-save spill was not found");
-
   const unsigned DwarfDPP1 = MRI->getDwarfRegNum(C166::DPP1, true);
-  for (const CalleeSavedInfo &CSI : MF.getFrameInfo().getCalleeSavedInfo()) {
-    if (CSI.isSpilledToReg())
+  ArrayRef<CalleeSavedInfo> CSI = MF.getFrameInfo().getCalleeSavedInfo();
+  for (auto [Index, Info] : llvm::enumerate(CSI)) {
+    if (Info.isSpilledToReg())
       continue;
-    Register FrameReg;
-    StackOffset Ref = getFrameIndexReference(MF, CSI.getFrameIdx(), FrameReg);
-    assert(FrameReg == C166::R0 && !Ref.getScalable() &&
-           "C166 callee save is not in the fixed user-stack frame");
-    unsigned DwarfReg = MRI->getDwarfRegNum(CSI.getReg(), true);
+    unsigned DwarfReg = MRI->getDwarfRegNum(Info.getReg(), true);
+    int64_t Offset = LocalSize + 2 * (CSI.size() - Index - 1);
     C166CFI::build(
-        MBB, AfterSpills, DL, TII,
-        C166CFI::createUserStackLocation(DwarfReg, Ref.getFixed(), DwarfDPP1),
+        MBB, I, DL, TII,
+        C166CFI::createUserStackLocation(DwarfReg, Offset, DwarfDPP1),
         MachineInstr::FrameSetup);
   }
 }
@@ -275,6 +237,9 @@ void C166FrameLowering::emitPrologue(MachineFunction &MF,
 void C166FrameLowering::emitEpilogue(MachineFunction &MF,
                                      MachineBasicBlock &MBB) const {
   uint64_t StackSize = MF.getFrameInfo().getStackSize();
+  unsigned CSSize =
+      MF.getInfo<C166MachineFunctionInfo>()->getCalleeSavedFrameSize();
+  uint64_t LocalSize = StackSize - CSSize;
   const C166InstrInfo &TII = *MF.getSubtarget<C166Subtarget>().getInstrInfo();
   MachineBasicBlock::iterator I = MBB.getFirstTerminator();
   const DebugLoc DL = I != MBB.end() ? I->getDebugLoc() : DebugLoc();
@@ -290,25 +255,44 @@ void C166FrameLowering::emitEpilogue(MachineFunction &MF,
     }
   }
 
-  if (StackSize && StackSize <= 0x4000 && MF.needsFrameMoves() &&
-      !IsInterrupt) {
-    const MCRegisterInfo *MRI = MF.getContext().getRegisterInfo();
-    for (const CalleeSavedInfo &CSI : MF.getFrameInfo().getCalleeSavedInfo()) {
-      if (CSI.isSpilledToReg())
-        continue;
-      unsigned DwarfReg = MRI->getDwarfRegNum(CSI.getReg(), true);
-      C166CFI::build(MBB, I, DL, TII,
-                     MCCFIInstruction::createRestore(nullptr, DwarfReg),
-                     MachineInstr::FrameDestroy);
-    }
-  }
-
   if (StackSize && StackSize <= 0x4000) {
-    bool R1Saved = false;
-    for (const CalleeSavedInfo &CSI : MF.getFrameInfo().getCalleeSavedInfo())
-      R1Saved |= CSI.getReg() == C166::R1;
-    adjustUserStack(MF, MBB, I, DL, TII, StackSize, false,
-                    !IsInterrupt || R1Saved);
+    if (!IsInterrupt && CSSize) {
+      MachineBasicBlock::iterator FirstRestore = I;
+      while (FirstRestore != MBB.begin()) {
+        MachineBasicBlock::iterator Previous = std::prev(FirstRestore);
+        if (Previous->getOpcode() != C166::MOVrmPostInc ||
+            !Previous->getFlag(MachineInstr::FrameDestroy))
+          break;
+        FirstRestore = Previous;
+      }
+      I = FirstRestore;
+    }
+
+    if (LocalSize)
+      adjustUserStack(MF, MBB, I, DL, TII, LocalSize, false, CSSize);
+
+    if (!IsInterrupt && CSSize && MF.needsFrameMoves()) {
+      const MCRegisterInfo *MRI = MF.getContext().getRegisterInfo();
+      unsigned Remaining = CSSize;
+      for (MachineBasicBlock::iterator Restore = I;
+           Restore != MBB.getFirstTerminator() && Remaining;) {
+        if (Restore->getOpcode() != C166::MOVrmPostInc) {
+          ++Restore;
+          continue;
+        }
+        unsigned DwarfReg =
+            MRI->getDwarfRegNum(Restore->getOperand(0).getReg(), true);
+        MachineBasicBlock::iterator AfterRestore = std::next(Restore);
+        C166CFI::build(MBB, AfterRestore, DL, TII,
+                       MCCFIInstruction::createRestore(nullptr, DwarfReg),
+                       MachineInstr::FrameDestroy);
+        Remaining -= 2;
+        emitR0CFI(MF, MBB, AfterRestore, DL, TII, Remaining,
+                  MachineInstr::FrameDestroy);
+        Restore = AfterRestore;
+      }
+      assert(!Remaining && "C166 callee-save restore was not found");
+    }
   }
 
   if (hasNamedRegisterBank(MF)) {
@@ -328,8 +312,23 @@ bool C166FrameLowering::spillCalleeSavedRegisters(
     MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
     ArrayRef<CalleeSavedInfo> CSI, const TargetRegisterInfo *TRI) const {
   MachineFunction &MF = *MBB.getParent();
-  if (!isInterruptHandler(MF))
-    return TargetFrameLowering::spillCalleeSavedRegisters(MBB, MI, CSI, TRI);
+  if (!isInterruptHandler(MF)) {
+    if (CSI.empty())
+      return false;
+    const C166InstrInfo &TII = *MF.getSubtarget<C166Subtarget>().getInstrInfo();
+    MF.getInfo<C166MachineFunctionInfo>()->setCalleeSavedFrameSize(CSI.size() *
+                                                                   2);
+    DebugLoc DL = MI != MBB.end() ? MI->getDebugLoc() : DebugLoc();
+    for (const CalleeSavedInfo &Info : CSI) {
+      MCRegister Reg = Info.getReg();
+      MBB.addLiveIn(Reg);
+      BuildMI(MBB, MI, DL, TII.get(C166::MOVmrPreDec), C166::R0)
+          .addReg(C166::R0)
+          .addReg(Reg, RegState::Kill)
+          .setMIFlag(MachineInstr::FrameSetup);
+    }
+    return true;
+  }
   const bool HasBank = hasNamedRegisterBank(MF);
   if (CSI.empty())
     return false;
@@ -370,8 +369,18 @@ bool C166FrameLowering::restoreCalleeSavedRegisters(
     MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
     MutableArrayRef<CalleeSavedInfo> CSI, const TargetRegisterInfo *TRI) const {
   MachineFunction &MF = *MBB.getParent();
-  if (!isInterruptHandler(MF))
-    return TargetFrameLowering::restoreCalleeSavedRegisters(MBB, MI, CSI, TRI);
+  if (!isInterruptHandler(MF)) {
+    if (CSI.empty())
+      return false;
+    const C166InstrInfo &TII = *MF.getSubtarget<C166Subtarget>().getInstrInfo();
+    DebugLoc DL = MI != MBB.end() ? MI->getDebugLoc() : DebugLoc();
+    for (const CalleeSavedInfo &Info : llvm::reverse(CSI))
+      BuildMI(MBB, MI, DL, TII.get(C166::MOVrmPostInc), Info.getReg())
+          .addReg(C166::R0, RegState::Define)
+          .addReg(C166::R0)
+          .setMIFlag(MachineInstr::FrameDestroy);
+    return true;
+  }
   const bool HasBank = hasNamedRegisterBank(MF);
   if (CSI.empty())
     return false;
@@ -403,7 +412,32 @@ bool C166FrameLowering::restoreCalleeSavedRegisters(
 }
 
 MachineBasicBlock::iterator C166FrameLowering::eliminateCallFramePseudoInstr(
-    MachineFunction &, MachineBasicBlock &MBB,
+    MachineFunction &MF, MachineBasicBlock &MBB,
     MachineBasicBlock::iterator I) const {
+  // Caller cleanup and fixed-frame deallocation are separated only by the
+  // call-sequence marker.  Merge them while PEI removes that marker.
+  if (I->getOpcode() == C166::ADJCALLSTACKUP && I != MBB.begin()) {
+    MachineBasicBlock::iterator Cleanup = std::prev(I);
+    MachineBasicBlock::iterator Deallocate = std::next(I);
+    if (Cleanup->getOpcode() == C166::ADJSP && Cleanup->getOperand(0).isImm() &&
+        Deallocate != MBB.end() &&
+        (Deallocate->getOpcode() == C166::ADDri3 ||
+         Deallocate->getOpcode() == C166::ADDri16) &&
+        Deallocate->getFlag(MachineInstr::FrameDestroy) &&
+        Deallocate->getOperand(2).isImm()) {
+      uint64_t CleanupSize = Cleanup->getOperand(0).getImm();
+      uint64_t FrameSize = Deallocate->getOperand(2).getImm();
+      if (CleanupSize == static_cast<uint64_t>(I->getOperand(0).getImm()) &&
+          isUInt<16>(CleanupSize + FrameSize)) {
+        uint64_t CombinedSize = CleanupSize + FrameSize;
+        const C166InstrInfo &TII =
+            *MF.getSubtarget<C166Subtarget>().getInstrInfo();
+        Deallocate->setDesc(
+            TII.get(CombinedSize <= 7 ? C166::ADDri3 : C166::ADDri16));
+        Deallocate->getOperand(2).setImm(CombinedSize);
+        Cleanup->eraseFromParent();
+      }
+    }
+  }
   return MBB.erase(I);
 }

@@ -79,15 +79,14 @@ double stackparm_double_indirect(stackparm_double_function *function,
 // MEDIUM-DAG:   mov {{r[0-9]+}}, [r0 + #8]
 // MEDIUM:       ret
 // MEDIUM-LABEL: _stackparm_direct:
-// MEDIUM:       sub r0, #6
-// MEDIUM-NEXT:  sub r0, #4
+// MEDIUM-COUNT-5: mov [-r0],
 // MEDIUM:       calla cc_uc, cof(_stackparm_external)
-// MEDIUM-NEXT:  add r0, #6
-// MEDIUM-NEXT:  add r0, #4
+// MEDIUM-NEXT:  add r0, #10
 // MEDIUM-NEXT:  ret
 // MEDIUM-LABEL: _stackparm_indirect:
+// MEDIUM-COUNT-5: mov [-r0],
 // MEDIUM:       calli cc_uc, [r{{[0-9]+}}]
-// MEDIUM:       add r0, #4
+// MEDIUM:       add r0, #10
 // MEDIUM-NEXT:  ret
 // MEDIUM-LABEL: _stackparm_float_identity:
 // MEDIUM:       mov r4, [r0]
@@ -99,35 +98,28 @@ double stackparm_double_indirect(stackparm_double_function *function,
 // MEDIUM-NEXT:  mov r10, r4
 // MEDIUM-NEXT:  ret
 // MEDIUM-LABEL: _stackparm_float_direct:
+// MEDIUM-COUNT-3: mov [-r0],
 // MEDIUM:       calla cc_uc, cof(_stackparm_float_external)
 // MEDIUM:       ret
 // MEDIUM-LABEL: _stackparm_double_direct:
 // MEDIUM:       calla cc_uc, cof(_stackparm_double_external)
 // MEDIUM:       ret
 // MEDIUM-LABEL: _stackparm_float_indirect:
+// MEDIUM-COUNT-3: mov [-r0],
 // MEDIUM:       calli cc_uc, [r{{[0-9]+}}]
 // MEDIUM:       ret
 // MEDIUM-LABEL: _stackparm_double_indirect:
 // MEDIUM:       calli cc_uc, [r{{[0-9]+}}]
 // MEDIUM:       ret
 // ASM-LABEL: _stackparm_direct:
-// ASM:       sub r0, #6
-// ASM-NEXT:  sub r0, #4
-// ASM-DAG:   mov [r0], {{r[0-9]+}}
-// ASM-DAG:   mov [r0 + #2], {{r[0-9]+}}
-// ASM-DAG:   mov [r0 + #4], {{r[0-9]+}}
-// ASM-DAG:   mov [r0 + #6], {{r[0-9]+}}
-// ASM-DAG:   mov [r0 + #8], {{r[0-9]+}}
+// ASM-COUNT-5: mov [-r0],
 // ASM:       calls seg(_stackparm_external), sof(_stackparm_external)
-// ASM-NEXT:  add r0, #6
-// ASM-NEXT:  add r0, #4
+// ASM-NEXT:  add r0, #10
 // ASM-NEXT:  rets
 // ASM-LABEL: _stackparm_indirect:
-// ASM:       sub r0, #6
-// ASM-NEXT:  sub r0, #4
+// ASM-COUNT-5: mov [-r0],
 // ASM:       calls seg(__icall), sof(__icall)
-// ASM-NEXT:  add r0, #6
-// ASM-NEXT:  add r0, #4
+// ASM-NEXT:  add r0, #10
 // ASM-NEXT:  rets
 
 // IR: define{{.*}}cc128{{.*}}float @stackparm_float_identity
@@ -147,7 +139,7 @@ double stackparm_double_indirect(stackparm_double_function *function,
 // ASM:       mov r10, r4
 // ASM-NEXT:  rets
 // ASM-LABEL: _stackparm_float_direct:
-// ASM:       sub r0, #6
+// ASM-COUNT-3: mov [-r0],
 // ASM:       calls seg(_stackparm_float_external), sof(_stackparm_float_external)
 // ASM-NEXT:  add r0, #6
 // ASM-NEXT:  rets
@@ -156,7 +148,7 @@ double stackparm_double_indirect(stackparm_double_function *function,
 // ASM:       mov {{r[0-9]+}}, [r4]
 // ASM:       rets
 // ASM-LABEL: _stackparm_float_indirect:
-// ASM:       sub r0, #6
+// ASM-COUNT-3: mov [-r0],
 // ASM:       calls seg(__icall), sof(__icall)
 // ASM-NEXT:  add r0, #6
 // ASM-NEXT:  rets

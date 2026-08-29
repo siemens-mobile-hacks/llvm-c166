@@ -114,8 +114,9 @@ unsigned int consume_return_four_with_stack_tail(
 // CHECK:       sub r0, #4
 // CHECK:       mov [r0], {{r[0-9]+}}
 // CHECK:       mov [r0 + #2], {{r[0-9]+}}
+// CHECK-COUNT-2: mov [-r0], {{r[0-9]+}}
 // CHECK:       calls
-// CHECK:       add r0, #4
+// CHECK:       add r0, #8
 // CHECK:       rets
 // CHECK-LABEL: <_return_two>:
 // CHECK:       mov r4, r0
@@ -135,18 +136,18 @@ unsigned int consume_return_four_with_stack_tail(
 // CHECK:       mov [r0 + #2], {{r[0-9]+}}
 // CHECK:       rets
 // CHECK-LABEL: <_consume_return_one_with_stack>:
-// CHECK:       sub r0, #4
-// CHECK:       mov [r0], {{r[0-9]+}}
+// CHECK:       sub r0, #2
+// CHECK-NEXT:  sub r0, #2
+// CHECK:       mov [-r0], {{r[0-9]+}}
 // CHECK:       calls
 // CHECK:       mov {{r[0-9]+}}, [r4]
 // CHECK:       add r0, #4
 // CHECK:       rets
 
 // The final user-stack layout for a call returning eight aggregate bytes and
-// passing four stack words is [arguments:8][result:8].  LLVM allocates that
-// complete sixteen-byte outgoing frame before the fixed-offset stores.  This
-// is externally equivalent to result reservation followed by four
-// reverse predecrement pushes.
+// passing four stack words is [arguments:8][result:8].  The result block is
+// reserved first and the four ordinary stack arguments are then pushed in
+// reverse order.
 // CHECK-LABEL: <_return_four_with_stack_tail>:
 // CHECK-DAG:   mov {{r[0-9]+}}, [r0]
 // CHECK-DAG:   mov {{r[0-9]+}}, [r0 + #2]
@@ -158,20 +159,13 @@ unsigned int consume_return_four_with_stack_tail(
 // CHECK-DAG:   mov [r0 + #14], {{r[0-9]+}}
 // CHECK:       rets
 // CHECK-LABEL: <_consume_return_four_with_stack_tail>:
-// CHECK:       mov {{r[0-9]+}}, [r0 + #8]
-// CHECK-NEXT:  sub r0, #6
-// CHECK-NEXT:  sub r0, #6
-// CHECK-NEXT:  sub r0, #4
-// CHECK:       mov [r0], {{r[0-9]+}}
-// CHECK:       mov [r0 + #2], {{r[0-9]+}}
-// CHECK:       mov [r0 + #4], {{r[0-9]+}}
-// CHECK:       mov [r0 + #6], {{r[0-9]+}}
+// CHECK:       sub r0, #8
+// CHECK-NEXT:  sub r0, #8
+// CHECK-COUNT-4: mov [-r0], {{r[0-9]+}}
 // CHECK:       calls
 // CHECK:       mov {{r[0-9]+}}, [r4]
 // CHECK:       mov {{r[0-9]+}}, [r4 + #2]
 // CHECK:       mov {{r[0-9]+}}, [r4 + #4]
 // CHECK:       mov r4, [r4 + #6]
-// CHECK:       add r0, #6
-// CHECK-NEXT:  add r0, #6
-// CHECK-NEXT:  add r0, #4
+// CHECK:       add r0, #16
 // CHECK:       rets

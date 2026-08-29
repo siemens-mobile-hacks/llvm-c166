@@ -65,6 +65,30 @@ sub r0, #6
 ; ASM: sub r0, #6{{.*}}encoding: [0x28,0x06]
 ; DIS: 28 06{{.*}}sub r0, #6
 
+add r8, #0x1234
+; ASM: add r8, #4660{{.*}}encoding: [0x06,0xf8,0x34,0x12]
+; DIS: 06 f8 34 12{{.*}}add r8, #4660
+
+addc r5, #7
+; ASM: addc r5, #7{{.*}}encoding: [0x18,0x57]
+; DIS: 18 57{{.*}}addc r5, #7
+
+addc r5, #0x1234
+; ASM: addc r5, #4660{{.*}}encoding: [0x16,0xf5,0x34,0x12]
+; DIS: 16 f5 34 12{{.*}}addc r5, #4660
+
+sub r0, #128
+; ASM: sub r0, #128{{.*}}encoding: [0x26,0xf0,0x80,0x00]
+; DIS: 26 f0 80 00{{.*}}sub r0, #128
+
+subc r6, #7
+; ASM: subc r6, #7{{.*}}encoding: [0x38,0x67]
+; DIS: 38 67{{.*}}subc r6, #7
+
+subc r6, #0x1234
+; ASM: subc r6, #4660{{.*}}encoding: [0x36,0xf6,0x34,0x12]
+; DIS: 36 f6 34 12{{.*}}subc r6, #4660
+
 shl r14, #1
 ; ASM: shl r14, #1{{.*}}encoding: [0x5c,0x1e]
 ; DIS: 5c 1e{{.*}}shl r14, #1
@@ -93,17 +117,53 @@ cmp r14, r11
 ; ASM: cmp r14, r11{{.*}}encoding: [0x40,0xeb]
 ; DIS: 40 eb{{.*}}cmp r14, r11
 
+cmp r4, #0
+; ASM: cmp r4, #0{{.*}}encoding: [0x48,0x40]
+; DIS: 48 40{{.*}}cmp r4, #0
+
+cmp r2, #128
+; ASM: cmp r2, #128{{.*}}encoding: [0x46,0xf2,0x80,0x00]
+; DIS: 46 f2 80 00{{.*}}cmp r2, #128
+
+cmp r4, #10
+; ASM: cmp r4, #10{{.*}}encoding: [0x46,0xf4,0x0a,0x00]
+; DIS: 46 f4 0a 00{{.*}}cmp r4, #10
+
 and r4, r5
 ; ASM: and r4, r5{{.*}}encoding: [0x60,0x45]
 ; DIS: 60 45{{.*}}and r4, r5
+
+and r4, #3
+; ASM: and r4, #3{{.*}}encoding: [0x68,0x43]
+; DIS: 68 43{{.*}}and r4, #3
+
+and r12, #0x3fff
+; ASM: and r12, #16383{{.*}}encoding: [0x66,0xfc,0xff,0x3f]
+; DIS: 66 fc ff 3f{{.*}}and r12, #16383
 
 or r10, r7
 ; ASM: or r10, r7{{.*}}encoding: [0x70,0xa7]
 ; DIS: 70 a7{{.*}}or r10, r7
 
+or r10, #5
+; ASM: or r10, #5{{.*}}encoding: [0x78,0xa5]
+; DIS: 78 a5{{.*}}or r10, #5
+
+or r10, #0x1234
+; ASM: or r10, #4660{{.*}}encoding: [0x76,0xfa,0x34,0x12]
+; DIS: 76 fa 34 12{{.*}}or r10, #4660
+
 xor r3, r2
 ; ASM: xor r3, r2{{.*}}encoding: [0x50,0x32]
 ; DIS: 50 32{{.*}}xor r3, r2
+
+xor r3, #2
+; ASM: xor r3, #2{{.*}}encoding: [0x58,0x32]
+; DIS: 58 32{{.*}}xor r3, #2
+
+xor r3, #0x1234
+; ASM: xor r3, #4660{{.*}}encoding: [0x56,0xf3,0x34,0x12]
+; DIS: 56 f3 34 12{{.*}}xor r3, #4660
 
 mov r4, [r0]
 ; ASM: mov r4, [r0]{{.*}}encoding: [0xa8,0x40]
@@ -191,6 +251,10 @@ mov [r12], r14
 mov [-r5], r4
 ; ASM: mov [-r5], r4{{.*}}encoding: [0x88,0x45]
 ; DIS: 88 45{{.*}}mov [-r5], r4
+
+mov r6, [r0+]
+; ASM: mov r6, [r0+]{{.*}}encoding: [0x98,0x60]
+; DIS: 98 60{{.*}}mov r6, [r0+]
 
 mov r12, [r0 + #2]
 ; ASM: mov r12, [r0 + #2]{{.*}}encoding: [0xd4,0xc0,0x02,0x00]

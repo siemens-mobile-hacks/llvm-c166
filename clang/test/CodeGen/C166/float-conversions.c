@@ -66,8 +66,7 @@ int double_unordered(double lhs, double rhs) {
 // CHECK-LABEL: <_double_to_int>:
 // CHECK:       calls
 // CHECK:       R_C166_SEG24 ___fixdfsi
-// CHECK:       add r0, #6
-// CHECK-NEXT:  add r0, #2
+// CHECK:       add r0, #8
 // CHECK-NEXT:  rets
 // CHECK-LABEL: <_double_to_uint>:
 // CHECK:       R_C166_SEG24 ___fixunsdfsi
@@ -81,8 +80,7 @@ int double_unordered(double lhs, double rhs) {
 // CHECK-LABEL: <_int_to_double>:
 // CHECK:       R_C166_SEG24 ___floatsidf
 // CHECK:       mov {{r[0-9]+}}, [r4]
-// CHECK:       add r0, #6
-// CHECK-NEXT:  add r0, #2
+// CHECK:       add r0, #8
 // CHECK:       rets
 // CHECK-LABEL: <_uint_to_double>:
 // CHECK:       R_C166_SEG24 ___floatunsidf
@@ -95,10 +93,9 @@ int double_unordered(double lhs, double rhs) {
 // remains available in R4:R5 after cleanup for the predicate materialization.
 // CHECK-LABEL: <_double_equal>:
 // CHECK:       R_C166_SEG24 ___eqdf2
-// CHECK:       add r0, #6
-// CHECK-NEXT:  add r0, #6
-// CHECK-NEXT:  add r0, #4
-// CHECK:       cmp r5,
+// CHECK:       add r0, #16
+// CHECK:       or {{r[0-9]+}}, {{r[0-9]+}}
+// CHECK-NEXT:  jmpr cc_eq
 // CHECK-LABEL: <_double_not_equal>:
 // CHECK:       R_C166_SEG24 ___nedf2
 // CHECK-LABEL: <_double_less>:

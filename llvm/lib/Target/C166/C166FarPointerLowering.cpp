@@ -374,25 +374,17 @@ bool llvm::lowerC166PointerCasts(Function &F) {
       Result = Builder.CreateICmp(Compare->getPredicate(), LHSBits, RHSBits,
                                   "c166.ptr.cmp");
     } else if (Compare->isEquality()) {
-      // Null comparisons use both stored words.  Keep them separate so an
-      // optimizer cannot turn this back into a generic pointer comparison.
+      // Null comparisons use both stored words.  Collapse them to one native
+      // word comparison instead of keeping a zero-valued register pair live.
+      Value *Bits = isa<ConstantPointerNull>(RHS) ? LHSBits : RHSBits;
       Function *HighWord =
           Intrinsic::getOrInsertDeclaration(M, Intrinsic::c166_high_word);
-      Value *LHSHi =
-          Builder.CreateCall(HighWord, {LHSBits}, "c166.ptr.lhs.high");
-      Value *RHSHi =
-          Builder.CreateCall(HighWord, {RHSBits}, "c166.ptr.rhs.high");
-      Value *LHSLo = Builder.CreateTrunc(LHSBits, Builder.getInt16Ty(),
-                                         "c166.ptr.lhs.low");
-      Value *RHSLo = Builder.CreateTrunc(RHSBits, Builder.getInt16Ty(),
-                                         "c166.ptr.rhs.low");
-      Value *Low = Builder.CreateICmp(Compare->getPredicate(), LHSLo, RHSLo,
-                                      "c166.ptr.low.cmp");
-      Value *High = Builder.CreateICmp(Compare->getPredicate(), LHSHi, RHSHi,
-                                       "c166.ptr.high.cmp");
-      Result = Compare->getPredicate() == CmpInst::ICMP_EQ
-                   ? Builder.CreateAnd(Low, High, "c166.ptr.cmp")
-                   : Builder.CreateOr(Low, High, "c166.ptr.cmp");
+      Value *High = Builder.CreateCall(HighWord, {Bits}, "c166.ptr.high");
+      Value *Low =
+          Builder.CreateTrunc(Bits, Builder.getInt16Ty(), "c166.ptr.low");
+      Value *Words = Builder.CreateOr(Low, High, "c166.ptr.words");
+      Result = Builder.CreateICmp(Compare->getPredicate(), Words,
+                                  Builder.getInt16(0), "c166.ptr.cmp");
     } else {
       Result = Builder.CreateICmp(Compare->getPredicate(), LHSBits, RHSBits,
                                   "c166.ptr.cmp");

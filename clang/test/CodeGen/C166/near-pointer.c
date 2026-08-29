@@ -192,51 +192,43 @@ near_void *xnear_to_near(xnear_void *p) { return (near_void *)p; }
 // bits.  Narrowing forces exactly selector 10b for near or 01b for xnear.
 // DIS-LABEL: <_near_to_long>:
 // DIS:       mov {{r[0-9]+}}, dpp2
-// DIS:       and {{r[0-9]+}}, {{r[0-9]+}}
 // DIS:       shl {{r[0-9]+}}, #14
+// DIS:       and {{r[0-9]+}}, #16383
 // DIS:       rets
 // DIS-LABEL: <_xnear_to_long>:
 // DIS:       mov {{r[0-9]+}}, dpp1
-// DIS:       and {{r[0-9]+}}, {{r[0-9]+}}
 // DIS:       shl {{r[0-9]+}}, #14
+// DIS:       and {{r[0-9]+}}, #16383
 // DIS:       rets
 // DIS-LABEL: <_long_to_near>:
-// DIS:       mov {{r[0-9]+}}, #32768
-// DIS:       or
-// DIS:       mov {{r[0-9]+}}, #49151
-// DIS:       and
+// DIS:       or {{r[0-9]+}}, #32768
+// DIS:       and {{r[0-9]+}}, #49151
 // DIS:       rets
 // DIS-LABEL: <_long_to_xnear>:
-// DIS:       mov {{r[0-9]+}}, #16384
-// DIS:       or
-// DIS:       mov {{r[0-9]+}}, #32767
-// DIS:       and
+// DIS:       or {{r[0-9]+}}, #16384
+// DIS:       and {{r[0-9]+}}, #32767
 // DIS:       rets
 
 // Widening to far preserves raw null and otherwise forms offset:DPP.
 // DIS-LABEL: <_near_to_far>:
-// DIS:       mov {{r[0-9]+}}, dpp2
-// DIS:       mov {{r[0-9]+}}, #16383
 // DIS:       cmp
-// DIS:       jmpr cc_eq,
+// DIS-NEXT:  jmpr cc_eq,
+// DIS:       mov {{r[0-9]+}}, dpp2
+// DIS:       and {{r[0-9]+}}, #16383
 // DIS:       rets
 // DIS-LABEL: <_xnear_to_far>:
-// DIS:       mov {{r[0-9]+}}, dpp1
-// DIS:       mov {{r[0-9]+}}, #16383
 // DIS:       cmp
-// DIS:       jmpr cc_eq,
+// DIS-NEXT:  jmpr cc_eq,
+// DIS:       mov {{r[0-9]+}}, dpp1
+// DIS:       and {{r[0-9]+}}, #16383
 // DIS:       rets
 
 // Cross-qualifier casts rewrite only the selector bits.
 // DIS-LABEL: <_near_to_xnear>:
-// DIS:       mov {{r[0-9]+}}, #16384
-// DIS:       or
-// DIS:       mov {{r[0-9]+}}, #32767
-// DIS:       and
+// DIS:       or {{r[0-9]+}}, #16384
+// DIS:       and {{r[0-9]+}}, #32767
 // DIS:       rets
 // DIS-LABEL: <_xnear_to_near>:
-// DIS:       mov {{r[0-9]+}}, #32768
-// DIS:       or
-// DIS:       mov {{r[0-9]+}}, #49151
-// DIS:       and
+// DIS:       or {{r[0-9]+}}, #32768
+// DIS:       and {{r[0-9]+}}, #49151
 // DIS:       rets

@@ -30,6 +30,10 @@ extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void LLVMInitializeC166Target() {
   initializeC166FarPointerLoweringPass(PR);
   initializeC166FloatMemoryLoweringPass(PR);
   initializeC166UnsupportedFeaturesPass(PR);
+  initializeC166ArgumentLoadSinkingPass(PR);
+  initializeC166PostISelPass(PR);
+  initializeC166CallFrameExpansionPass(PR);
+  initializeC166FrameAddressRematerializationPass(PR);
   initializeC166DAGToDAGISelLegacyPass(PR);
 }
 
@@ -143,7 +147,23 @@ public:
     return false;
   }
 
-  void addPreEmitPass() override { addPass(&BranchRelaxationPassID); }
+  void addMachineSSAOptimization() override {
+    if (getOptLevel() != CodeGenOptLevel::None) {
+      addPass(createC166PostISelPass());
+      addPass(createC166ArgumentLoadSinkingPass());
+    }
+    TargetPassConfig::addMachineSSAOptimization();
+  }
+
+  void addPreRegAlloc() override {
+    if (getOptLevel() != CodeGenOptLevel::None)
+      addPass(createC166FrameAddressRematerializationPass());
+  }
+
+  void addPreEmitPass() override {
+    addPass(createC166CallFrameExpansionPass());
+    addPass(&BranchRelaxationPassID);
+  }
 };
 } // namespace
 

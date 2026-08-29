@@ -95,9 +95,8 @@ unsigned int call_indirect5(fn5_t fn, unsigned int a, unsigned int b,
 // DIS-LABEL: <_call_indirect5>:
 // DIS:       mov r4, r12
 // DIS-NEXT:  mov r5, r13
-// DIS:       sub r0, #2
-// DIS-NEXT:  mov [[LAST:r[0-9]+]], [r0 + #6]
-// DIS-NEXT:  mov [r0], [[LAST]]
+// DIS:       mov [[LAST:r[0-9]+]], [r0 + #4]
+// DIS-NEXT:  mov [-r0], [[LAST]]
 // DIS-NEXT:  mov r14, [r0 + #2]
 // DIS-NEXT:  mov r15, [r0 + #4]
 // DIS:       calls

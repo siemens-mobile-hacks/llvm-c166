@@ -33,10 +33,55 @@ C166InstrInfo::C166InstrInfo(const C166Subtarget &STI)
     : C166GenInstrInfo(STI, RI, C166::ADJCALLSTACKDOWN, C166::ADJCALLSTACKUP),
       RI() {}
 
+bool C166InstrInfo::isReMaterializableImpl(const MachineInstr &MI) const {
+  if (MI.getOpcode() != C166::LEAfi && MI.getOpcode() != C166::FRAMEADDR32)
+    return TargetInstrInfo::isReMaterializableImpl(MI);
+
+  Register Value = MI.getOperand(0).getReg();
+  if (!Value.isVirtual())
+    return false;
+
+  const MachineRegisterInfo &MRI = MI.getMF()->getRegInfo();
+  for (const MachineInstr &Use : MRI.use_nodbg_instructions(Value)) {
+    if (Use.isPHI() ||
+        Use.getParent()->computeRegisterLiveness(
+            &RI, C166::PSW, Use.getIterator()) != MachineBasicBlock::LQR_Dead)
+      return false;
+  }
+  return true;
+}
+
+int C166InstrInfo::getSPAdjust(const MachineInstr &MI) const {
+  switch (MI.getOpcode()) {
+  case C166::ADJCALLSTACKDOWN:
+    // The individual allocation and push pseudos below describe the actual
+    // R0 displacement within the call sequence.
+    return 0;
+  case C166::ALLOCSP:
+    return MI.getOperand(0).getImm();
+  case C166::PUSHARG:
+    return 2;
+  default:
+    return TargetInstrInfo::getSPAdjust(MI);
+  }
+}
+
 unsigned C166InstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
   if (MI.isMetaInstruction())
     return 0;
   switch (MI.getOpcode()) {
+  case C166::BR:
+  case C166::FLAGSBR:
+    return 2;
+  case C166::CMPBR:
+    return 4;
+  case C166::CMPBRi:
+    return isUInt<3>(MI.getOperand(1).getImm()) ? 4 : 6;
+  case C166::TEST32BR: {
+    bool UsesR1 = MI.getOperand(0).getReg() == C166::R1 ||
+                  MI.getOperand(1).getReg() == C166::R1;
+    return UsesR1 ? 4 : 6;
+  }
   case TargetOpcode::BUNDLE:
     return getInstBundleSize(MI);
   case TargetOpcode::INLINEASM:
@@ -69,6 +114,63 @@ static bool isC166ConditionalBranch(unsigned Opcode) {
 
 static bool isC166UnconditionalBranch(unsigned Opcode) {
   return Opcode == C166::JMPR_UC || Opcode == C166::JMPS;
+}
+
+static bool isC166ConditionalBranchPseudo(unsigned Opcode) {
+  return Opcode == C166::CMPBR || Opcode == C166::CMPBRi ||
+         Opcode == C166::FLAGSBR || Opcode == C166::TEST32BR;
+}
+
+static bool isC166AnalyzableConditionalBranch(unsigned Opcode) {
+  return isC166ConditionalBranch(Opcode) ||
+         isC166ConditionalBranchPseudo(Opcode);
+}
+
+static bool isC166AnalyzableUnconditionalBranch(unsigned Opcode) {
+  return isC166UnconditionalBranch(Opcode) || Opcode == C166::BR;
+}
+
+static unsigned getC166BranchTargetOperand(unsigned Opcode) {
+  if (isC166ConditionalBranch(Opcode) || isC166UnconditionalBranch(Opcode) ||
+      Opcode == C166::BR)
+    return 0;
+  if (Opcode == C166::FLAGSBR)
+    return 1;
+  assert((Opcode == C166::CMPBR || Opcode == C166::CMPBRi ||
+          Opcode == C166::TEST32BR) &&
+         "not an analyzable C166 branch");
+  return 3;
+}
+
+static void emitDynamicUserStackCFI(MachineInstr &MI, const C166InstrInfo &TII,
+                                    uint64_t DynamicOffset) {
+  MachineBasicBlock &MBB = *MI.getParent();
+  MachineFunction &MF = *MBB.getParent();
+  if (!MF.needsFrameMoves())
+    return;
+
+  const MCRegisterInfo *MRI = MF.getContext().getRegisterInfo();
+  const TargetFrameLowering *TFI = MF.getSubtarget().getFrameLowering();
+  const uint64_t FixedOffset = MF.getFrameInfo().getStackSize();
+  const unsigned DwarfR0 = MRI->getDwarfRegNum(C166::R0, true);
+  C166CFI::build(
+      MBB, MI, MI.getDebugLoc(), TII,
+      C166CFI::createUserStackValue(DwarfR0, FixedOffset + DynamicOffset));
+
+  const unsigned DwarfDPP1 = MRI->getDwarfRegNum(C166::DPP1, true);
+  for (const CalleeSavedInfo &CSI : MF.getFrameInfo().getCalleeSavedInfo()) {
+    if (CSI.isSpilledToReg())
+      continue;
+    Register FrameReg;
+    StackOffset Ref =
+        TFI->getFrameIndexReference(MF, CSI.getFrameIdx(), FrameReg);
+    assert(FrameReg == C166::R0 && !Ref.getScalable() &&
+           "C166 callee save is not in the fixed user-stack frame");
+    unsigned DwarfReg = MRI->getDwarfRegNum(CSI.getReg(), true);
+    C166CFI::build(MBB, MI, MI.getDebugLoc(), TII,
+                   C166CFI::createUserStackLocation(
+                       DwarfReg, Ref.getFixed() + DynamicOffset, DwarfDPP1));
+  }
 }
 
 static bool isC166SmallDataAddress(const MachineInstr &MI,
@@ -128,6 +230,33 @@ static unsigned reverseC166BranchOpcode(unsigned Opcode) {
     return C166::JMPR_SLT;
   default:
     llvm_unreachable("invalid C166 conditional branch");
+  }
+}
+
+static unsigned reverseC166ConditionCode(unsigned CC) {
+  switch (CC) {
+  case C166::CC_EQ:
+    return C166::CC_NE;
+  case C166::CC_NE:
+    return C166::CC_EQ;
+  case C166::CC_ULT:
+    return C166::CC_UGE;
+  case C166::CC_UGE:
+    return C166::CC_ULT;
+  case C166::CC_UGT:
+    return C166::CC_ULE;
+  case C166::CC_ULE:
+    return C166::CC_UGT;
+  case C166::CC_SGT:
+    return C166::CC_SLE;
+  case C166::CC_SLE:
+    return C166::CC_SGT;
+  case C166::CC_SLT:
+    return C166::CC_SGE;
+  case C166::CC_SGE:
+    return C166::CC_SLT;
+  default:
+    llvm_unreachable("invalid C166 condition code");
   }
 }
 
@@ -334,7 +463,17 @@ bool C166InstrInfo::analyzeBranch(MachineBasicBlock &MBB,
   if (!Last->isBranch())
     return Last->isBarrier();
 
-  if (isC166UnconditionalBranch(Last->getOpcode())) {
+  auto SetCondition = [&](const MachineInstr &Branch) {
+    unsigned Opcode = Branch.getOpcode();
+    Cond.push_back(MachineOperand::CreateImm(Opcode));
+    if (!isC166ConditionalBranchPseudo(Opcode))
+      return;
+    unsigned TargetOperand = getC166BranchTargetOperand(Opcode);
+    for (unsigned I = 0; I != TargetOperand; ++I)
+      Cond.push_back(Branch.getOperand(I));
+  };
+
+  if (isC166AnalyzableUnconditionalBranch(Last->getOpcode())) {
     FBB = getBranchDestBlock(*Last);
     auto Previous = Last;
     if (Previous == MBB.begin()) {
@@ -346,9 +485,9 @@ bool C166InstrInfo::analyzeBranch(MachineBasicBlock &MBB,
       --Previous;
     } while (Previous != MBB.begin() && Previous->isDebugInstr());
     if (!Previous->isDebugInstr() &&
-        isC166ConditionalBranch(Previous->getOpcode())) {
+        isC166AnalyzableConditionalBranch(Previous->getOpcode())) {
       TBB = getBranchDestBlock(*Previous);
-      Cond.push_back(MachineOperand::CreateImm(Previous->getOpcode()));
+      SetCondition(*Previous);
       return false;
     }
     TBB = FBB;
@@ -356,10 +495,10 @@ bool C166InstrInfo::analyzeBranch(MachineBasicBlock &MBB,
     return false;
   }
 
-  if (!isC166ConditionalBranch(Last->getOpcode()))
+  if (!isC166AnalyzableConditionalBranch(Last->getOpcode()))
     return true;
   TBB = getBranchDestBlock(*Last);
-  Cond.push_back(MachineOperand::CreateImm(Last->getOpcode()));
+  SetCondition(*Last);
   return false;
 }
 
@@ -367,7 +506,6 @@ unsigned C166InstrInfo::insertBranch(
     MachineBasicBlock &MBB, MachineBasicBlock *TBB, MachineBasicBlock *FBB,
     ArrayRef<MachineOperand> Cond, const DebugLoc &DL, int *BytesAdded) const {
   assert(TBB && "C166 branch requires a destination");
-  assert(Cond.size() <= 1 && "invalid C166 branch condition");
   if (BytesAdded)
     *BytesAdded = 0;
 
@@ -386,8 +524,21 @@ unsigned C166InstrInfo::insertBranch(
   }
 
   unsigned Opcode = static_cast<unsigned>(Cond.front().getImm());
-  assert(isC166ConditionalBranch(Opcode) && "invalid C166 branch opcode");
-  AddShortBranch(Opcode, TBB);
+  assert(isC166AnalyzableConditionalBranch(Opcode) &&
+         "invalid C166 branch opcode");
+  if (isC166ConditionalBranchPseudo(Opcode)) {
+    MachineInstrBuilder Branch = BuildMI(&MBB, DL, get(Opcode));
+    for (const MachineOperand &Operand :
+         ArrayRef<MachineOperand>(Cond).drop_front())
+      Branch.add(Operand);
+    Branch.addMBB(TBB);
+    if (BytesAdded)
+      *BytesAdded += getInstSizeInBytes(*Branch.getInstr());
+    ++Count;
+  } else {
+    assert(Cond.size() == 1 && "invalid C166 hardware branch condition");
+    AddShortBranch(Opcode, TBB);
+  }
   if (FBB)
     AddShortBranch(C166::JMPR_UC, FBB);
   return Count;
@@ -400,11 +551,12 @@ unsigned C166InstrInfo::removeBranch(MachineBasicBlock &MBB,
   unsigned Count = 0;
   while (true) {
     auto Last = MBB.getLastNonDebugInstr();
-    if (Last == MBB.end() || (!isC166ConditionalBranch(Last->getOpcode()) &&
-                              !isC166UnconditionalBranch(Last->getOpcode())))
+    if (Last == MBB.end() ||
+        (!isC166AnalyzableConditionalBranch(Last->getOpcode()) &&
+         !isC166AnalyzableUnconditionalBranch(Last->getOpcode())))
       break;
     if (BytesRemoved)
-      *BytesRemoved += get(Last->getOpcode()).getSize();
+      *BytesRemoved += getInstSizeInBytes(*Last);
     Last->eraseFromParent();
     ++Count;
   }
@@ -413,18 +565,25 @@ unsigned C166InstrInfo::removeBranch(MachineBasicBlock &MBB,
 
 bool C166InstrInfo::reverseBranchCondition(
     SmallVectorImpl<MachineOperand> &Cond) const {
-  assert(Cond.size() == 1 && "invalid C166 branch condition");
-  Cond.front().setImm(
-      reverseC166BranchOpcode(static_cast<unsigned>(Cond.front().getImm())));
+  assert(!Cond.empty() && "invalid C166 branch condition");
+  unsigned Opcode = static_cast<unsigned>(Cond.front().getImm());
+  if (isC166ConditionalBranchPseudo(Opcode)) {
+    Cond.back().setImm(
+        reverseC166ConditionCode(static_cast<unsigned>(Cond.back().getImm())));
+  } else {
+    assert(Cond.size() == 1 && isC166ConditionalBranch(Opcode) &&
+           "invalid C166 hardware branch condition");
+    Cond.front().setImm(reverseC166BranchOpcode(Opcode));
+  }
   return false;
 }
 
 MachineBasicBlock *
 C166InstrInfo::getBranchDestBlock(const MachineInstr &MI) const {
-  assert((isC166ConditionalBranch(MI.getOpcode()) ||
-          isC166UnconditionalBranch(MI.getOpcode())) &&
+  assert((isC166AnalyzableConditionalBranch(MI.getOpcode()) ||
+          isC166AnalyzableUnconditionalBranch(MI.getOpcode())) &&
          "not a C166 branch");
-  return MI.getOperand(0).getMBB();
+  return MI.getOperand(getC166BranchTargetOperand(MI.getOpcode())).getMBB();
 }
 
 bool C166InstrInfo::isBranchOffsetInRange(unsigned BranchOpcode,
@@ -453,7 +612,94 @@ void C166InstrInfo::insertIndirectBranch(MachineBasicBlock &MBB,
   BuildMI(&MBB, DL, get(C166::JMPS)).addMBB(&NewDestBB).addMBB(&NewDestBB);
 }
 
+bool C166InstrInfo::expandBranchPseudo(MachineInstr &MI) const {
+  if (MI.getOpcode() == C166::BR) {
+    MachineBasicBlock &MBB = *MI.getParent();
+    BuildMI(MBB, MI, MI.getDebugLoc(), get(C166::JMPR_UC))
+        .addMBB(MI.getOperand(0).getMBB());
+    MI.eraseFromParent();
+    return true;
+  }
+
+  if (MI.getOpcode() != C166::CMPBR && MI.getOpcode() != C166::CMPBRi &&
+      MI.getOpcode() != C166::FLAGSBR && MI.getOpcode() != C166::TEST32BR)
+    return false;
+
+  MachineBasicBlock &MBB = *MI.getParent();
+  unsigned CCOperand = MI.getOpcode() == C166::FLAGSBR ? 0 : 2;
+  unsigned TargetOperand = MI.getOpcode() == C166::FLAGSBR ? 1 : 3;
+  unsigned BranchOpcode;
+  switch (MI.getOperand(CCOperand).getImm()) {
+  case C166::CC_EQ:
+    BranchOpcode = C166::JMPR_EQ;
+    break;
+  case C166::CC_NE:
+    BranchOpcode = C166::JMPR_NE;
+    break;
+  case C166::CC_ULT:
+    BranchOpcode = C166::JMPR_ULT;
+    break;
+  case C166::CC_ULE:
+    BranchOpcode = C166::JMPR_ULE;
+    break;
+  case C166::CC_UGE:
+    BranchOpcode = C166::JMPR_UGE;
+    break;
+  case C166::CC_UGT:
+    BranchOpcode = C166::JMPR_UGT;
+    break;
+  case C166::CC_SLT:
+    BranchOpcode = C166::JMPR_SLT;
+    break;
+  case C166::CC_SLE:
+    BranchOpcode = C166::JMPR_SLE;
+    break;
+  case C166::CC_SGE:
+    BranchOpcode = C166::JMPR_SGE;
+    break;
+  case C166::CC_SGT:
+    BranchOpcode = C166::JMPR_SGT;
+    break;
+  default:
+    llvm_unreachable("unsupported C166 branch condition");
+  }
+
+  if (MI.getOpcode() == C166::CMPBR)
+    BuildMI(MBB, MI, MI.getDebugLoc(), get(C166::CMPrr))
+        .add(MI.getOperand(0))
+        .add(MI.getOperand(1));
+  else if (MI.getOpcode() == C166::CMPBRi) {
+    int64_t Immediate = MI.getOperand(1).getImm();
+    BuildMI(MBB, MI, MI.getDebugLoc(),
+            get(isUInt<3>(Immediate) ? C166::CMPri3 : C166::CMPri16))
+        .add(MI.getOperand(0))
+        .addImm(Immediate);
+  } else if (MI.getOpcode() == C166::TEST32BR) {
+    Register LHS = MI.getOperand(0).getReg();
+    Register RHS = MI.getOperand(1).getReg();
+    if (LHS == C166::R1 || RHS == C166::R1) {
+      unsigned OtherOperand = LHS == C166::R1 ? 1 : 0;
+      BuildMI(MBB, MI, MI.getDebugLoc(), get(C166::ORrr), C166::R1)
+          .addReg(C166::R1)
+          .add(MI.getOperand(OtherOperand));
+    } else {
+      BuildMI(MBB, MI, MI.getDebugLoc(), get(C166::MOVrr), C166::R1)
+          .add(MI.getOperand(0));
+      BuildMI(MBB, MI, MI.getDebugLoc(), get(C166::ORrr), C166::R1)
+          .addReg(C166::R1)
+          .add(MI.getOperand(1));
+    }
+  }
+  BuildMI(MBB, MI, MI.getDebugLoc(), get(BranchOpcode))
+      .addMBB(MI.getOperand(TargetOperand).getMBB());
+  MI.eraseFromParent();
+  return true;
+}
+
 bool C166InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
+  if (expandBranchPseudo(MI))
+    return true;
+
   if (MI.getOpcode() == C166::NEARLOAD32 ||
       MI.getOpcode() == C166::NEARSTORE32) {
     MachineBasicBlock &MBB = *MI.getParent();
@@ -574,63 +820,6 @@ bool C166InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
         BuildMI(MBB, MI, MI.getDebugLoc(), get(C166::MOVri16), Dst)
             .add(Address);
     Move->getOperand(1).setTargetFlags(getC166NearAddressFlag(MI, Address));
-    MI.eraseFromParent();
-    return true;
-  }
-
-  if (MI.getOpcode() == C166::BR) {
-    MachineBasicBlock &MBB = *MI.getParent();
-    BuildMI(MBB, MI, MI.getDebugLoc(), get(C166::JMPR_UC))
-        .addMBB(MI.getOperand(0).getMBB());
-    MI.eraseFromParent();
-    return true;
-  }
-
-  if (MI.getOpcode() == C166::CMPBR || MI.getOpcode() == C166::FLAGSBR) {
-    MachineBasicBlock &MBB = *MI.getParent();
-    unsigned CCOperand = MI.getOpcode() == C166::CMPBR ? 2 : 0;
-    unsigned TargetOperand = MI.getOpcode() == C166::CMPBR ? 3 : 1;
-    unsigned BranchOpcode;
-    switch (MI.getOperand(CCOperand).getImm()) {
-    case C166::CC_EQ:
-      BranchOpcode = C166::JMPR_EQ;
-      break;
-    case C166::CC_NE:
-      BranchOpcode = C166::JMPR_NE;
-      break;
-    case C166::CC_ULT:
-      BranchOpcode = C166::JMPR_ULT;
-      break;
-    case C166::CC_ULE:
-      BranchOpcode = C166::JMPR_ULE;
-      break;
-    case C166::CC_UGE:
-      BranchOpcode = C166::JMPR_UGE;
-      break;
-    case C166::CC_UGT:
-      BranchOpcode = C166::JMPR_UGT;
-      break;
-    case C166::CC_SLT:
-      BranchOpcode = C166::JMPR_SLT;
-      break;
-    case C166::CC_SLE:
-      BranchOpcode = C166::JMPR_SLE;
-      break;
-    case C166::CC_SGE:
-      BranchOpcode = C166::JMPR_SGE;
-      break;
-    case C166::CC_SGT:
-      BranchOpcode = C166::JMPR_SGT;
-      break;
-    default:
-      llvm_unreachable("unsupported C166 branch condition");
-    }
-    if (MI.getOpcode() == C166::CMPBR)
-      BuildMI(MBB, MI, MI.getDebugLoc(), get(C166::CMPrr))
-          .addReg(MI.getOperand(0).getReg())
-          .addReg(MI.getOperand(1).getReg());
-    BuildMI(MBB, MI, MI.getDebugLoc(), get(BranchOpcode))
-        .addMBB(MI.getOperand(TargetOperand).getMBB());
     MI.eraseFromParent();
     return true;
   }
@@ -1055,6 +1244,22 @@ bool C166InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     return true;
   }
 
+  if (MI.getOpcode() == C166::FARLOAD16_POSTINC) {
+    MachineBasicBlock &MBB = *MI.getParent();
+    Register Dst = MI.getOperand(0).getReg();
+    Register Address = MI.getOperand(2).getReg();
+    Register Offset = RI.getSubReg(Address, sub_lo16);
+    Register Page = RI.getSubReg(Address, sub_hi16);
+
+    BuildMI(MBB, MI, MI.getDebugLoc(), get(C166::EXTPr)).addReg(Page).addImm(1);
+    BuildMI(MBB, MI, MI.getDebugLoc(), get(C166::MOVrmPostInc), Dst)
+        .addReg(Offset, RegState::Define)
+        .addReg(Offset)
+        .cloneMemRefs(MI);
+    MI.eraseFromParent();
+    return true;
+  }
+
   if (MI.getOpcode() == C166::ADD32rr) {
     MachineBasicBlock &MBB = *MI.getParent();
     Register Dst = MI.getOperand(0).getReg();
@@ -1153,81 +1358,62 @@ bool C166InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     return true;
   }
 
-  if (MI.getOpcode() == C166::FARADD32) {
+  if (MI.getOpcode() == C166::FARADD32 || MI.getOpcode() == C166::FARADD32i) {
     MachineBasicBlock &MBB = *MI.getParent();
     Register Dst = MI.getOperand(0).getReg();
-    Register Offset = MI.getOperand(2).getReg();
     Register Low = RI.getSubReg(Dst, sub_lo16);
 
-    BuildMI(MBB, MI, MI.getDebugLoc(), get(C166::ADDrr), Low)
-        .addReg(Low)
-        .addReg(Offset);
-    MI.eraseFromParent();
-    return true;
-  }
-
-  if (MI.getOpcode() == C166::ADJSP || MI.getOpcode() == C166::ALLOCSP) {
-    MachineBasicBlock &MBB = *MI.getParent();
-    MachineFunction &MF = *MBB.getParent();
-    const bool IsAllocation = MI.getOpcode() == C166::ALLOCSP;
-    unsigned Opcode = IsAllocation ? C166::SUBri3 : C166::ADDri3;
-    unsigned Remaining = MI.getOperand(0).getImm();
-    const unsigned Total = Remaining;
-    auto EmitCFI = [&](uint64_t DynamicOffset) {
-      if (!MF.needsFrameMoves())
-        return;
-      const MCRegisterInfo *MRI = MF.getContext().getRegisterInfo();
-      const TargetFrameLowering *TFI = MF.getSubtarget().getFrameLowering();
-      const uint64_t FixedOffset = MF.getFrameInfo().getStackSize();
-      const unsigned DwarfR0 = MRI->getDwarfRegNum(C166::R0, true);
-      C166CFI::build(
-          MBB, MI, MI.getDebugLoc(), *this,
-          C166CFI::createUserStackValue(DwarfR0, FixedOffset + DynamicOffset));
-
-      const unsigned DwarfDPP1 = MRI->getDwarfRegNum(C166::DPP1, true);
-      for (const CalleeSavedInfo &CSI :
-           MF.getFrameInfo().getCalleeSavedInfo()) {
-        if (CSI.isSpilledToReg())
-          continue;
-        Register FrameReg;
-        StackOffset Ref =
-            TFI->getFrameIndexReference(MF, CSI.getFrameIdx(), FrameReg);
-        assert(FrameReg == C166::R0 && !Ref.getScalable() &&
-               "C166 callee save is not in the fixed user-stack frame");
-        unsigned DwarfReg = MRI->getDwarfRegNum(CSI.getReg(), true);
-        C166CFI::build(
-            MBB, MI, MI.getDebugLoc(), *this,
-            C166CFI::createUserStackLocation(
-                DwarfReg, Ref.getFixed() + DynamicOffset, DwarfDPP1));
-      }
-    };
-    unsigned Processed = 0;
-    while (Remaining) {
-      unsigned Chunk = std::min(Remaining, 6u);
-      BuildMI(MBB, MI, MI.getDebugLoc(), get(Opcode), C166::R0)
-          .addReg(C166::R0)
-          .addImm(Chunk);
-      Remaining -= Chunk;
-      Processed += Chunk;
-      EmitCFI(IsAllocation ? Processed : Total - Processed);
-    }
-    MI.eraseFromParent();
-    return true;
-  }
-
-  if (MI.getOpcode() == C166::STOREARG) {
-    MachineBasicBlock &MBB = *MI.getParent();
-    unsigned Offset = MI.getOperand(0).getImm();
-    if (Offset == 0) {
-      BuildMI(MBB, MI, MI.getDebugLoc(), get(C166::MOVmr))
-          .addReg(C166::R0)
-          .add(MI.getOperand(1));
+    if (MI.getOpcode() == C166::FARADD32) {
+      BuildMI(MBB, MI, MI.getDebugLoc(), get(C166::ADDrr), Low)
+          .addReg(Low)
+          .addReg(MI.getOperand(2).getReg());
     } else {
-      BuildMI(MBB, MI, MI.getDebugLoc(), get(C166::MOVmr16))
-          .addReg(C166::R0)
-          .addImm(Offset)
-          .add(MI.getOperand(1));
+      uint64_t Offset = MI.getOperand(2).getImm();
+      BuildMI(MBB, MI, MI.getDebugLoc(),
+              get(Offset <= 7 ? C166::ADDri3 : C166::ADDri16), Low)
+          .addReg(Low)
+          .addImm(Offset);
     }
+    MI.eraseFromParent();
+    return true;
+  }
+
+  if (MI.getOpcode() == C166::ADJSP) {
+    MachineBasicBlock &MBB = *MI.getParent();
+    unsigned Amount = MI.getOperand(0).getImm();
+    unsigned Opcode = Amount <= 7 ? C166::ADDri3 : C166::ADDri16;
+    BuildMI(MBB, MI, MI.getDebugLoc(), get(Opcode), C166::R0)
+        .addReg(C166::R0)
+        .addImm(Amount);
+    emitDynamicUserStackCFI(MI, *this, 0);
+    MI.eraseFromParent();
+    return true;
+  }
+
+  return false;
+}
+
+bool C166InstrInfo::expandCallFramePseudo(MachineInstr &MI) const {
+  if (MI.getOpcode() == C166::ALLOCSP) {
+    MachineBasicBlock &MBB = *MI.getParent();
+    const uint64_t Amount = MI.getOperand(0).getImm();
+    const uint64_t DynamicOffset = MI.getOperand(1).getImm();
+    BuildMI(MBB, MI, MI.getDebugLoc(),
+            get(Amount <= 7 ? C166::SUBri3 : C166::SUBri16), C166::R0)
+        .addReg(C166::R0)
+        .addImm(Amount);
+    emitDynamicUserStackCFI(MI, *this, DynamicOffset);
+    MI.eraseFromParent();
+    return true;
+  }
+
+  if (MI.getOpcode() == C166::PUSHARG) {
+    MachineBasicBlock &MBB = *MI.getParent();
+    const uint64_t DynamicOffset = MI.getOperand(0).getImm();
+    BuildMI(MBB, MI, MI.getDebugLoc(), get(C166::MOVmrPreDec), C166::R0)
+        .addReg(C166::R0)
+        .add(MI.getOperand(1));
+    emitDynamicUserStackCFI(MI, *this, DynamicOffset);
     MI.eraseFromParent();
     return true;
   }

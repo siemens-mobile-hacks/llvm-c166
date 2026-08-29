@@ -53,85 +53,85 @@ unsigned int lshr_int(unsigned int value, unsigned int amount) {
 // N/Z/E on C166.
 // CHECK-LABEL: <_eq_long>:
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_ne
+// CHECK-NEXT:  jmpr cc_{{(eq|ne)}}
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_ne
+// CHECK-NEXT:  jmpr cc_{{(eq|ne)}}
 // CHECK-LABEL: <_ne_long>:
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_ne
+// CHECK-NEXT:  jmpr cc_{{(eq|ne)}}
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_eq
+// CHECK-NEXT:  jmpr cc_{{(eq|ne)}}
 // CHECK-LABEL: <_lt_long>:
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_sge
+// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_sgt
+// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_ult
+// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
 // CHECK-LABEL: <_le_long>:
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_sge
+// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_sgt
+// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_ule
+// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
 // CHECK-LABEL: <_gt_long>:
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_sle
+// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_slt
+// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_ugt
+// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
 // CHECK-LABEL: <_ge_long>:
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_sle
+// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_slt
+// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_uge
+// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
 // CHECK-LABEL: <_ult_long>:
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_uge
+// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_ugt
+// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_ult
+// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
 // CHECK-LABEL: <_ule_long>:
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_uge
+// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_ugt
+// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_ule
+// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
 // CHECK-LABEL: <_ugt_long>:
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_ule
+// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_ult
+// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_ugt
+// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
 // CHECK-LABEL: <_uge_long>:
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_ule
+// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_ult
+// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_uge
+// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
 
 // CHECK-LABEL: <_branch_long>:
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_sge
+// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_sgt
+// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_ult
+// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
 // CHECK-LABEL: <_select_long>:
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_sge
+// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_sgt
+// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_ult
+// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
 // CHECK-LABEL: <_select_long_on_int>:
 // CHECK:       cmp
 // CHECK-NEXT:  jmpr

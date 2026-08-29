@@ -137,22 +137,30 @@ bank1_double_indirect_cross(bank2_double_fn *function, double value, u16 tail) {
 // ASM: mov {{r[0-9]+}}, [r0 + #2]
 // ASM: rets
 // ASM-LABEL: _bank1_same:
-// ASM: sub r0, #4
+// ASM: mov [-r0], {{r[0-9]+}}
+// ASM: sub r0, #2
 // ASM: calls seg(_bank1_external), sof(_bank1_external)
 // ASM: add r0, #4
 // ASM-LABEL: _bank1_cross:
-// ASM: sub r0, #4
-// ASM: mov [r0], {{r[0-9]+}}
+// ASM: mov [-r0], {{r[0-9]+}}
+// ASM: mov r3, #258
+// ASM-NEXT: mov [-r0], r3
 // ASM: calls seg(__banksw), sof(__banksw)
 // ASM: add r0, #4
 // ASM-LABEL: _unbanked_to_one:
-// ASM: mov [r0], {{r[0-9]+}}
+// ASM: mov r3, #1
+// ASM-NEXT: mov [-r0], r3
 // ASM: calls seg(__banksw), sof(__banksw)
 // ASM-LABEL: _bank1_indirect_same:
+// ASM: mov [-r0], {{r[0-9]+}}
+// ASM: sub r0, #2
 // ASM: calls seg(__icall), sof(__icall)
 // ASM-LABEL: _bank1_indirect_cross:
+// ASM: mov r3, #258
+// ASM-NEXT: mov [-r0], r3
 // ASM: calls seg(__banksw), sof(__banksw)
 // ASM-LABEL: _bank1_to_plain:
+// ASM: mov [-r0], {{r[0-9]+}}
 // ASM: calls seg(_plain_external), sof(_plain_external)
 // ASM-LABEL: _bank1_float_identity:
 // ASM: mov r4, [r0 + #2]
@@ -164,28 +172,26 @@ bank1_double_indirect_cross(bank2_double_fn *function, double value, u16 tail) {
 // ASM: mov r10, r4
 // ASM-NEXT: rets
 // ASM-LABEL: _bank1_float_same:
-// ASM: mov [r0 + #2], {{r[0-9]+}}
-// ASM: mov [r0 + #6], {{r[0-9]+}}
+// ASM-COUNT-3: mov [-r0], {{r[0-9]+}}
+// ASM: sub r0, #2
 // ASM: calls seg(_bank1_float_external), sof(_bank1_float_external)
 // ASM: rets
 // ASM-LABEL: _bank1_float_cross:
-// ASM: mov [r0 + #2], {{r[0-9]+}}
-// ASM: mov [r0 + #6], {{r[0-9]+}}
+// ASM-COUNT-3: mov [-r0], {{r[0-9]+}}
 // ASM: mov r3, #258
-// ASM-NEXT: mov [r0], r3
+// ASM-NEXT: mov [-r0], r3
 // ASM: calls seg(__banksw), sof(__banksw)
 // ASM: rets
 // ASM-LABEL: _bank1_double_same:
-// ASM: mov [r0 + #2], {{r[0-9]+}}
-// ASM: mov [r0 + #10], {{r[0-9]+}}
+// ASM-COUNT-5: mov [-r0], {{r[0-9]+}}
+// ASM: sub r0, #2
 // ASM: calls seg(_bank1_double_external), sof(_bank1_double_external)
 // ASM: mov {{r[0-9]+}}, [r4]
 // ASM: rets
 // ASM-LABEL: _bank1_double_cross:
-// ASM: mov [r0 + #2], {{r[0-9]+}}
-// ASM: mov [r0 + #10], {{r[0-9]+}}
+// ASM-COUNT-5: mov [-r0], {{r[0-9]+}}
 // ASM: mov r3, #258
-// ASM-NEXT: mov [r0], r3
+// ASM-NEXT: mov [-r0], r3
 // ASM: calls seg(__banksw), sof(__banksw)
 // ASM: mov {{r[0-9]+}}, [r4]
 // ASM: rets
@@ -194,7 +200,7 @@ bank1_double_indirect_cross(bank2_double_fn *function, double value, u16 tail) {
 // ASM: rets
 // ASM-LABEL: _bank1_float_indirect_cross:
 // ASM: mov r3, #258
-// ASM-NEXT: mov [r0], r3
+// ASM-NEXT: mov [-r0], r3
 // ASM: calls seg(__banksw), sof(__banksw)
 // ASM: rets
 // ASM-LABEL: _bank1_double_indirect_same:
@@ -203,7 +209,7 @@ bank1_double_indirect_cross(bank2_double_fn *function, double value, u16 tail) {
 // ASM: rets
 // ASM-LABEL: _bank1_double_indirect_cross:
 // ASM: mov r3, #258
-// ASM-NEXT: mov [r0], r3
+// ASM-NEXT: mov [-r0], r3
 // ASM: calls seg(__banksw), sof(__banksw)
 // ASM: mov {{r[0-9]+}}, [r4]
 // ASM: rets

@@ -41,8 +41,8 @@ DEFINE_TUPLE_RELOAD(tuple_reload_high, >> 16)
 // the selected low or high word is consumed only after the reload.
 // CHECK-LABEL: <_tuple_reload_low>:
 // CHECK:       sub r0
-// CHECK:       mov [r0 + #{{[0-9]+}}], r14
-// CHECK-NEXT:  mov [r0 + #{{[0-9]+}}], r15
+// CHECK:       mov [r0], r14
+// CHECK-NEXT:  mov [r0 + #2], r15
 // CHECK:       calls
 // CHECK:       mov r2, [r0 + #{{[0-9]+}}]
 // CHECK-NEXT:  mov r3, [r0 + #{{[0-9]+}}]
@@ -50,8 +50,8 @@ DEFINE_TUPLE_RELOAD(tuple_reload_high, >> 16)
 
 // CHECK-LABEL: <_tuple_reload_high>:
 // CHECK:       sub r0
-// CHECK:       mov [r0 + #{{[0-9]+}}], r14
-// CHECK-NEXT:  mov [r0 + #{{[0-9]+}}], r15
+// CHECK:       mov [r0], r14
+// CHECK-NEXT:  mov [r0 + #2], r15
 // CHECK:       calls
 // CHECK:       mov r3, [r0 + #{{[0-9]+}}]
 // CHECK-NEXT:  mov r4, [r0 + #{{[0-9]+}}]

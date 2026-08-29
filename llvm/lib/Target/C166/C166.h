@@ -56,6 +56,10 @@ Pass *createC166FarPointerLoweringPass();
 Pass *createC166AtomicLoweringPass();
 Pass *createC166FloatMemoryLoweringPass();
 Pass *createC166UnsupportedFeaturesPass();
+FunctionPass *createC166ArgumentLoadSinkingPass();
+FunctionPass *createC166PostISelPass();
+FunctionPass *createC166CallFrameExpansionPass();
+FunctionPass *createC166FrameAddressRematerializationPass();
 bool lowerC166FloatMemory(Module &M);
 bool lowerC166PointerCasts(Function &F);
 
@@ -64,6 +68,10 @@ void initializeC166AtomicLoweringPass(PassRegistry &);
 void initializeC166FarPointerLoweringPass(PassRegistry &);
 void initializeC166FloatMemoryLoweringPass(PassRegistry &);
 void initializeC166UnsupportedFeaturesPass(PassRegistry &);
+void initializeC166ArgumentLoadSinkingPass(PassRegistry &);
+void initializeC166PostISelPass(PassRegistry &);
+void initializeC166CallFrameExpansionPass(PassRegistry &);
+void initializeC166FrameAddressRematerializationPass(PassRegistry &);
 void initializeC166DAGToDAGISelLegacyPass(PassRegistry &);
 
 } // namespace llvm

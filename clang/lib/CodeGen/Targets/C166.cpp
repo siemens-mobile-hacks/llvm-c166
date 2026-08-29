@@ -23,8 +23,10 @@ namespace {
 
 class C166ABIInfo : public DefaultABIInfo {
   ABIArgInfo classify(QualType Ty, bool IsReturn) const {
-    // Only the low byte of a char register slot is defined.
-    if (Ty->isIntegralOrEnumerationType() && getContext().getTypeSize(Ty) == 8)
+    // Integer results occupy their natural C166 register width.  In
+    // particular, the ABI does not extend a 16-bit short to a 32-bit LLVM
+    // carrier: only R4 is defined at the return boundary.
+    if (Ty->isIntegralOrEnumerationType() && getContext().getTypeSize(Ty) <= 16)
       return ABIArgInfo::getDirect();
 
     if (Ty->isRealFloatingType()) {

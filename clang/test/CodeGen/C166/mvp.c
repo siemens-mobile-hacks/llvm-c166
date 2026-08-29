@@ -128,8 +128,8 @@ unsigned int forward_five_words(unsigned int a, unsigned int b, unsigned int c,
 // DIS-NEXT:  add r4, r{{1[23]}}
 // DIS-NEXT:  rets
 
-// Medium preserves scalar/pointer registers and the stack-stop rule.  Default
-// functions and direct calls use RET/CALLA; data pointers remain 32-bit far.
+// Medium preserves scalar/pointer registers and the stack-stop rule. Default
+// functions use near control flow; data pointers remain 32-bit far.
 // MEDIUM-LABEL: <_add_words>:
 // MEDIUM:       mov r4, r{{1[23]}}
 // MEDIUM:       ret
@@ -142,11 +142,11 @@ unsigned int forward_five_words(unsigned int a, unsigned int b, unsigned int c,
 // MEDIUM-NEXT:  mov r4, [r12]
 // MEDIUM-NEXT:  ret
 // MEDIUM-LABEL: <_forward_mix>:
-// MEDIUM:       calla
+// MEDIUM:       jmpa
 // MEDIUM:       R_C166_COF16 _callee_mix
-// MEDIUM:       ret
 // MEDIUM-LABEL: <_forward_five_words>:
-// MEDIUM:       sub r0, #2
+// MEDIUM:       mov [[ARG:r[0-9]+]], [r0]
+// MEDIUM-NEXT:  mov [-r0], [[ARG]]
 // MEDIUM:       calla
 // MEDIUM:       R_C166_COF16 _callee_five_words
 // MEDIUM:       add r0, #2
@@ -199,8 +199,7 @@ unsigned int forward_five_words(unsigned int a, unsigned int b, unsigned int c,
 // DIS-LABEL: <_next_far_word>:
 // DIS:       mov r4, r12
 // DIS-NEXT:  mov r5, r13
-// DIS:       mov [[TWO:r[0-9]+]], #2
-// DIS:       add r4, [[TWO]]
+// DIS-NEXT:  add r4, #2
 // DIS-NEXT:  rets
 // DIS-LABEL: <_load_far_index>:
 // DIS:       shl r14, #1
@@ -229,12 +228,10 @@ unsigned int forward_five_words(unsigned int a, unsigned int b, unsigned int c,
 // DIS-NEXT:  movbs r4, 0
 // DIS-NEXT:  rets
 // DIS-LABEL: <_forward_mix>:
-// DIS:       calls
-// DIS-NEXT:  rets
+// DIS:       jmps
 // DIS-LABEL: <_forward_five_words>:
-// DIS:       sub r0, #2
-// DIS-NEXT:  mov [[ARG:r[0-9]+]], [r0 + #2]
-// DIS-NEXT:  mov [r0], [[ARG]]
+// DIS:       mov [[ARG:r[0-9]+]], [r0]
+// DIS-NEXT:  mov [-r0], [[ARG]]
 // DIS-NEXT:  calls
 // DIS-NEXT:  add r0, #2
 // DIS-NEXT:  rets

@@ -253,13 +253,55 @@ public:
 
     if (Node->getOpcode() == ISD::BR_CC) {
       auto CC = cast<CondCodeSDNode>(Node->getOperand(1))->get();
+      SDValue LHS = Node->getOperand(2);
+      SDValue RHS = Node->getOperand(3);
+      auto GetWordImmediate = [](SDValue Value) -> std::optional<uint16_t> {
+        if (auto *Constant = dyn_cast<ConstantSDNode>(Value))
+          return static_cast<uint16_t>(Constant->getZExtValue());
+        if (Value.isMachineOpcode() &&
+            (Value.getMachineOpcode() == C166::MOVri4 ||
+             Value.getMachineOpcode() == C166::MOVri16))
+          return static_cast<uint16_t>(
+              cast<ConstantSDNode>(Value.getOperand(0))->getZExtValue());
+        return std::nullopt;
+      };
+      std::optional<uint16_t> Immediate = GetWordImmediate(RHS);
+      bool IsWordOr =
+          LHS.getOpcode() == ISD::OR ||
+          (LHS.isMachineOpcode() && LHS.getMachineOpcode() == C166::ORrr);
+      if ((CC == ISD::SETEQ || CC == ISD::SETNE) && Immediate == 0 &&
+          IsWordOr) {
+        SDLoc DL(Node);
+        SDNode *DeadOr = LHS.getNode();
+        SDValue Ops[] = {
+            LHS.getOperand(0), LHS.getOperand(1),
+            CurDAG->getTargetConstant(getTargetCC(CC), DL, MVT::i16),
+            Node->getOperand(4), Node->getOperand(0)};
+        ReplaceNode(
+            Node, CurDAG->getMachineNode(C166::TEST32BR, DL, MVT::Other, Ops));
+        if (DeadOr->isMachineOpcode() && DeadOr->use_empty())
+          CurDAG->RemoveDeadNode(DeadOr);
+        return;
+      }
+      if (Immediate && LHS.getValueType() == MVT::i16) {
+        SDLoc DL(Node);
+        SDNode *DeadImmediate = RHS.getNode();
+        SDValue Ops[] = {
+            LHS, CurDAG->getTargetConstant(*Immediate, DL, MVT::i16),
+            CurDAG->getTargetConstant(getTargetCC(CC), DL, MVT::i16),
+            Node->getOperand(4), Node->getOperand(0)};
+        ReplaceNode(Node,
+                    CurDAG->getMachineNode(C166::CMPBRi, DL, MVT::Other, Ops));
+        if (DeadImmediate->isMachineOpcode() && DeadImmediate->use_empty())
+          CurDAG->RemoveDeadNode(DeadImmediate);
+        return;
+      }
       SDValue Ops[] = {
-          Node->getOperand(2), Node->getOperand(3),
+          LHS, RHS,
           CurDAG->getTargetConstant(getTargetCC(CC), SDLoc(Node), MVT::i16),
           Node->getOperand(4), Node->getOperand(0)};
-      unsigned Opcode = Node->getOperand(2).getValueType() == MVT::i32
-                            ? C166::CMP32BR
-                            : C166::CMPBR;
+      unsigned Opcode =
+          LHS.getValueType() == MVT::i32 ? C166::CMP32BR : C166::CMPBR;
       ReplaceNode(Node,
                   CurDAG->getMachineNode(Opcode, SDLoc(Node), MVT::Other, Ops));
       return;
@@ -272,13 +314,11 @@ public:
     if (Node->getOpcode() == ISD::BRCOND) {
       SDLoc DL(Node);
       SDValue ZeroImmediate = CurDAG->getTargetConstant(0, DL, MVT::i16);
-      SDValue Zero(
-          CurDAG->getMachineNode(C166::MOVri4, DL, MVT::i16, ZeroImmediate), 0);
-      SDValue Ops[] = {Node->getOperand(1), Zero,
+      SDValue Ops[] = {Node->getOperand(1), ZeroImmediate,
                        CurDAG->getTargetConstant(C166::CC_NE, DL, MVT::i16),
                        Node->getOperand(2), Node->getOperand(0)};
       ReplaceNode(Node,
-                  CurDAG->getMachineNode(C166::CMPBR, DL, MVT::Other, Ops));
+                  CurDAG->getMachineNode(C166::CMPBRi, DL, MVT::Other, Ops));
       return;
     }
 
@@ -318,6 +358,22 @@ public:
     }
 
     if (Node->getOpcode() == C166ISD::FARADD) {
+      SDValue OffsetValue = Node->getOperand(1);
+      ConstantSDNode *Offset = dyn_cast<ConstantSDNode>(OffsetValue);
+      if (!Offset && OffsetValue.isMachineOpcode() &&
+          (OffsetValue.getMachineOpcode() == C166::MOVri4 ||
+           OffsetValue.getMachineOpcode() == C166::MOVri16))
+        Offset = dyn_cast<ConstantSDNode>(OffsetValue.getOperand(0));
+      if (Offset) {
+        SDValue Immediate = CurDAG->getTargetConstant(Offset->getZExtValue(),
+                                                      SDLoc(Node), MVT::i16);
+        ReplaceNode(Node, CurDAG->getMachineNode(C166::FARADD32i, SDLoc(Node),
+                                                 MVT::i32, Node->getOperand(0),
+                                                 Immediate));
+        if (OffsetValue.isMachineOpcode() && OffsetValue->use_empty())
+          CurDAG->RemoveDeadNode(OffsetValue.getNode());
+        return;
+      }
       ReplaceNode(Node, CurDAG->getMachineNode(C166::FARADD32, SDLoc(Node),
                                                MVT::i32, Node->getOperand(0),
                                                Node->getOperand(1)));
@@ -418,6 +474,34 @@ public:
                             : C166::CALLI;
       ReplaceNode(Node, CurDAG->getMachineNode(Opcode, SDLoc(Node), MVT::Other,
                                                MVT::Glue, Ops));
+      return;
+    }
+
+    if (Node->getOpcode() == C166ISD::TAILCALL ||
+        Node->getOpcode() == C166ISD::NEARTAILCALL) {
+      const bool IsNear = Node->getOpcode() == C166ISD::NEARTAILCALL;
+      SmallVector<SDValue, 10> Ops;
+      unsigned FirstVariableOperand;
+      if (IsNear) {
+        Ops.push_back(Node->getOperand(1));
+        FirstVariableOperand = 2;
+      } else {
+        Ops.push_back(Node->getOperand(1));
+        Ops.push_back(Node->getOperand(2));
+        FirstVariableOperand = 3;
+      }
+      unsigned Last = Node->getNumOperands();
+      SDValue Glue;
+      if (Node->getOperand(Last - 1).getValueType() == MVT::Glue)
+        Glue = Node->getOperand(--Last);
+      for (unsigned I = FirstVariableOperand; I != Last; ++I)
+        Ops.push_back(Node->getOperand(I));
+      Ops.push_back(Node->getOperand(0));
+      if (Glue)
+        Ops.push_back(Glue);
+      ReplaceNode(
+          Node, CurDAG->getMachineNode(IsNear ? C166::TAILJMPA : C166::TAILJMPS,
+                                       SDLoc(Node), MVT::Other, Ops));
       return;
     }
 
@@ -977,6 +1061,37 @@ public:
     }
 
     if (auto *Load = dyn_cast<LoadSDNode>(Node);
+        Load && Load->getAddressingMode() == ISD::POST_INC &&
+        Load->getExtensionType() == ISD::NON_EXTLOAD &&
+        Load->getMemoryVT() == MVT::i16 &&
+        Load->getAddressSpace() == C166::FarDataAddressSpace &&
+        Load->getOffset()->getAsZExtVal() == 2) {
+      SDNode *Selected = CurDAG->getMachineNode(
+          C166::FARLOAD16_POSTINC, SDLoc(Node), MVT::i16, MVT::i32, MVT::Other,
+          Load->getBasePtr(), Load->getChain());
+      CurDAG->setNodeMemRefs(cast<MachineSDNode>(Selected),
+                             {Load->getMemOperand()});
+      ReplaceNode(Node, Selected);
+      return;
+    }
+
+    if (auto *Load = dyn_cast<LoadSDNode>(Node);
+        Load && Load->getAddressingMode() == ISD::POST_INC &&
+        Load->getExtensionType() == ISD::NON_EXTLOAD &&
+        Load->getMemoryVT() == MVT::i16 &&
+        (Load->getAddressSpace() == C166::NearAddressSpace ||
+         Load->getAddressSpace() == C166::XNearDataAddressSpace) &&
+        Load->getOffset()->getAsZExtVal() == 2) {
+      SDNode *Selected = CurDAG->getMachineNode(
+          C166::MOVrmPostInc, SDLoc(Node), MVT::i16, MVT::i16, MVT::Other,
+          Load->getBasePtr(), Load->getChain());
+      CurDAG->setNodeMemRefs(cast<MachineSDNode>(Selected),
+                             {Load->getMemOperand()});
+      ReplaceNode(Node, Selected);
+      return;
+    }
+
+    if (auto *Load = dyn_cast<LoadSDNode>(Node);
         Load && Load->getExtensionType() != ISD::NON_EXTLOAD &&
         Load->getMemoryVT() == MVT::i16 && Load->getValueType(0) == MVT::i32) {
       bool IsSigned = Load->getExtensionType() == ISD::SEXTLOAD;
@@ -1275,26 +1390,8 @@ public:
       SDLoc DL(Node);
       SDValue TargetFI = CurDAG->getTargetFrameIndex(FI->getIndex(), MVT::i32);
       SDValue Offset = CurDAG->getTargetConstant(0, DL, MVT::i16);
-      SDValue RawLow(
-          CurDAG->getMachineNode(C166::LEAfi, DL, MVT::i16, TargetFI, Offset),
-          0);
-      SDValue MaskValue = CurDAG->getTargetConstant(0x3fff, DL, MVT::i16);
-      SDValue Mask(
-          CurDAG->getMachineNode(C166::MOVri16, DL, MVT::i16, MaskValue), 0);
-      SDValue Low(
-          CurDAG->getMachineNode(C166::ANDrr, DL, MVT::i16, RawLow, Mask), 0);
-      SDValue DPP1 = CurDAG->getRegister(C166::DPP1, MVT::i16);
-      SDValue High(CurDAG->getMachineNode(C166::MOVgsfr, DL, MVT::i16, DPP1),
-                   0);
-      SDValue Ops[] = {
-          CurDAG->getTargetConstant(C166::GR32RegClassID, DL, MVT::i32),
-          Low,
-          CurDAG->getTargetConstant(sub_lo16, DL, MVT::i32),
-          High,
-          CurDAG->getTargetConstant(sub_hi16, DL, MVT::i32),
-      };
-      ReplaceNode(Node, CurDAG->getMachineNode(TargetOpcode::REG_SEQUENCE, DL,
-                                               MVT::i32, Ops));
+      ReplaceNode(Node, CurDAG->getMachineNode(C166::FRAMEADDR32, DL, MVT::i32,
+                                               TargetFI, Offset));
       return;
     }
 

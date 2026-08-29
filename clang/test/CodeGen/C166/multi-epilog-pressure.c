@@ -61,13 +61,11 @@ u32 multi_epilog_pressure(u32 a0, u32 a1, u32 a2, u32 a3, u32 a4, u32 a5,
 // post-loop exits. Branch folding tail-merges them into one physical epilogue;
 // every logical exit must therefore reach the same frame restoration.
 // CHECK-LABEL: <_multi_epilog_pressure>:
-// CHECK:       mov r1, #[[FRAME:[0-9]+]]
-// CHECK-NEXT:  sub r0, r1
+// CHECK:       sub r0, #[[FRAME:[0-9]+]]
 // CHECK:       calls
 // CHECK:       R_C166_SEG24 _multi_epilog_selector
 // CHECK:       calls
 // CHECK:       R_C166_SEG24 _multi_epilog_selector
 // CHECK:       jmpr
-// CHECK:       mov r1, #[[FRAME]]
-// CHECK-NEXT:  add r0, r1
+// CHECK:       add r0, #[[FRAME]]
 // CHECK-NEXT:  rets

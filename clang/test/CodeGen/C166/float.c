@@ -98,9 +98,10 @@ float call_external_float(unsigned int head, float value,
 // CHECK:       rets
 
 // CHECK-LABEL: <_identity_double>:
-// CHECK:       mov r4, r0
-// CHECK:       mov r10, r4
+// CHECK:       mov r10, #8
+// CHECK-NEXT:  add r10, r0
 // CHECK:       mov [r0 + #8],
+// CHECK:       mov r10, r4
 // CHECK:       rets
 
 // A double call reserves one complete sixteen-byte outgoing frame for the
@@ -110,9 +111,7 @@ float call_external_float(unsigned int head, float value,
 // CHECK:       calls
 // CHECK:       R_C166_SEG24 _identity_double
 // CHECK:       mov r1, [r4]
-// CHECK:       add r0, #6
-// CHECK-NEXT:  add r0, #6
-// CHECK-NEXT:  add r0, #4
+// CHECK:       add r0, #16
 // CHECK:       rets
 
 // Softened binary64 libcalls preserve the public C166 representation:
@@ -140,12 +139,12 @@ float call_external_float(unsigned int head, float value,
 // well.  The caller therefore cleans six bytes after the external call while
 // the leading integer remains in R12.
 // CHECK-LABEL: <_call_external_float>:
-// CHECK-NEXT:  mov r1, [r0]
-// CHECK-NEXT:  mov r2, [r0 + #2]
-// CHECK-NEXT:  sub r0, #6
-// CHECK-NEXT:  mov [r0], r1
-// CHECK-NEXT:  mov [r0 + #2], r2
-// CHECK:       mov [r0 + #4],
+// CHECK-NEXT:  mov r1, [r0 + #4]
+// CHECK-NEXT:  mov [-r0], r1
+// CHECK-NEXT:  mov r1, [r0 + #2]
+// CHECK-NEXT:  mov r2, [r0 + #4]
+// CHECK-NEXT:  mov [-r0], r2
+// CHECK-NEXT:  mov [-r0], r1
 // CHECK:       calls
 // CHECK:       R_C166_SEG24 _external_float
 // CHECK:       add r0, #6

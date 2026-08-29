@@ -39,8 +39,8 @@ define i16 @bank255_identity(i16 %value) addrspace(511) {
 define i16 @bank1_same(i16 %value) addrspace(257) {
 ; ASM:      .section .text.c166.bank.1
 ; ASM-LABEL: _bank1_same:
-; ASM:      sub r0, #4
-; ASM:      mov [r0 + #2],
+; ASM:      mov [-r0],
+; ASM:      sub r0, #2
 ; ASM:      calls seg(_bank1_target), sof(_bank1_target)
 ; ASM:      add r0, #4
   %result = call addrspace(257) i16 @bank1_target(i16 %value, i16 2, i16 3,
@@ -50,10 +50,9 @@ define i16 @bank1_same(i16 %value) addrspace(257) {
 
 define i16 @bank1_cross(i16 %value) addrspace(257) {
 ; ASM-LABEL: _bank1_cross:
-; ASM:      sub r0, #4
-; ASM:      mov [r0 + #2],
+; ASM:      mov [-r0],
 ; ASM:      mov r3, #258
-; ASM-NEXT: mov [r0], r3
+; ASM-NEXT: mov [-r0], r3
 ; ASM:      mov r4, #sof(_bank2_target)
 ; ASM-NEXT: mov r5, #seg(_bank2_target)
 ; ASM:      calls seg(__banksw), sof(__banksw)
@@ -66,8 +65,9 @@ define i16 @bank1_cross(i16 %value) addrspace(257) {
 define i16 @unbanked_to_one(i16 %value) addrspace(1) {
 ; ASM:      .text
 ; ASM-LABEL: _unbanked_to_one:
+; ASM:      mov [-r0],
 ; ASM:      mov r3, #1
-; ASM-NEXT: mov [r0], r3
+; ASM-NEXT: mov [-r0], r3
 ; ASM:      mov r4, #sof(_bank1_target)
 ; ASM-NEXT: mov r5, #seg(_bank1_target)
 ; ASM:      calls seg(__banksw), sof(__banksw)
@@ -80,8 +80,8 @@ define i16 @bank1_indirect_same(ptr addrspace(257) %target,
                                 i16 %value) addrspace(257) {
 ; ASM:      .section .text.c166.bank.1
 ; ASM-LABEL: _bank1_indirect_same:
-; ASM:      sub r0, #4
-; ASM:      mov [r0 + #2],
+; ASM:      mov [-r0],
+; ASM:      sub r0, #2
 ; ASM:      calls seg(__icall), sof(__icall)
 ; ASM:      add r0, #4
   %result = call addrspace(257) i16 %target(i16 %value, i16 2, i16 3, i16 4,
@@ -92,10 +92,9 @@ define i16 @bank1_indirect_same(ptr addrspace(257) %target,
 define i16 @bank1_indirect_cross(ptr addrspace(258) %target,
                                  i16 %value) addrspace(257) {
 ; ASM-LABEL: _bank1_indirect_cross:
-; ASM:      sub r0, #4
-; ASM:      mov [r0 + #2],
+; ASM:      mov [-r0],
 ; ASM:      mov r3, #258
-; ASM-NEXT: mov [r0], r3
+; ASM-NEXT: mov [-r0], r3
 ; ASM:      calls seg(__banksw), sof(__banksw)
 ; ASM:      add r0, #4
   %result = call addrspace(258) i16 %target(i16 %value, i16 2, i16 3, i16 4,
@@ -105,8 +104,7 @@ define i16 @bank1_indirect_cross(ptr addrspace(258) %target,
 
 define i16 @bank1_to_plain(i16 %value) addrspace(257) {
 ; ASM-LABEL: _bank1_to_plain:
-; ASM:      sub r0, #2
-; ASM:      mov [r0],
+; ASM:      mov [-r0],
 ; ASM:      calls seg(_plain_target), sof(_plain_target)
 ; ASM:      add r0, #2
   %result = call addrspace(1) i16 @plain_target(i16 %value, i16 2, i16 3,

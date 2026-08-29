@@ -37,6 +37,13 @@ def UImm16LargeAsmOperand : AsmOperandClass {
   let RenderMethod = "addImmOperands";
 }
 
+def UImm16ALUAsmOperand : AsmOperandClass {
+  let Name = "UImm16ALU";
+  let PredicateMethod = "isUImm16ALU";
+  let DiagnosticType = "InvalidUImm16ALU";
+  let RenderMethod = "addImmOperands";
+}
+
 def SequenceCountAsmOperand : AsmOperandClass {
   let Name = "SequenceCount";
   let PredicateMethod = "isSequenceCount";
@@ -156,11 +163,16 @@ def C166nearcall : SDNode<"C166ISD::NEARCALL", SDT_C166NearCall,
                           [SDNPHasChain, SDNPOutGlue, SDNPOptInGlue,
                            SDNPVariadic]>;
 
-def SDT_C166StoreArg : SDTypeProfile<0, 2, [
+def C166tailcall : SDNode<"C166ISD::TAILCALL", SDT_C166Call,
+                          [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
+def C166neartailcall : SDNode<"C166ISD::NEARTAILCALL", SDT_C166NearCall,
+                              [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
+
+def SDT_C166PushArg : SDTypeProfile<0, 2, [
   SDTCisVT<0, i16>, SDTCisVT<1, i16>
 ]>;
-def C166storearg : SDNode<"C166ISD::STOREARG", SDT_C166StoreArg,
-                          [SDNPHasChain, SDNPMayStore]>;
+def C166pusharg : SDNode<"C166ISD::PUSHARG", SDT_C166PushArg,
+                         [SDNPHasChain, SDNPMayStore]>;
 
 def SDT_C166ExtractWord : SDTypeProfile<1, 1, [
   SDTCisVT<0, i16>, SDTCisVT<1, i32>
@@ -172,7 +184,11 @@ def SDT_C166AdjSP : SDTypeProfile<0, 1, [SDTCisVT<0, i16>]>;
 def C166adjsp
     : SDNode<"C166ISD::ADJSP", SDT_C166AdjSP,
              [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
-def C166allocsp : SDNode<"C166ISD::ALLOCSP", SDT_C166AdjSP, [SDNPHasChain]>;
+def SDT_C166AllocSP : SDTypeProfile<0, 2, [
+  SDTCisVT<0, i16>, SDTCisVT<1, i16>
+]>;
+def C166allocsp
+    : SDNode<"C166ISD::ALLOCSP", SDT_C166AllocSP, [SDNPHasChain]>;
 
 def SDT_C166NearLoad
     : SDTypeProfile<1, 2, [SDTCisVT<0, i16>, SDTCisSameAs<0, 1>,
@@ -204,6 +220,14 @@ def uimm16 : Operand<i16>, ImmLeaf<i16, [{ return isUInt<16>(Imm); }]> {
 
 def imm16full : Operand<i16>, ImmLeaf<i16, [{ return isUInt<16>(Imm); }]> {
   let ParserMatchClass = UImm16LargeAsmOperand;
+  let PrintMethod = "printImmediate16";
+}
+
+def imm16alu : Operand<i16>,
+    ImmLeaf<i16, [{
+      return (isInt<16>(Imm) || isUInt<16>(Imm)) && !isUInt<3>(Imm);
+    }]> {
+  let ParserMatchClass = UImm16ALUAsmOperand;
   let PrintMethod = "printImmediate16";
 }
 
@@ -299,6 +323,19 @@ class C166Inst16<bits<8> Opcode, dag Outs, dag Ins, string Asm>
   let OutOperandList = Outs;
   let InOperandList = Ins;
   let AsmString = Asm;
+  let hasSideEffects = 0;
+  let Inst{7-0} = Opcode;
+}
+
+class C166Inst32<bits<8> Opcode, dag Outs, dag Ins, string Asm>
+    : Instruction {
+  bits<32> Inst;
+  let Namespace = "C166";
+  let Size = 4;
+  let OutOperandList = Outs;
+  let InOperandList = Ins;
+  let AsmString = Asm;
+  let hasSideEffects = 0;
   let Inst{7-0} = Opcode;
 }
 
@@ -311,9 +348,10 @@ class C166Pseudo<dag Outs, dag Ins> : Instruction {
   let Size = 0;
   let isPseudo = 1;
   let isCodeGenOnly = 1;
+  let hasSideEffects = 0;
 }
 
-let Defs = [R0, PSW], Uses = [R0] in {
+let Defs = [R0, PSW], Uses = [R0], hasSideEffects = 1 in {
 def ADJCALLSTACKDOWN : C166Pseudo<(outs),
                                   (ins i32imm:$amount, i32imm:$callee_pop)> {
   let Pattern = [(C166callseq_start timm:$amount, timm:$callee_pop)];
@@ -332,19 +370,21 @@ def ADJSP : C166Pseudo<(outs), (ins uimm16:$amount)> {
   let Uses = [R0];
 }
 
-def ALLOCSP : C166Pseudo<(outs), (ins uimm16:$amount)> {
-  let Pattern = [(C166allocsp uimm16:$amount)];
+def ALLOCSP : C166Pseudo<(outs),
+                         (ins uimm16:$amount, uimm16:$dynamic_offset)> {
+  let Pattern = [(C166allocsp uimm16:$amount, uimm16:$dynamic_offset)];
   let hasSideEffects = 1;
   let Defs = [R0, PSW];
   let Uses = [R0];
 }
 
-def STOREARG : C166Pseudo<(outs), (ins uimm16:$offset, GR16:$src)> {
-  let Pattern = [(C166storearg uimm16:$offset, GR16:$src)];
+def PUSHARG : C166Pseudo<(outs),
+                         (ins uimm16:$dynamic_offset, GR16:$src)> {
+  let Pattern = [(C166pusharg uimm16:$dynamic_offset, GR16:$src)];
   let hasSideEffects = 1;
   let mayStore = 1;
   let Uses = [R0];
-  let Defs = [PSW];
+  let Defs = [R0, PSW];
 }
 
 def ADD32rr : C166Pseudo<(outs GR32:$dst),
@@ -385,8 +425,18 @@ def FARADD32 : C166Pseudo<(outs GR32:$dst),
   let Constraints = "$dst = $base";
 }
 
+def FARADD32i : C166Pseudo<(outs GR32:$dst),
+                           (ins GR32:$base, i16imm:$offset)> {
+  let Constraints = "$dst = $base";
+}
+
 let mayLoad = 1 in
 def FARLOAD16 : C166Pseudo<(outs GR16:$dst), (ins GR32:$address)>;
+
+let mayLoad = 1,
+    Constraints = "$address_wb = $address,@earlyclobber $dst" in
+def FARLOAD16_POSTINC : C166Pseudo<(outs GR16:$dst, GR32:$address_wb),
+                                   (ins GR32:$address)>;
 
 let mayStore = 1 in
 def FARSTORE16 : C166Pseudo<(outs),
@@ -516,7 +566,14 @@ def CONST32 : C166Pseudo<(outs GR32:$dst), (ins i32imm:$value)>;
 let mayLoad = 1 in
 def MOVfi : C166Pseudo<(outs GR16:$dst), (ins i32imm:$fi, i16imm:$disp)>;
 
-def LEAfi : C166Pseudo<(outs GR16:$dst), (ins i32imm:$fi, i16imm:$disp)>;
+def LEAfi : C166Pseudo<(outs GR16:$dst), (ins i32imm:$fi, i16imm:$disp)> {
+  let isReMaterializable = 1;
+}
+
+def FRAMEADDR32 : C166Pseudo<(outs GR32:$dst),
+                             (ins i32imm:$fi, i16imm:$disp)> {
+  let isReMaterializable = 1;
+}
 }
 
 let Defs = [PSW] in {
@@ -574,6 +631,21 @@ def CMPBR : C166Pseudo<(outs),
                             brtarget:$target)> {
   let isBranch = 1;
   let isTerminator = 1;
+}
+
+def CMPBRi : C166Pseudo<(outs),
+                        (ins GR16:$lhs, i16imm:$rhs, i16imm:$cc,
+                             brtarget:$target)> {
+  let isBranch = 1;
+  let isTerminator = 1;
+}
+
+def TEST32BR : C166Pseudo<(outs),
+                          (ins GR16:$lhs, GR16:$rhs, i16imm:$cc,
+                               brtarget:$target)> {
+  let isBranch = 1;
+  let isTerminator = 1;
+  let Defs = [R1, PSW];
 }
 
 def CMP32BR : C166Pseudo<(outs),
@@ -645,6 +717,56 @@ class C166ALURR<bits<8> Opcode, RegisterClass RC, string Mnemonic,
   let Pattern = [(set RC:$dst, (Op RC:$lhs, RC:$rhs))];
 }
 
+class C166ALUri3<bits<8> Opcode, string Mnemonic, SDPatternOperator Op>
+    : C166Inst16<Opcode, (outs GR16:$dst),
+                  (ins GR16:$lhs, uimm3:$src),
+                  !strconcat(Mnemonic, "\t$dst, $src")> {
+  bits<4> dst;
+  bits<3> src;
+  let Inst{15-12} = dst;
+  let Inst{11} = 0;
+  let Inst{10-8} = src;
+  let Constraints = "$dst = $lhs";
+  let Pattern = [(set GR16:$dst, (Op GR16:$lhs, uimm3:$src))];
+}
+
+class C166ALUri16<bits<8> Opcode, string Mnemonic, SDPatternOperator Op>
+    : C166Inst32<Opcode, (outs GR16:$dst),
+                  (ins GR16:$lhs, imm16alu:$src),
+                  !strconcat(Mnemonic, "\t$dst, $src")> {
+  bits<4> dst;
+  bits<16> src;
+  let Inst{15-12} = 0xf;
+  let Inst{11-8} = dst;
+  let Inst{31-16} = src;
+  let Constraints = "$dst = $lhs";
+  let Pattern = [(set GR16:$dst, (Op GR16:$lhs, imm16alu:$src))];
+}
+
+class C166Carryri3<bits<8> Opcode, string Mnemonic>
+    : C166Inst16<Opcode, (outs GR16:$dst),
+                  (ins GR16:$lhs, uimm3:$src),
+                  !strconcat(Mnemonic, "\t$dst, $src")> {
+  bits<4> dst;
+  bits<3> src;
+  let Inst{15-12} = dst;
+  let Inst{11} = 0;
+  let Inst{10-8} = src;
+  let Constraints = "$dst = $lhs";
+}
+
+class C166Carryri16<bits<8> Opcode, string Mnemonic>
+    : C166Inst32<Opcode, (outs GR16:$dst),
+                  (ins GR16:$lhs, imm16alu:$src),
+                  !strconcat(Mnemonic, "\t$dst, $src")> {
+  bits<4> dst;
+  bits<16> src;
+  let Inst{15-12} = 0xf;
+  let Inst{11-8} = dst;
+  let Inst{31-16} = src;
+  let Constraints = "$dst = $lhs";
+}
+
 class C166RI4<bits<8> Opcode, RegisterClass RC, string Mnemonic>
     : C166Inst16<Opcode, (outs RC:$dst), (ins uimm4:$src),
                   !strconcat(Mnemonic, "\t$dst, $src")> {
@@ -670,16 +792,11 @@ let Uses = [PSW] in
 def ADDCrr : C166ALURR<0x10, GR16, "addc", null_frag> {
   let hasSideEffects = 0;
 }
-def ADDri3 : C166Inst16<0x08, (outs GR16:$dst),
-                        (ins GR16:$lhs, uimm3:$src),
-                        "add\t$dst, $src"> {
-  bits<4> dst;
-  bits<3> src;
-  let Inst{15-12} = dst;
-  let Inst{11} = 0;
-  let Inst{10-8} = src;
-  let Constraints = "$dst = $lhs";
-  let Pattern = [(set GR16:$dst, (add GR16:$lhs, uimm3:$src))];
+def ADDri3 : C166ALUri3<0x08, "add", add>;
+def ADDri16 : C166ALUri16<0x06, "add", add>;
+let Uses = [PSW] in {
+def ADDCri3 : C166Carryri3<0x18, "addc">;
+def ADDCri16 : C166Carryri16<0x16, "addc">;
 }
 def ADDBrr : C166RR<0x01, GR8, "addb">;
 def SUBrr : C166ALURR<0x20, GR16, "sub", sub>;
@@ -687,16 +804,11 @@ let Uses = [PSW] in
 def SUBCrr : C166ALURR<0x30, GR16, "subc", null_frag> {
   let hasSideEffects = 0;
 }
-def SUBri3 : C166Inst16<0x28, (outs GR16:$dst),
-                        (ins GR16:$lhs, uimm3:$src),
-                        "sub\t$dst, $src"> {
-  bits<4> dst;
-  bits<3> src;
-  let Inst{15-12} = dst;
-  let Inst{11} = 0;
-  let Inst{10-8} = src;
-  let Constraints = "$dst = $lhs";
-  let Pattern = [(set GR16:$dst, (sub GR16:$lhs, uimm3:$src))];
+def SUBri3 : C166ALUri3<0x28, "sub", sub>;
+def SUBri16 : C166ALUri16<0x26, "sub", sub>;
+let Uses = [PSW] in {
+def SUBCri3 : C166Carryri3<0x38, "subc">;
+def SUBCri16 : C166Carryri16<0x36, "subc">;
 }
 def SUBBrr : C166RR<0x21, GR8, "subb">;
 def SHLrr : C166ALURR<0x4c, GR16, "shl", shl>;
@@ -736,15 +848,29 @@ def CMPrr : C166RR<0x40, GR16, "cmp"> {
   let OutOperandList = (outs);
   let InOperandList = (ins GR16:$dst, GR16:$src);
 }
+def CMPri3 : C166Inst16<0x48, (outs), (ins GR16:$dst, uimm3:$src),
+                        "cmp\t$dst, $src"> {
+  bits<4> dst;
+  bits<3> src;
+  let Inst{15-12} = dst;
+  let Inst{11} = 0;
+  let Inst{10-8} = src;
+}
 def CMPBrr : C166RR<0x41, GR8, "cmpb"> {
   let OutOperandList = (outs);
   let InOperandList = (ins GR8:$dst, GR8:$src);
 }
 def XORrr : C166ALURR<0x50, GR16, "xor", xor>;
+def XORri3 : C166ALUri3<0x58, "xor", xor>;
+def XORri16 : C166ALUri16<0x56, "xor", xor>;
 def XORBrr : C166RR<0x51, GR8, "xorb">;
 def ANDrr : C166ALURR<0x60, GR16, "and", and>;
+def ANDri3 : C166ALUri3<0x68, "and", and>;
+def ANDri16 : C166ALUri16<0x66, "and", and>;
 def ANDBrr : C166RR<0x61, GR8, "andb">;
 def ORrr : C166ALURR<0x70, GR16, "or", or>;
+def ORri3 : C166ALUri3<0x78, "or", or>;
+def ORri16 : C166ALUri16<0x76, "or", or>;
 def ORBrr : C166RR<0x71, GR8, "orb">;
 }
 
@@ -875,6 +1001,19 @@ def MOVmrPreDec : C166Inst16<0x88, (outs GR16:$base_wb),
   let Pattern = [];
 }
 
+let Defs = [PSW] in
+def MOVrmPostInc : C166Inst16<0x98, (outs GR16:$dst, GR16:$base_wb),
+                              (ins GR16:$base),
+                              "mov\t$dst, [${base}+]"> {
+  bits<4> dst;
+  bits<4> base;
+  let Inst{15-12} = dst;
+  let Inst{11-8} = base;
+  let Constraints = "$base_wb = $base";
+  let mayLoad = 1;
+  let Pattern = [];
+}
+
 def NOP : C166Inst16<0xcc, (outs), (ins), "nop"> {
   let Inst{15-8} = 0;
 }
@@ -950,17 +1089,6 @@ def RETI : C166Inst16<0xfb, (outs), (ins), "reti"> {
   let Pattern = [(C166interruptret)];
 }
 
-class C166Inst32<bits<8> Opcode, dag Outs, dag Ins, string Asm>
-    : Instruction {
-  bits<32> Inst;
-  let Namespace = "C166";
-  let Size = 4;
-  let OutOperandList = Outs;
-  let InOperandList = Ins;
-  let AsmString = Asm;
-  let Inst{7-0} = Opcode;
-}
-
 // Save the interrupted multiply/divide state and initialize MDC before the
 // handler executes any MD-unit instruction or ordinary C call. The ABI
 // The optimized interrupt frame uses exactly `SCXT MDC,#10h`.
@@ -997,6 +1125,16 @@ def MOVri16 : C166Inst32<0xe6, (outs GR16:$dst), (ins imm16full:$src),
   let Pattern = [(set GR16:$dst, uimm16:$src)];
   let isAsCheapAsAMove = 1;
   let isReMaterializable = 1;
+}
+
+let Defs = [PSW] in
+def CMPri16 : C166Inst32<0x46, (outs), (ins GR16:$dst, imm16alu:$src),
+                         "cmp\t$dst, $src"> {
+  bits<4> dst;
+  bits<16> src;
+  let Inst{15-12} = 0xf;
+  let Inst{11-8} = dst;
+  let Inst{31-16} = src;
 }
 
 // The architectural `MOV reg,#data16` format uses an eight-bit short direct
@@ -1363,6 +1501,27 @@ def JMPA : C166Inst32<0xea, (outs), (ins codeAddress16:$offset),
   let isBranch = 1;
   let isTerminator = 1;
   let isBarrier = 1;
+}
+
+let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1,
+    isCodeGenOnly = 1 in {
+def TAILJMPS : C166Inst32<0xfa, (outs),
+                          (ins address8:$segment, address16:$offset,
+                               variable_ops),
+                          "jmps\t$segment, $offset"> {
+  bits<8> segment;
+  bits<16> offset;
+  let Inst{15-8} = segment;
+  let Inst{31-16} = offset;
+}
+
+def TAILJMPA : C166Inst32<0xea, (outs),
+                          (ins codeAddress16:$offset, variable_ops),
+                          "jmpa\tcc_uc, $offset"> {
+  bits<16> offset;
+  let Inst{15-8} = 0;
+  let Inst{31-16} = offset;
+}
 }
 
 def JMPI : C166Inst16<0x9c, (outs), (ins GR16:$offset),

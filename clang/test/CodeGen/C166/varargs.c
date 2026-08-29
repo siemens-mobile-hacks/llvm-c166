@@ -170,7 +170,7 @@ unsigned int take_aggregate_varargs(unsigned int tag, ...) {
 // CHECK:       extp {{r[0-9]+}}, #1
 // CHECK:       rets
 // CHECK-LABEL: <_take_promoted_float>:
-// CHECK:       mov {{r[0-9]+}}, #8
+// CHECK:       add {{r[0-9]+}}, #8
 // CHECK:       extp {{r[0-9]+}}, #2
 // CHECK:       mov {{r[0-9]+}}, [{{r[0-9]+}}]
 // CHECK:       extp {{r[0-9]+}}, #2
@@ -178,46 +178,38 @@ unsigned int take_aggregate_varargs(unsigned int tag, ...) {
 // CHECK:       calls
 // CHECK:       rets
 // CHECK-LABEL: <_take_double_words>:
-// CHECK:       mov {{r[0-9]+}}, #8
+// CHECK:       add {{r[0-9]+}}, #8
 // CHECK:       extp {{r[0-9]+}}, #2
 // CHECK:       mov {{r[0-9]+}}, [{{r[0-9]+}}]
 // CHECK:       extp {{r[0-9]+}}, #2
 // CHECK:       mov {{r[0-9]+}}, [{{r[0-9]+}}]
 // CHECK:       rets
 // CHECK-LABEL: <_call_sum_words>:
-// CHECK:       sub r0, #6
-// CHECK:       mov [r0], {{r[0-9]+}}
-// CHECK:       mov [r0 + #2], {{r[0-9]+}}
-// CHECK:       mov [r0 + #4], {{r[0-9]+}}
+// CHECK-COUNT-3: mov [-r0], {{r[0-9]+}}
 // CHECK:       mov r12, #3
 // CHECK:       calls
 // CHECK:       add r0, #6
 // CHECK:       rets
 // CHECK-LABEL: <_call_take_long>:
-// CHECK:       sub r0, #4
-// CHECK:       mov [r0], r12
-// CHECK:       mov [r0 + #2], r13
+// CHECK:       mov [-r0], r13
+// CHECK-NEXT:  mov [-r0], r12
 // CHECK:       calls
 // CHECK:       add r0, #4
 // CHECK:       rets
 // CHECK-LABEL: <_call_take_long_long>:
-// CHECK:       sub r0, #4
-// CHECK:       mov [r0], r12
-// CHECK:       mov [r0 + #2], r13
+// CHECK:       mov [-r0], r13
+// CHECK-NEXT:  mov [-r0], r12
 // CHECK:       calls
 // CHECK:       add r0, #4
 // CHECK:       rets
 // CHECK-LABEL: <_call_take_pointer>:
-// CHECK:       sub r0, #4
-// CHECK:       mov [r0], r12
-// CHECK:       mov [r0 + #2], r13
+// CHECK:       mov [-r0], r13
+// CHECK-NEXT:  mov [-r0], r12
 // CHECK:       calls
 // CHECK:       add r0, #4
 // CHECK:       rets
 // CHECK-LABEL: <_call_fixed_stack_then_vararg>:
-// CHECK:       sub r0, #4
-// CHECK:       mov [r0], {{r[0-9]+}}
-// CHECK:       mov [r0 + #2], {{r[0-9]+}}
+// CHECK-COUNT-2: mov [-r0], {{r[0-9]+}}
 // CHECK:       mov r12, #1
 // CHECK:       mov r13, #2
 // CHECK:       mov r14, #3

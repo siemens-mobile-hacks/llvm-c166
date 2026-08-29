@@ -146,22 +146,22 @@ u16 call_bytes3_after_select(u16 seed, u16 selection) {
   return selection == 2 ? second_result : selected;
 }
 
-// The call result is now glued through stack cleanup before either select is
-// expanded.  Thus no custom-inserter block inherits a live outgoing frame,
-// and both six-byte frames are released immediately after their calls.
+// Both six-byte frames are released immediately after their calls.  The
+// second allocation may precede the select blocks, but every select path
+// converges at the call and its cleanup.
 // MIR-LABEL: name: call_bytes3_after_select
 // MIR:       ADJCALLSTACKDOWN 6,
 // MIR:       CALLS @external_bytes3
 // MIR-NEXT:  ADJSP 6,
 // MIR-NEXT:  ADJCALLSTACKUP 6,
-// MIR:       bb.1.entry:
-// MIR:       bb.2.entry:
 // MIR:       ADJCALLSTACKDOWN 6,
+// MIR:       bb.1.entry{{.*}}:
+// MIR:       bb.2.entry{{.*}}:
 // MIR:       CALLS @external_select3
 // MIR-NEXT:  ADJSP 6,
 // MIR-NEXT:  ADJCALLSTACKUP 6,
-// MIR:       bb.3.entry:
-// MIR:       bb.4.entry:
+// MIR:       bb.3.entry{{.*}}:
+// MIR:       bb.4.entry{{.*}}:
 
 // Stack-passed aggregates are rounded to a word boundary before the following
 // scalar: sizes 3, 5 and 6 place it at offsets 4, 6 and 6 respectively.
@@ -223,17 +223,14 @@ u16 call_bytes3_after_select(u16 seed, u16 selection) {
 // CHECK:       add r0, #6
 // CHECK:       rets
 
-// Outgoing stack arguments are laid out exactly as reverse predecrement
-// pushes, but R0 is adjusted for the complete six-byte area first.  This keeps
-// LLVM's call-frame displacement exact even if scheduling introduces a block
-// boundary while arguments are being prepared.
+// The local three-byte aggregate occupies four bytes.  Its three rounded
+// argument words are pushed in reverse order.  The cleanup releases both the
+// local and outgoing areas.
 // CHECK-LABEL: <_call_bytes3>:
-// CHECK:       sub r0, #6
-// CHECK:       mov [r0], {{r[0-9]+}}
-// CHECK:       mov [r0 + #2], {{r[0-9]+}}
-// CHECK:       mov [r0 + #4], {{r[0-9]+}}
+// CHECK:       sub r0, #4
+// CHECK-COUNT-3: mov [-r0], {{r[0-9]+}}
 // CHECK:       calls
-// CHECK:       add r0, #6
+// CHECK:       add r0, #10
 // CHECK:       rets
 
 // Under O0 register pressure, every caller-reserved eight-byte block must be
@@ -241,10 +238,8 @@ u16 call_bytes3_after_select(u16 seed, u16 selection) {
 // may otherwise be spilled into that block and overwritten by the callee.
 // O0-LABEL: <_consume_eight_bytes8>:
 // O0-COUNT-6: calls
-// O0:         sub r0, #6
-// O0-NEXT:    sub r0, #2
+// O0:         sub r0, #8
 // O0-NEXT:    calls
-// O0:         sub r0, #6
-// O0-NEXT:    sub r0, #2
+// O0:         sub r0, #8
 // O0-NEXT:    calls
 // O0:         rets
