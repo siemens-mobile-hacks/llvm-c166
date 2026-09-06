@@ -17,12 +17,29 @@
 #include "llvm/MC/MCELFObjectWriter.h"
 #include "llvm/MC/MCELFStreamer.h"
 #include "llvm/MC/MCInstrInfo.h"
+#include "llvm/MC/MCObjectFileInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/Compiler.h"
 
 using namespace llvm;
+
+namespace {
+
+class C166MCObjectFileInfo final : public MCObjectFileInfo {
+public:
+  unsigned getTextSectionAlignment() const override { return 2; }
+};
+
+MCObjectFileInfo *createC166MCObjectFileInfo(MCContext &Ctx, bool PIC,
+                                             bool LargeCodeModel = false) {
+  auto *MOFI = new C166MCObjectFileInfo();
+  MOFI->initMCObjectFileInfo(Ctx, PIC, LargeCodeModel);
+  return MOFI;
+}
+
+} // namespace
 
 #define GET_INSTRINFO_MC_DESC
 #define ENABLE_INSTR_PREDICATE_VERIFIER
@@ -107,6 +124,7 @@ createC166ELFStreamer(const Triple &TT, MCContext &Context,
 extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void LLVMInitializeC166TargetMC() {
   Target &T = getTheC166Target();
   TargetRegistry::RegisterMCAsmInfo(T, createC166MCAsmInfo);
+  TargetRegistry::RegisterMCObjectFileInfo(T, createC166MCObjectFileInfo);
   TargetRegistry::RegisterMCInstrInfo(T, createC166MCInstrInfo);
   TargetRegistry::RegisterMCRegInfo(T, createC166MCRegisterInfo);
   TargetRegistry::RegisterMCSubtargetInfo(T, createC166MCSubtargetInfo);

@@ -1,0 +1,133 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-ra \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define i16 @fold_reverse_small_immediate_subtract(i16 %value) {
+    ret i16 %value
+  }
+  define i16 @fold_reverse_max_short_immediate_subtract(i16 %value) {
+    ret i16 %value
+  }
+  define i16 @keep_reverse_subtract_with_live_psw(i16 %value) {
+    ret i16 %value
+  }
+  define i16 @keep_reverse_subtract_with_live_carry(i16 %value) {
+    ret i16 %value
+  }
+  define i16 @keep_reverse_long_immediate_subtract(i16 %value) {
+    ret i16 %value
+  }
+...
+---
+name:            fold_reverse_small_immediate_subtract
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r4
+
+    $r1 = MOVrr $r4, implicit-def dead $psw
+    $r4 = MOVri4 1, implicit-def dead $psw
+    $r4 = SUBrr killed $r4, killed $r1, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r4
+
+# CHECK-LABEL: name: fold_reverse_small_immediate_subtract
+# CHECK:       $r4 = NEG killed $r4, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  $r4 = ADDri3 killed $r4, 1, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  RETS implicit $r4
+# CHECK-NOT:   SUBrr
+...
+---
+name:            fold_reverse_max_short_immediate_subtract
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r4
+
+    $r1 = MOVrr $r4, implicit-def dead $psw
+    $r4 = MOVri4 7, implicit-def dead $psw
+    $r4 = SUBrr killed $r4, killed $r1, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r4
+
+# CHECK-LABEL: name: fold_reverse_max_short_immediate_subtract
+# CHECK:       $r4 = NEG killed $r4, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  $r4 = ADDri3 killed $r4, 7, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  RETS implicit $r4
+# CHECK-NOT:   SUBrr
+...
+---
+name:            keep_reverse_subtract_with_live_psw
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    $r1 = MOVrr $r4, implicit-def dead $psw
+    $r4 = MOVri4 2, implicit-def dead $psw
+    $r4 = SUBrr killed $r4, killed $r1, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $r4
+    RETS implicit $r4
+
+  bb.2:
+    liveins: $r4
+    RETS implicit $r4
+
+# CHECK-LABEL: name: keep_reverse_subtract_with_live_psw
+# CHECK:       $r1 = MOVrr $r4
+# CHECK-NEXT:  $r4 = MOVri4 2
+# CHECK-NEXT:  $r4 = SUBrr killed $r4, killed $r1, implicit-def $psw
+# CHECK-NEXT:  JMPR_EQ
+# CHECK-NOT:   NEG
+...
+---
+name:            keep_reverse_subtract_with_live_carry
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    $r1 = MOVrr $r4, implicit-def dead $psw
+    $r4 = MOVri4 3, implicit-def dead $psw
+    $r4 = SUBrr killed $r4, killed $r1, implicit-def dead $psw, implicit-def $c
+    JMPR_ULT %bb.2, implicit $psw, implicit $c
+
+  bb.1:
+    liveins: $r4
+    RETS implicit $r4
+
+  bb.2:
+    liveins: $r4
+    RETS implicit $r4
+
+# CHECK-LABEL: name: keep_reverse_subtract_with_live_carry
+# CHECK:       $r1 = MOVrr $r4
+# CHECK-NEXT:  $r4 = MOVri4 3
+# CHECK-NEXT:  $r4 = SUBrr killed $r4, killed $r1, implicit-def dead $psw, implicit-def $c
+# CHECK-NEXT:  JMPR_ULT
+# CHECK-NOT:   NEG
+...
+---
+name:            keep_reverse_long_immediate_subtract
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r4
+
+    $r1 = MOVrr $r4, implicit-def dead $psw
+    $r4 = MOVri16 8, implicit-def dead $psw
+    $r4 = SUBrr killed $r4, killed $r1, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r4
+
+# CHECK-LABEL: name: keep_reverse_long_immediate_subtract
+# CHECK:       $r1 = MOVrr $r4
+# CHECK-NEXT:  $r4 = MOVri16 8
+# CHECK-NEXT:  $r4 = SUBrr killed $r4, killed $r1
+# CHECK-NEXT:  RETS implicit $r4
+# CHECK-NOT:   NEG
+...

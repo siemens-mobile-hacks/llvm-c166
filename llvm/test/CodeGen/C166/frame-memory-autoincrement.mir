@@ -1,0 +1,518 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=prolog-epilog \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @contiguous_frame_loads() { ret void }
+  define void @interleaved_frame_loads() { ret void }
+  define void @mixed_width_interleaved_frame_loads() { ret void }
+  define void @overwritten_load_flags() { ret void }
+  define void @overlapping_frame_load_destinations() { ret void }
+  define void @volatile_frame_load32() { ret void }
+  define void @two_frame_loads() { ret void }
+  define void @volatile_frame_loads() { ret void }
+  define void @live_load_flags() { ret void }
+  define void @spaced_ascending_frame_loads() { ret void }
+  define void @live_carry_spaced_frame_loads() { ret void }
+  define void @contiguous_frame_stores() { ret void }
+  define void @interleaved_frame_stores() { ret void }
+  define void @mixed_width_interleaved_frame_stores() { ret void }
+  define void @page_end_frame_stores() { ret void }
+  define void @two_frame_stores() { ret void }
+  define void @volatile_frame_stores() { ret void }
+  define void @overwritten_store_flags() { ret void }
+  define void @live_store_flags() { ret void }
+  define void @spaced_descending_frame_stores() { ret void }
+  define void @unprofitable_spaced_frame_stores() { ret void }
+...
+---
+name:            contiguous_frame_loads
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 8, alignment: 2 }
+body:             |
+  bb.0:
+    $r1 = MOVfi %stack.0, 6, implicit-def dead $psw
+    $r2 = MOVfi %stack.0, 4, implicit-def dead $psw
+    $r3 = MOVfi %stack.0, 2, implicit-def dead $psw
+    $r4 = MOVfi %stack.0, 0, implicit-def dead $psw
+    RETS
+
+# CHECK-LABEL: name: contiguous_frame_loads
+# CHECK:       $r5 = MOVrr $r0, implicit-def dead $psw
+# CHECK-NEXT:  $r4, $r5 = MOVrmPostInc killed $r5, implicit-def dead $psw
+# CHECK-NEXT:  $r3, $r5 = MOVrmPostInc killed $r5, implicit-def dead $psw
+# CHECK-NEXT:  $r2, $r5 = MOVrmPostInc killed $r5, implicit-def dead $psw
+# CHECK-NEXT:  $r1 = MOVrm killed $r5, implicit-def dead $psw
+...
+---
+name:            interleaved_frame_loads
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 8, alignment: 2 }
+  - { id: 1, type: default, size: 8, alignment: 2 }
+body:             |
+  bb.0:
+    $r1 = MOVfi %stack.0, 0, implicit-def dead $psw
+    $r2 = MOVfi %stack.0, 2, implicit-def dead $psw
+    $r5 = MOVfi %stack.1, 0, implicit-def dead $psw
+    $r6 = MOVfi %stack.1, 2, implicit-def dead $psw
+    $r3 = MOVfi %stack.0, 4, implicit-def dead $psw
+    $r4 = MOVfi %stack.0, 6, implicit-def dead $psw
+    $r7 = MOVfi %stack.1, 4, implicit-def dead $psw
+    $r10 = MOVfi %stack.1, 6, implicit-def dead $psw
+    RETS
+
+# CHECK-LABEL: name: interleaved_frame_loads
+# CHECK:       $r11 = MOVrr $r0
+# CHECK-NEXT:  $r5, $r11 = MOVrmPostInc killed $r11
+# CHECK-NEXT:  $r6, $r11 = MOVrmPostInc killed $r11
+# CHECK-NEXT:  $r7, $r11 = MOVrmPostInc killed $r11
+# CHECK-NEXT:  $r10, $r11 = MOVrmPostInc killed $r11
+# CHECK-NEXT:  $r1, $r11 = MOVrmPostInc killed $r11
+# CHECK-NEXT:  $r2, $r11 = MOVrmPostInc killed $r11
+# CHECK-NEXT:  $r3, $r11 = MOVrmPostInc killed $r11
+# CHECK-NEXT:  $r4 = MOVrm killed $r11
+...
+---
+name:            mixed_width_interleaved_frame_loads
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 8, alignment: 2 }
+  - { id: 1, type: default, size: 8, alignment: 2 }
+body:             |
+  bb.0:
+    $r1 = MOVfi %stack.0, 0, implicit-def dead $psw
+    $r2 = MOVfi %stack.0, 2, implicit-def dead $psw
+    $r5 = MOVfi %stack.1, 0, implicit-def dead $psw
+    $r6 = MOVfi %stack.1, 2, implicit-def dead $psw
+    $r4r3 = FRAMELOAD32 %stack.0, 4, implicit-def dead $psw
+    $r11r10 = FRAMELOAD32 %stack.1, 4, implicit-def dead $psw
+    RETS
+
+# CHECK-LABEL: name: mixed_width_interleaved_frame_loads
+# CHECK:       $r12 = MOVrr $r0
+# CHECK-NEXT:  $r5, $r12 = MOVrmPostInc killed $r12
+# CHECK-NEXT:  $r6, $r12 = MOVrmPostInc killed $r12
+# CHECK-NEXT:  $r10, $r12 = MOVrmPostInc killed $r12
+# CHECK-NEXT:  $r11, $r12 = MOVrmPostInc killed $r12
+# CHECK-NEXT:  $r1, $r12 = MOVrmPostInc killed $r12
+# CHECK-NEXT:  $r2, $r12 = MOVrmPostInc killed $r12
+# CHECK-NEXT:  $r3, $r12 = MOVrmPostInc killed $r12
+# CHECK-NEXT:  $r4 = MOVrm killed $r12
+...
+---
+name:            overwritten_load_flags
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 6, alignment: 2 }
+body:             |
+  bb.0:
+    $r1 = MOVfi %stack.0, 0, implicit-def $psw
+    $r2 = MOVfi %stack.0, 2, implicit-def $psw
+    $r3 = MOVfi %stack.0, 4, implicit-def dead $psw
+    RETS
+
+# CHECK-LABEL: name: overwritten_load_flags
+# CHECK:       $r4 = MOVrr $r0, implicit-def dead $psw
+# CHECK-NEXT:  $r1, $r4 = MOVrmPostInc killed $r4, implicit-def dead $psw
+# CHECK-NEXT:  $r2, $r4 = MOVrmPostInc killed $r4, implicit-def dead $psw
+# CHECK-NEXT:  $r3 = MOVrm killed $r4, implicit-def dead $psw
+...
+---
+name:            overlapping_frame_load_destinations
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 6, alignment: 2 }
+body:             |
+  bb.0:
+    $r1 = MOVfi %stack.0, 4, implicit-def dead $psw
+    $r2 = MOVfi %stack.0, 2, implicit-def dead $psw
+    $r1 = MOVfi %stack.0, 0, implicit-def dead $psw
+    RETS implicit $r1, implicit $r2
+
+# CHECK-LABEL: name: overlapping_frame_load_destinations
+# CHECK:       $r1 = MOVrm16 $r0, 4, implicit-def dead $psw
+# CHECK-NEXT:  $r2 = MOVrm16 $r0, 2, implicit-def dead $psw
+# CHECK-NEXT:  $r1 = MOVrm $r0, implicit-def dead $psw
+...
+---
+name:            volatile_frame_load32
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 4, alignment: 2 }
+body:             |
+  bb.0:
+    $r2r1 = FRAMELOAD32 %stack.0, 0, implicit-def dead $psw :: (volatile load (s32) from %stack.0)
+    RETS
+
+# CHECK-LABEL: name: volatile_frame_load32
+# CHECK:       early-clobber $r2r1 = NEARLOAD32 $r0, 0
+...
+---
+name:            two_frame_loads
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 4, alignment: 2 }
+body:             |
+  bb.0:
+    $r1 = MOVfi %stack.0, 0, implicit-def dead $psw
+    $r2 = MOVfi %stack.0, 2, implicit-def dead $psw
+    RETS
+
+# CHECK-LABEL: name: two_frame_loads
+# CHECK:       $r1 = MOVrm $r0
+# CHECK-NEXT:  $r2 = MOVrm16 $r0, 2
+...
+---
+name:            volatile_frame_loads
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 6, alignment: 2 }
+body:             |
+  bb.0:
+    $r1 = MOVfi %stack.0, 0, implicit-def dead $psw :: (volatile load (s16) from %stack.0)
+    $r2 = MOVfi %stack.0, 2, implicit-def dead $psw :: (volatile load (s16) from %stack.0 + 2)
+    $r3 = MOVfi %stack.0, 4, implicit-def dead $psw :: (volatile load (s16) from %stack.0 + 4)
+    RETS
+
+# CHECK-LABEL: name: volatile_frame_loads
+# CHECK:       $r1 = MOVrm $r0
+# CHECK-NEXT:  $r2 = MOVrm16 $r0, 2
+# CHECK-NEXT:  $r3 = MOVrm16 $r0, 4
+...
+---
+name:            live_load_flags
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 6, alignment: 2 }
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+
+    $r1 = MOVfi %stack.0, 0, implicit-def dead $psw
+    $r2 = MOVfi %stack.0, 2, implicit-def dead $psw
+    $r3 = MOVfi %stack.0, 4, implicit-def $psw
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: live_load_flags
+# CHECK:       $r4 = MOVrr $r0, implicit-def dead $psw
+# CHECK-NEXT:  $r1, $r4 = MOVrmPostInc killed $r4, implicit-def dead $psw
+# CHECK-NEXT:  $r2, $r4 = MOVrmPostInc killed $r4, implicit-def dead $psw
+# CHECK-NEXT:  $r3 = MOVrm killed $r4, implicit-def $psw
+# CHECK-NEXT:  JMPR_EQ %bb.2, implicit $psw
+...
+---
+name:            spaced_ascending_frame_loads
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 8, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r10
+
+    $r1 = MOVfi %stack.0, 0, implicit-def dead $psw
+    $r10 = ADDri3 killed $r10, 1, implicit-def dead $psw, implicit-def dead $c
+    $r2 = MOVfi %stack.0, 2, implicit-def dead $psw
+    $r10 = ADDri3 killed $r10, 1, implicit-def dead $psw, implicit-def dead $c
+    $r3 = MOVfi %stack.0, 4, implicit-def dead $psw
+    $r10 = ADDri3 killed $r10, 1, implicit-def dead $psw, implicit-def dead $c
+    $r4 = MOVfi %stack.0, 6, implicit-def dead $psw
+    RETS implicit $r10
+
+# CHECK-LABEL: name: spaced_ascending_frame_loads
+# CHECK:       $r5 = MOVrr $r0, implicit-def dead $psw
+# CHECK-NEXT:  $r1, $r5 = MOVrmPostInc killed $r5, implicit-def dead $psw
+# CHECK-NEXT:  $r10 = ADDri3 killed $r10, 1
+# CHECK-NEXT:  $r2, $r5 = MOVrmPostInc killed $r5, implicit-def dead $psw
+# CHECK-NEXT:  $r10 = ADDri3 killed $r10, 1
+# CHECK-NEXT:  $r3, $r5 = MOVrmPostInc killed $r5, implicit-def dead $psw
+# CHECK-NEXT:  $r10 = ADDri3 killed $r10, 1
+# CHECK-NEXT:  $r4 = MOVrm killed $r5, implicit-def dead $psw
+...
+---
+name:            live_carry_spaced_frame_loads
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 8, alignment: 2 }
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $c
+
+    $r1 = MOVfi %stack.0, 2, implicit-def dead $psw
+    $r2 = MOVfi %stack.0, 4, implicit-def dead $psw
+    $r3 = MOVfi %stack.0, 6, implicit-def $psw
+    JMPR_ULT %bb.2, implicit $psw, implicit $c
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: live_carry_spaced_frame_loads
+# CHECK:       $r1 = MOVrm16 $r0, 2, implicit-def dead $psw
+# CHECK-NEXT:  $r2 = MOVrm16 $r0, 4, implicit-def dead $psw
+# CHECK-NEXT:  $r3 = MOVrm16 $r0, 6, implicit-def $psw
+# CHECK-NEXT:  JMPR_ULT %bb.2, implicit $psw, implicit $c
+...
+---
+name:            contiguous_frame_stores
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 8, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3, $r4
+
+    MOVfiStore %stack.0, 0, $r1, implicit-def dead $psw
+    MOVfiStore %stack.0, 2, $r2, implicit-def dead $psw
+    MOVfiStore %stack.0, 4, $r3, implicit-def dead $psw
+    MOVfiStore %stack.0, 6, $r4, implicit-def dead $psw
+    RETS
+
+# CHECK-LABEL: name: contiguous_frame_stores
+# CHECK:       $r5 = MOVri4 8
+# CHECK-NEXT:  $r5 = ADDrr $r5, $r0
+# CHECK-NEXT:  $r5 = MOVmrPreDec killed $r5, $r4
+# CHECK-NEXT:  $r5 = MOVmrPreDec killed $r5, $r3
+# CHECK-NEXT:  $r5 = MOVmrPreDec killed $r5, $r2
+# CHECK-NEXT:  dead $r5 = MOVmrPreDec killed $r5, $r1
+...
+---
+name:            interleaved_frame_stores
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 8, alignment: 2 }
+  - { id: 1, type: default, size: 8, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3, $r4, $r5, $r6, $r7, $r10
+
+    MOVfiStore %stack.0, 0, $r1, implicit-def dead $psw
+    MOVfiStore %stack.0, 2, $r2, implicit-def dead $psw
+    MOVfiStore %stack.1, 0, $r5, implicit-def dead $psw
+    MOVfiStore %stack.1, 2, $r6, implicit-def dead $psw
+    MOVfiStore %stack.0, 4, $r3, implicit-def dead $psw
+    MOVfiStore %stack.0, 6, $r4, implicit-def dead $psw
+    MOVfiStore %stack.1, 4, $r7, implicit-def dead $psw
+    MOVfiStore %stack.1, 6, $r10, implicit-def dead $psw
+    RETS
+
+# CHECK-LABEL: name: interleaved_frame_stores
+# CHECK:       $r11 = MOVrr $r0
+# CHECK-NEXT:  $r11 = ADDri16 $r11, 16
+# CHECK-NEXT:  $r11 = MOVmrPreDec killed $r11, $r4
+# CHECK-NEXT:  $r11 = MOVmrPreDec killed $r11, $r3
+# CHECK-NEXT:  $r11 = MOVmrPreDec killed $r11, $r2
+# CHECK-NEXT:  $r11 = MOVmrPreDec killed $r11, $r1
+# CHECK-NEXT:  $r11 = MOVmrPreDec killed $r11, $r10
+# CHECK-NEXT:  $r11 = MOVmrPreDec killed $r11, $r7
+# CHECK-NEXT:  $r11 = MOVmrPreDec killed $r11, $r6
+# CHECK-NEXT:  dead $r11 = MOVmrPreDec killed $r11, $r5
+...
+---
+name:            mixed_width_interleaved_frame_stores
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 8, alignment: 2 }
+  - { id: 1, type: default, size: 8, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r4r3, $r5, $r6, $r11r10
+
+    MOVfiStore %stack.0, 0, $r1, implicit-def dead $psw
+    MOVfiStore %stack.0, 2, $r2, implicit-def dead $psw
+    MOVfiStore %stack.1, 0, $r5, implicit-def dead $psw
+    MOVfiStore %stack.1, 2, $r6, implicit-def dead $psw
+    FRAMESTORE32 %stack.0, 4, $r4r3, implicit-def dead $psw
+    FRAMESTORE32 %stack.1, 4, $r11r10, implicit-def dead $psw
+    RETS
+
+# CHECK-LABEL: name: mixed_width_interleaved_frame_stores
+# CHECK:       $r12 = MOVrr $r0
+# CHECK-NEXT:  $r12 = ADDri16 $r12, 16
+# CHECK-NEXT:  $r12 = MOVmrPreDec killed $r12, $r4
+# CHECK-NEXT:  $r12 = MOVmrPreDec killed $r12, $r3
+# CHECK-NEXT:  $r12 = MOVmrPreDec killed $r12, $r2
+# CHECK-NEXT:  $r12 = MOVmrPreDec killed $r12, $r1
+# CHECK-NEXT:  $r12 = MOVmrPreDec killed $r12, $r11
+# CHECK-NEXT:  $r12 = MOVmrPreDec killed $r12, $r10
+# CHECK-NEXT:  $r12 = MOVmrPreDec killed $r12, $r6
+# CHECK-NEXT:  dead $r12 = MOVmrPreDec killed $r12, $r5
+...
+---
+name:            page_end_frame_stores
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 16384, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3
+
+    MOVfiStore %stack.0, 16378, $r1, implicit-def dead $psw
+    MOVfiStore %stack.0, 16380, $r2, implicit-def dead $psw
+    MOVfiStore %stack.0, 16382, $r3, implicit-def dead $psw
+    RETS
+
+# CHECK-LABEL: name: page_end_frame_stores
+# CHECK:       MOVmr16 $r0, 16378, $r1
+# CHECK-NEXT:  MOVmr16 $r0, 16380, $r2
+# CHECK-NEXT:  MOVmr16 $r0, 16382, $r3
+...
+---
+name:            two_frame_stores
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 4, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r1, $r2
+
+    MOVfiStore %stack.0, 0, $r1, implicit-def dead $psw
+    MOVfiStore %stack.0, 2, $r2, implicit-def dead $psw
+    RETS
+
+# CHECK-LABEL: name: two_frame_stores
+# CHECK:       MOVmr $r0, $r1
+# CHECK-NEXT:  MOVmr16 $r0, 2, $r2
+...
+---
+name:            volatile_frame_stores
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 6, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3
+
+    MOVfiStore %stack.0, 0, $r1, implicit-def dead $psw :: (volatile store (s16) into %stack.0)
+    MOVfiStore %stack.0, 2, $r2, implicit-def dead $psw :: (volatile store (s16) into %stack.0 + 2)
+    MOVfiStore %stack.0, 4, $r3, implicit-def dead $psw :: (volatile store (s16) into %stack.0 + 4)
+    RETS
+
+# CHECK-LABEL: name: volatile_frame_stores
+# CHECK:       MOVmr $r0, $r1
+# CHECK-NEXT:  MOVmr16 $r0, 2, $r2
+# CHECK-NEXT:  MOVmr16 $r0, 4, $r3
+...
+---
+name:            overwritten_store_flags
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 6, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3
+
+    MOVfiStore %stack.0, 0, $r1, implicit-def $psw
+    MOVfiStore %stack.0, 2, $r2, implicit-def $psw
+    MOVfiStore %stack.0, 4, $r3, implicit-def dead $psw
+    RETS
+
+# CHECK-LABEL: name: overwritten_store_flags
+# CHECK:       $r4 = MOVrr $r0
+# CHECK-NEXT:  $r4 = ADDri3 $r4, 6
+# CHECK-NEXT:  $r4 = MOVmrPreDec killed $r4, $r3, implicit-def dead $psw
+# CHECK-NEXT:  $r4 = MOVmrPreDec killed $r4, $r2, implicit-def dead $psw
+# CHECK-NEXT:  dead $r4 = MOVmrPreDec killed $r4, $r1, implicit-def dead $psw
+...
+---
+name:            live_store_flags
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 6, alignment: 2 }
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r2, $r3
+
+    MOVfiStore %stack.0, 0, $r1, implicit-def dead $psw
+    MOVfiStore %stack.0, 2, $r2, implicit-def dead $psw
+    MOVfiStore %stack.0, 4, $r3, implicit-def $psw
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: live_store_flags
+# CHECK:       MOVmr $r0, $r1
+# CHECK-NEXT:  MOVmr16 $r0, 2, $r2
+# CHECK-NEXT:  MOVmr16 $r0, 4, $r3
+# CHECK-NEXT:  JMPR_EQ %bb.2, implicit $psw
+...
+---
+name:            spaced_descending_frame_stores
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 8, alignment: 2 }
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r2, $r3, $r4, $r10
+
+    MOVfiStore %stack.0, 6, $r4, implicit-def dead $psw
+    $r10 = ADDri3 killed $r10, 1, implicit-def dead $psw, implicit-def dead $c
+    MOVfiStore %stack.0, 4, $r3, implicit-def dead $psw
+    $r10 = ADDri3 killed $r10, 1, implicit-def dead $psw, implicit-def dead $c
+    MOVfiStore %stack.0, 2, $r2, implicit-def dead $psw
+    $r10 = ADDri3 killed $r10, 1, implicit-def dead $psw, implicit-def dead $c
+    MOVfiStore %stack.0, 0, $r1, implicit-def $psw
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $r10
+
+    RETS implicit $r10
+
+  bb.2:
+    liveins: $r10
+
+    RETS implicit $r10
+
+# CHECK-LABEL: name: spaced_descending_frame_stores
+# CHECK:       $r5 = MOVri4 8
+# CHECK-NEXT:  $r5 = ADDrr $r5, $r0
+# CHECK-NEXT:  $r5 = MOVmrPreDec killed $r5, $r4, implicit-def dead $psw
+# CHECK-NEXT:  $r10 = ADDri3 killed $r10, 1
+# CHECK-NEXT:  $r5 = MOVmrPreDec killed $r5, $r3, implicit-def dead $psw
+# CHECK-NEXT:  $r10 = ADDri3 killed $r10, 1
+# CHECK-NEXT:  $r5 = MOVmrPreDec killed $r5, $r2, implicit-def dead $psw
+# CHECK-NEXT:  $r10 = ADDri3 killed $r10, 1
+# CHECK-NEXT:  dead $r5 = MOVmrPreDec killed $r5, $r1, implicit-def $psw
+# CHECK-NEXT:  JMPR_EQ %bb.2, implicit $psw
+...
+---
+name:            unprofitable_spaced_frame_stores
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 6, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3, $r10
+
+    MOVfiStore %stack.0, 4, $r3, implicit-def dead $psw
+    $r10 = ADDri3 killed $r10, 1, implicit-def dead $psw, implicit-def dead $c
+    MOVfiStore %stack.0, 2, $r2, implicit-def dead $psw
+    $r10 = ADDri3 killed $r10, 1, implicit-def dead $psw, implicit-def dead $c
+    MOVfiStore %stack.0, 0, $r1, implicit-def dead $psw
+    RETS implicit $r10
+
+# CHECK-LABEL: name: unprofitable_spaced_frame_stores
+# CHECK:       MOVmr16 $r0, 4, $r3
+# CHECK-NEXT:  $r10 = ADDri3 killed $r10, 1
+# CHECK-NEXT:  MOVmr16 $r0, 2, $r2
+# CHECK-NEXT:  $r10 = ADDri3 killed $r10, 1
+# CHECK-NEXT:  MOVmr $r0, $r1
+...

@@ -1,4 +1,12 @@
 # RUN: llc -mtriple=c166-none-elf -run-pass=postrapseudos -verify-machineinstrs -o - %s | FileCheck %s
+# RUN: llc -mtriple=c166-none-elf -run-pass=none -verify-machineinstrs -o - %s | FileCheck %s --check-prefix=FLAGS
+
+# FLAGS-LABEL: name: set_carry_dead_scratch
+# FLAGS: SETCARRY killed $r6, implicit-def dead $psw
+# FLAGS-LABEL: name: set_carry_live_scratch
+# FLAGS: SETCARRY killed $r7, implicit-def dead $psw
+# FLAGS-LABEL: name: set_carry_live_flags
+# FLAGS: SETCARRY killed $r6, implicit-def $psw
 
 --- |
   target triple = "c166-none-elf"
@@ -31,7 +39,27 @@
     ret void
   }
 
+  define void @copy_gpr_to_carry() {
+    ret void
+  }
+
+  define void @copy_live_gpr_to_carry() {
+    ret void
+  }
+
   define void @copy_gpr_to_sfr() {
+    ret void
+  }
+
+  define void @set_carry_dead_scratch() {
+    ret void
+  }
+
+  define void @set_carry_live_scratch() {
+    ret void
+  }
+
+  define void @set_carry_live_flags() {
     ret void
   }
 ...
@@ -75,7 +103,7 @@ body:             |
   bb.0:
     liveins: $r2
 
-    $r2r1 = SEXT16_32 killed $r2, implicit-def $psw
+    $r2r1 = SEXT16_32 killed $r2, implicit-def $psw, implicit-def dead $c
     RETS
 
 # Signed extension has the same overlap hazard, then derives the high word
@@ -145,6 +173,34 @@ body:             |
 # CHECK-NEXT:  RETS
 ...
 ---
+name:            copy_gpr_to_carry
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r6
+
+    $c = COPY killed $r6
+    RETS implicit $c
+
+# CHECK-LABEL: name: copy_gpr_to_carry
+# CHECK:       BMOV 2187, 3936, implicit-def $psw, implicit-def $c, implicit killed $r6
+# CHECK-NEXT:  RETS implicit $c
+...
+---
+name:            copy_live_gpr_to_carry
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r6
+
+    $c = COPY $r6
+    RETS implicit $r6, implicit $c
+
+# CHECK-LABEL: name: copy_live_gpr_to_carry
+# CHECK:       BMOV 2187, 3936, implicit-def $psw, implicit-def $c, implicit $r6
+# CHECK-NEXT:  RETS implicit $r6, implicit $c
+...
+---
 name:            copy_gpr_to_sfr
 tracksRegLiveness: true
 body:             |
@@ -157,4 +213,45 @@ body:             |
 # CHECK-LABEL: name: copy_gpr_to_sfr
 # CHECK:       $dpp1 = MOVsfrg killed $r5
 # CHECK-NEXT:  RETS
+...
+---
+name:            set_carry_dead_scratch
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r6
+
+    dead $r6, $c = SETCARRY killed $r6, implicit-def dead $psw
+    RETS implicit $c
+
+# CHECK-LABEL: name: set_carry_dead_scratch
+# CHECK:       dead $r6 = SHRri4 killed $r6, 1, implicit-def dead $psw, implicit-def $c
+# CHECK-NEXT:  RETS implicit $c
+...
+---
+name:            set_carry_live_scratch
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r7
+
+    $r7, $c = SETCARRY killed $r7, implicit-def dead $psw
+    RETS implicit $r7, implicit $c
+
+# CHECK-LABEL: name: set_carry_live_scratch
+# CHECK:       $r7 = ADDri16 killed $r7, 65535, implicit-def dead $psw, implicit-def $c
+# CHECK-NEXT:  RETS implicit $r7, implicit $c
+...
+---
+name: set_carry_live_flags
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r6
+    dead $r6, $c = SETCARRY killed $r6, implicit-def $psw
+    RETS implicit $c, implicit $psw
+
+# CHECK-LABEL: name: set_carry_live_flags
+# CHECK: dead $r6 = SHRri4 killed $r6, 1, implicit-def $psw, implicit-def $c
+# CHECK-NEXT: RETS implicit $c, implicit $psw
 ...

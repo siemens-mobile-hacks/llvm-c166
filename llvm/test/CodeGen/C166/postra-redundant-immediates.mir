@@ -1,0 +1,473 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-ra \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @remove_redundant_immediate() { ret void }
+  define void @reuse_immediate_for_single_use() { ret void }
+  define void @reuse_immediate_for_multiple_uses() { ret void }
+  define void @copy_reused_immediate_with_live_value() { ret void }
+  define void @copy_reused_immediate_before_modified_value() { ret void }
+  define void @copy_reused_immediate_before_candidate_clobber() { ret void }
+  define void @copy_reused_immediate_for_fixed_register_use() { ret void }
+  define void @revive_previous_immediate() { ret void }
+  define void @keep_immediate_with_live_flags() { ret void }
+  define void @keep_immediate_after_value_def() { ret void }
+  define void @keep_different_immediate() { ret void }
+  define void @keep_immediate_in_extension_window() { ret void }
+  define void @keep_long_immediate_copy_with_live_flags() { ret void }
+  define void @keep_long_immediate_copy_in_extension_window() { ret void }
+  define void @fold_immediate_add_with_carry() { ret void }
+  define void @fold_long_immediate_subtract() { ret void }
+  define void @keep_multi_use_immediate() { ret void }
+  define void @keep_equal_cost_immediate() { ret void }
+  define void @combine_long_add_immediates() { ret void }
+  define void @combine_short_add_immediates() { ret void }
+  define void @keep_equal_cost_add_immediates() { ret void }
+  define void @keep_add_immediates_with_live_flags() { ret void }
+  define void @keep_different_add_registers() { ret void }
+  define void @keep_add_immediates_in_extension_window() { ret void }
+...
+---
+name:            remove_redundant_immediate
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r6
+
+    $r2 = MOVri4 0, implicit-def dead $psw
+    MOVmr16 $r6, 6, killed $r2, implicit-def dead $psw :: (store (s16))
+    $r2 = MOVri16 0, implicit-def dead $psw
+    $r3 = MOVri4 0, implicit-def dead $psw
+    MOVmr16 $r6, 2, $r2, implicit-def dead $psw :: (store (s16))
+    RETS implicit $r2, implicit $r3
+
+# CHECK-LABEL: name: remove_redundant_immediate
+# CHECK:       $r2 = MOVri4 0
+# CHECK-NEXT:  MOVmr16 $r6, 6, $r2
+# CHECK-NEXT:  $r3 = MOVri4 0
+# CHECK-NEXT:  MOVmr16 $r6, 2, $r2
+# CHECK-NOT:   $r2 = MOVri16 0
+...
+---
+name:            reuse_immediate_for_single_use
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r6
+
+    $r2 = MOVri4 0, implicit-def dead $psw
+    MOVmr16 $r6, 6, killed $r2, implicit-def dead $psw :: (store (s16))
+    $r3 = MOVri16 0, implicit-def dead $psw
+    MOVmr16 $r6, 2, killed $r3, implicit-def dead $psw :: (store (s16))
+    RETS
+
+# CHECK-LABEL: name: reuse_immediate_for_single_use
+# CHECK:       $r2 = MOVri4 0
+# CHECK-NEXT:  MOVmr16 $r6, 6, $r2
+# CHECK-NEXT:  MOVmr16 $r6, 2, $r2
+# CHECK-NEXT:  RETS
+# CHECK-NOT:   $r3 = MOVri16 0
+...
+---
+name:            reuse_immediate_for_multiple_uses
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r6
+
+    $r2 = MOVri4 0, implicit-def dead $psw
+    MOVmr16 $r6, 6, killed $r2, implicit-def dead $psw :: (store (s16))
+    $r3 = MOVri16 0, implicit-def dead $psw
+    MOVmr16 $r6, 2, $r3, implicit-def dead $psw :: (store (s16))
+    $r4 = MOVrr $r6, implicit-def dead $psw
+    MOVmr16 $r6, 4, killed $r3, implicit-def dead $psw :: (store (s16))
+    RETS
+
+# CHECK-LABEL: name: reuse_immediate_for_multiple_uses
+# CHECK:       $r2 = MOVri4 0
+# CHECK-NEXT:  MOVmr16 $r6, 6, $r2
+# CHECK-NOT:   $r3 = MOVri16 0
+# CHECK:       MOVmr16 $r6, 2, $r2
+# CHECK:       MOVmr16 $r6, 4, $r2
+# CHECK-NEXT:  RETS
+...
+---
+name:            copy_reused_immediate_with_live_value
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r6
+
+    $r2 = MOVri16 65535, implicit-def dead $psw
+    MOVmr16 $r6, 6, killed $r2, implicit-def dead $psw :: (store (s16))
+    $r3 = MOVri16 65535, implicit-def dead $psw
+    MOVmr16 $r6, 2, $r3, implicit-def dead $psw :: (store (s16))
+    RETS implicit $r3
+
+# CHECK-LABEL: name: copy_reused_immediate_with_live_value
+# CHECK:       $r2 = MOVri16 65535
+# CHECK-NEXT:  MOVmr16 $r6, 6, $r2
+# CHECK-NEXT:  $r3 = MOVrr killed $r2
+# CHECK-NEXT:  MOVmr16 $r6, 2, $r3
+# CHECK-NEXT:  RETS implicit $r3
+...
+---
+name:            copy_reused_immediate_before_modified_value
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r6
+
+    $r2 = MOVri16 65535, implicit-def dead $psw
+    MOVmr16 $r6, 6, killed $r2, implicit-def dead $psw :: (store (s16))
+    $r3 = MOVri16 65535, implicit-def dead $psw
+    $r3 = ADDri3 killed $r3, 1, implicit-def dead $psw, implicit-def dead $c
+    MOVmr16 $r6, 2, killed $r3, implicit-def dead $psw :: (store (s16))
+    RETS
+
+# CHECK-LABEL: name: copy_reused_immediate_before_modified_value
+# CHECK:       $r2 = MOVri16 65535
+# CHECK-NEXT:  MOVmr16 $r6, 6, $r2
+# CHECK-NEXT:  $r3 = MOVrr killed $r2
+# CHECK-NEXT:  $r3 = ADDri3 killed $r3, 1
+# CHECK-NEXT:  MOVmr16 $r6, 2, killed $r3
+...
+---
+name:            copy_reused_immediate_before_candidate_clobber
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r6
+
+    $r2 = MOVri16 65535, implicit-def dead $psw
+    $r3 = MOVri16 65535, implicit-def dead $psw
+    $r2 = ADDri3 killed $r2, 1, implicit-def dead $psw, implicit-def dead $c
+    MOVmr16 $r6, 2, killed $r3, implicit-def dead $psw :: (store (s16))
+    RETS
+
+# CHECK-LABEL: name: copy_reused_immediate_before_candidate_clobber
+# CHECK:       $r2 = MOVri16 65535
+# CHECK-NEXT:  $r3 = MOVrr $r2
+# CHECK-NEXT:  $r2 = ADDri3 killed $r2, 1
+# CHECK-NEXT:  MOVmr16 $r6, 2, killed $r3
+...
+---
+name:            copy_reused_immediate_for_fixed_register_use
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r3
+
+    $r4 = MOVri16 65535, implicit-def dead $psw
+    $r2 = MOVri16 65535, implicit-def dead $psw
+    CMPrm $r3, killed $r2, implicit-def dead $psw, implicit-def dead $c
+    RETS
+
+# CHECK-LABEL: name: copy_reused_immediate_for_fixed_register_use
+# CHECK:       $r4 = MOVri16 65535
+# CHECK-NEXT:  $r2 = MOVrr killed $r4
+# CHECK-NEXT:  CMPrm $r3, killed $r2
+...
+---
+name:            revive_previous_immediate
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    dead $r2 = MOVri4 0, implicit-def dead $psw
+    $r2 = MOVri16 0, implicit-def dead $psw
+    RETS implicit $r2
+
+# CHECK-LABEL: name: revive_previous_immediate
+# CHECK:       $r2 = MOVri4 0
+# CHECK-NEXT:  RETS implicit $r2
+# CHECK-NOT:   MOVri16
+...
+---
+name:            keep_immediate_with_live_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r6
+
+    $r2 = MOVri4 0, implicit-def dead $psw
+    MOVmr $r6, $r2, implicit-def dead $psw :: (store (s16))
+    $r2 = MOVri4 0, implicit-def $psw
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $r2
+    RETS implicit $r2
+
+  bb.2:
+    liveins: $r2
+    RETS implicit $r2
+
+# CHECK-LABEL: name: keep_immediate_with_live_flags
+# CHECK:       $r2 = MOVri4 0
+# CHECK:       $r2 = MOVri4 0, implicit-def $psw
+# CHECK-NEXT:  JMPR_EQ
+...
+---
+name:            keep_immediate_after_value_def
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    $r2 = MOVri4 0, implicit-def dead $psw
+    $r2 = ADDri3 killed $r2, 1, implicit-def dead $psw, implicit-def dead $c
+    $r2 = MOVri4 0, implicit-def dead $psw
+    RETS implicit $r2
+
+# CHECK-LABEL: name: keep_immediate_after_value_def
+# CHECK:       $r2 = ADDri3
+# CHECK-NEXT:  $r2 = MOVri4 0
+...
+---
+name:            keep_different_immediate
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r6
+
+    $r2 = MOVri4 0, implicit-def dead $psw
+    MOVmr $r6, $r2, implicit-def dead $psw :: (store (s16))
+    $r2 = MOVri4 1, implicit-def dead $psw
+    RETS implicit $r2
+
+# CHECK-LABEL: name: keep_different_immediate
+# CHECK:       $r2 = MOVri4 0
+# CHECK:       $r2 = MOVri4 1
+...
+---
+name:            keep_immediate_in_extension_window
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r6, $r13
+
+    $r2 = MOVri4 0, implicit-def dead $psw
+    EXTPr $r13, 2
+    $r2 = MOVri4 0, implicit-def dead $psw
+    MOVmr $r6, $r2, implicit-def dead $psw :: (store (s16))
+    RETS implicit $r2
+
+# CHECK-LABEL: name: keep_immediate_in_extension_window
+# CHECK:       $r2 = MOVri4 0
+# CHECK:       EXTPr $r13, 2
+# CHECK-NEXT:  $r2 = MOVri4 0
+# CHECK-NEXT:  MOVmr
+...
+---
+name:            keep_long_immediate_copy_with_live_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+
+    $r2 = MOVri16 65535, implicit-def dead $psw
+    $r3 = MOVri16 65535, implicit-def $psw
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $r3
+    RETS implicit $r3
+
+  bb.2:
+    liveins: $r3
+    RETS implicit $r3
+
+# CHECK-LABEL: name: keep_long_immediate_copy_with_live_flags
+# CHECK:       $r2 = MOVri16 65535
+# CHECK-NEXT:  $r3 = MOVri16 65535, implicit-def $psw
+# CHECK-NEXT:  JMPR_EQ
+...
+---
+name:            keep_long_immediate_copy_in_extension_window
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r6, $r13
+
+    $r2 = MOVri16 65535, implicit-def dead $psw
+    EXTPr $r13, 2
+    $r3 = MOVri16 65535, implicit-def dead $psw
+    MOVmr $r6, killed $r3, implicit-def dead $psw :: (store (s16))
+    RETS
+
+# CHECK-LABEL: name: keep_long_immediate_copy_in_extension_window
+# CHECK:       $r2 = MOVri16 65535
+# CHECK-NEXT:  EXTPr
+# CHECK-NEXT:  $r3 = MOVri16 65535
+# CHECK-NEXT:  MOVmr
+...
+---
+name:            fold_immediate_add_with_carry
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r5, $c
+
+    $r1 = MOVri4 0, implicit-def dead $psw
+    $r5, dead $c = ADDCCarryrr killed $r5, killed $r1, killed $c, implicit-def dead $psw, implicit $psw
+    RETS implicit $r5
+
+# CHECK-LABEL: name: fold_immediate_add_with_carry
+# CHECK-NOT:   MOVri4
+# CHECK:       $r5 = ADDCri3 killed $r5, 0
+# CHECK-NEXT:  RETS implicit $r5
+...
+---
+name:            fold_long_immediate_subtract
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r4
+
+    $r2 = MOVri16 4660, implicit-def dead $psw
+    $r4 = SUBrr killed $r4, killed $r2, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r4
+
+# CHECK-LABEL: name: fold_long_immediate_subtract
+# CHECK-NOT:   MOVri16
+# CHECK:       $r4 = SUBri16 killed $r4, 4660
+# CHECK-NEXT:  RETS implicit $r4
+...
+---
+name:            keep_multi_use_immediate
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r5, $c
+
+    $r1 = MOVri4 0, implicit-def dead $psw
+    $r5, dead $c = ADDCCarryrr killed $r5, $r1, killed $c, implicit-def dead $psw, implicit $psw
+    RETS implicit $r1, implicit $r5
+
+# CHECK-LABEL: name: keep_multi_use_immediate
+# CHECK:       $r1 = MOVri4 0
+# CHECK-NEXT:  $r5, dead $c = ADDCCarryrr killed $r5, $r1
+# CHECK-NEXT:  RETS implicit $r1, implicit $r5
+...
+---
+name:            keep_equal_cost_immediate
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r4
+
+    $r2 = MOVri4 8, implicit-def dead $psw
+    $r4 = XORrr killed $r4, killed $r2, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r4
+
+# CHECK-LABEL: name: keep_equal_cost_immediate
+# CHECK:       $r2 = MOVri4 8
+# CHECK-NEXT:  $r4 = XORrr killed $r4, killed $r2
+# CHECK-NEXT:  RETS implicit $r4
+...
+---
+name:            combine_long_add_immediates
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r5
+
+    $r5 = ADDri16 killed $r5, 36, implicit-def dead $psw, implicit-def dead $c
+    $r5 = ADDri16 killed $r5, 8, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r5
+
+# CHECK-LABEL: name: combine_long_add_immediates
+# CHECK:       $r5 = ADDri16 killed $r5, 44
+# CHECK-NEXT:  RETS implicit $r5
+...
+---
+name:            combine_short_add_immediates
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r5
+
+    $r5 = ADDri3 killed $r5, 2, implicit-def dead $psw, implicit-def dead $c
+    $r5 = ADDri3 killed $r5, 3, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r5
+
+# CHECK-LABEL: name: combine_short_add_immediates
+# CHECK:       $r5 = ADDri3 killed $r5, 5
+# CHECK-NEXT:  RETS implicit $r5
+...
+---
+name:            keep_equal_cost_add_immediates
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r5
+
+    $r5 = ADDri3 killed $r5, 4, implicit-def dead $psw, implicit-def dead $c
+    $r5 = ADDri3 killed $r5, 4, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r5
+
+# CHECK-LABEL: name: keep_equal_cost_add_immediates
+# CHECK:       $r5 = ADDri3 killed $r5, 4
+# CHECK-NEXT:  $r5 = ADDri3 killed $r5, 4
+# CHECK-NEXT:  RETS implicit $r5
+...
+---
+name:            keep_add_immediates_with_live_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r5
+
+    $r5 = ADDri16 killed $r5, 36, implicit-def dead $psw, implicit-def dead $c
+    $r5 = ADDri16 killed $r5, 8, implicit-def $psw, implicit-def $c
+    JMPR_ULT %bb.2, implicit $psw, implicit $c
+
+  bb.1:
+    liveins: $r5
+    RETS implicit $r5
+
+  bb.2:
+    liveins: $r5
+    RETS implicit $r5
+
+# CHECK-LABEL: name: keep_add_immediates_with_live_flags
+# CHECK:       $r5 = ADDri16 killed $r5, 36
+# CHECK-NEXT:  $r5 = ADDri16 killed $r5, 8
+# CHECK-NEXT:  JMPR_ULT
+...
+---
+name:            keep_different_add_registers
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r4, $r5
+
+    $r4 = ADDri16 killed $r4, 36, implicit-def dead $psw, implicit-def dead $c
+    $r5 = ADDri16 killed $r5, 8, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r4, implicit $r5
+
+# CHECK-LABEL: name: keep_different_add_registers
+# CHECK:       $r4 = ADDri16 killed $r4, 36
+# CHECK-NEXT:  $r5 = ADDri16 killed $r5, 8
+# CHECK-NEXT:  RETS implicit $r4, implicit $r5
+...
+---
+name:            keep_add_immediates_in_extension_window
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r5, $r13
+
+    EXTPr $r13, 2
+    $r5 = ADDri16 killed $r5, 36, implicit-def dead $psw, implicit-def dead $c
+    $r5 = ADDri16 killed $r5, 8, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r5
+
+# CHECK-LABEL: name: keep_add_immediates_in_extension_window
+# CHECK:       EXTPr $r13, 2
+# CHECK-NEXT:  $r5 = ADDri16 killed $r5, 36
+# CHECK-NEXT:  $r5 = ADDri16 killed $r5, 8
+# CHECK-NEXT:  RETS implicit $r5
+...

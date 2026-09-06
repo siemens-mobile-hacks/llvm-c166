@@ -9,8 +9,9 @@
 // The C166 ABI stores IEEE binary32 and binary64 values most-significant
 // word first, while integers use the ordinary C166 low-word-first
 // representation.  LLVM's DataLayout cannot express type-dependent word
-// order, so encode the physical floating representation immediately before
-// instruction selection.
+// order.  Target intrinsics preserve that distinction through generic IR
+// optimization; this pass expands them immediately before instruction
+// selection.
 //
 //===----------------------------------------------------------------------===//
 
@@ -20,10 +21,14 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/IntrinsicsC166.h"
 #include "llvm/IR/Module.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Transforms/Utils/PromoteMemToReg.h"
 
 using namespace llvm;
 
@@ -105,6 +110,68 @@ static Constant *encodeFloatInitializer(Constant *C) {
   llvm_unreachable("unexpected C166 aggregate initializer type");
 }
 
+static bool encodeFloatGlobals(Module &M) {
+  bool Changed = false;
+  for (GlobalVariable &Global : M.globals()) {
+    if (!Global.hasInitializer() ||
+        !containsFloatStorage(Global.getValueType()) ||
+        Global.getMetadata(C166FloatStorageMetadata))
+      continue;
+    Constant *Initializer = Global.getInitializer();
+    Constant *Encoded = encodeFloatInitializer(Initializer);
+    if (Encoded != Initializer)
+      Global.setInitializer(Encoded);
+    Global.setMetadata(C166FloatStorageMetadata,
+                       MDNode::get(M.getContext(), {}));
+    Changed = true;
+  }
+  return Changed;
+}
+
+// Scalar storage may remain native until the late pass only if it cannot be
+// observed through another type. Globals must always be encoded before folding.
+static bool hasOnlyTypedFloatAccesses(Value *Pointer, Type *FloatTy) {
+  Value *Object = getUnderlyingObject(Pointer);
+  if (auto *Alloca = dyn_cast<AllocaInst>(Object)) {
+    if (Alloca->getAllocatedType() != FloatTy)
+      return false;
+    if (isAllocaPromotable(Alloca))
+      return true;
+  } else if (auto *Arg = dyn_cast<Argument>(Object)) {
+    if ((!Arg->hasByValAttr() || Arg->getParamByValType() != FloatTy) &&
+        (!Arg->hasStructRetAttr() || Arg->getParamStructRetType() != FloatTy))
+      return false;
+  } else {
+    return false;
+  }
+  for (const Use &U : Object->uses()) {
+    if (auto *Load = dyn_cast<LoadInst>(U.getUser())) {
+      if (Load->isSimple() && Load->getType() == FloatTy)
+        continue;
+    } else if (auto *Store = dyn_cast<StoreInst>(U.getUser())) {
+      if (Store->isSimple() && Store->getPointerOperand() == Object &&
+          Store->getValueOperand()->getType() == FloatTy)
+        continue;
+      // Storing the pointer in an unread local slot does not expose storage.
+      if (auto *Slot = dyn_cast<AllocaInst>(Store->getPointerOperand());
+          Slot && isAllocaPromotable(Slot) &&
+          llvm::none_of(Slot->users(), [](User *U) { return isa<LoadInst>(U); }))
+        continue;
+    } else if (auto *Call = dyn_cast<CallBase>(U.getUser())) {
+      if (Call->isLifetimeStartOrEnd())
+        continue;
+      if (Call->isArgOperand(&U)) {
+        unsigned Index = Call->getArgOperandNo(&U);
+        if (Call->getParamByValType(Index) == FloatTy ||
+            Call->getParamStructRetType(Index) == FloatTy)
+          continue;
+      }
+    }
+    return false;
+  }
+  return true;
+}
+
 static Value *reverseFloatWords(IRBuilder<> &Builder, Value *Bits,
                                 const Twine &Name) {
   auto *Ty = cast<IntegerType>(Bits->getType());
@@ -124,6 +191,51 @@ static Value *reverseFloatWords(IRBuilder<> &Builder, Value *Bits,
     Result = Builder.CreateOr(Result, Word, Name + ".partial");
   }
   return Result;
+}
+
+static Value *createFloatLoad(Instruction &Original, Value *Pointer,
+                              Type *FloatTy, Align Alignment,
+                              bool IsVolatile = false,
+                              AtomicOrdering Ordering = AtomicOrdering::NotAtomic,
+                              SyncScope::ID SyncScope = SyncScope::System) {
+  IRBuilder<> Builder(&Original);
+  IntegerType *IntTy =
+      Builder.getIntNTy(FloatTy->isFloatTy() ? 32 : 64);
+  LoadInst *Physical =
+      Builder.CreateLoad(IntTy, Pointer, Original.getName() + ".physical");
+  Physical->setVolatile(IsVolatile);
+  Physical->setAlignment(Alignment);
+  if (Ordering != AtomicOrdering::NotAtomic)
+    Physical->setAtomic(Ordering, SyncScope);
+  Physical->copyMetadata(Original);
+  Physical->setDebugLoc(Original.getDebugLoc());
+  Value *Logical =
+      reverseFloatWords(Builder, Physical, Original.getName() + ".logical");
+  Value *Result =
+      Builder.CreateBitCast(Logical, FloatTy, Original.getName() + ".value");
+  if (auto *ResultI = dyn_cast<Instruction>(Result))
+    ResultI->setDebugLoc(Original.getDebugLoc());
+  return Result;
+}
+
+static void createFloatStore(Instruction &Original, Value *FPValue,
+                             Value *Pointer, Align Alignment,
+                             bool IsVolatile = false,
+                             AtomicOrdering Ordering = AtomicOrdering::NotAtomic,
+                             SyncScope::ID SyncScope = SyncScope::System) {
+  IRBuilder<> Builder(&Original);
+  Type *FloatTy = FPValue->getType();
+  IntegerType *IntTy =
+      Builder.getIntNTy(FloatTy->isFloatTy() ? 32 : 64);
+  Value *Logical = Builder.CreateBitCast(FPValue, IntTy, "fp.logical");
+  Value *Physical = reverseFloatWords(Builder, Logical, "fp.physical");
+  StoreInst *Encoded = Builder.CreateStore(Physical, Pointer);
+  Encoded->setVolatile(IsVolatile);
+  Encoded->setAlignment(Alignment);
+  if (Ordering != AtomicOrdering::NotAtomic)
+    Encoded->setAtomic(Ordering, SyncScope);
+  Encoded->copyMetadata(Original);
+  Encoded->setDebugLoc(Original.getDebugLoc());
 }
 
 class C166FloatMemoryLowering : public ModulePass {
@@ -153,33 +265,86 @@ bool C166FloatMemoryLowering::runOnModule(Module &M) {
   return lowerC166FloatMemory(M);
 }
 
-bool llvm::lowerC166FloatMemory(Module &M) {
-  bool Changed = false;
-  for (GlobalVariable &Global : M.globals()) {
-    if (!Global.hasInitializer() ||
-        !containsFloatStorage(Global.getValueType()) ||
-        Global.getMetadata(C166FloatStorageMetadata))
-      continue;
-    Constant *Initializer = Global.getInitializer();
-    Constant *Encoded = encodeFloatInitializer(Initializer);
-    if (Encoded != Initializer)
-      Global.setInitializer(Encoded);
-    // The early new-PM hook and the late CodeGen safety pass share this
-    // implementation.  Mark each physical initializer so an LTO or legacy
-    // pipeline cannot reverse its words a second time.
-    Global.setMetadata(C166FloatStorageMetadata,
-                       MDNode::get(M.getContext(), {}));
-    Changed = true;
-  }
-
+bool llvm::prepareC166FloatMemory(Module &M) {
+  bool Changed = encodeFloatGlobals(M);
   SmallVector<LoadInst *, 16> Loads;
   SmallVector<StoreInst *, 16> Stores;
-  SmallVector<VAArgInst *, 4> VAArgs;
   for (Function &F : M) {
     if (F.isDeclaration())
       continue;
     for (Instruction &I : instructions(F)) {
-      if (auto *VAArg = dyn_cast<VAArgInst>(&I);
+      if (auto *Load = dyn_cast<LoadInst>(&I);
+          Load && Load->isSimple() &&
+          (Load->getType()->isFloatTy() || Load->getType()->isDoubleTy()) &&
+          !hasOnlyTypedFloatAccesses(Load->getPointerOperand(),
+                                     Load->getType()))
+        Loads.push_back(Load);
+      else if (auto *Store = dyn_cast<StoreInst>(&I);
+               Store && Store->isSimple() &&
+               (Store->getValueOperand()->getType()->isFloatTy() ||
+                Store->getValueOperand()->getType()->isDoubleTy()) &&
+               !hasOnlyTypedFloatAccesses(
+                   Store->getPointerOperand(),
+                   Store->getValueOperand()->getType()))
+        Stores.push_back(Store);
+    }
+  }
+
+  for (LoadInst *Load : Loads) {
+    IRBuilder<> Builder(Load);
+    Function *StorageLoad = Intrinsic::getOrInsertDeclaration(
+        &M, Intrinsic::c166_float_load,
+        {Load->getType(), Load->getPointerOperand()->getType()});
+    CallInst *Call = Builder.CreateCall(
+        StorageLoad,
+        {Load->getPointerOperand(),
+         Builder.getInt32(Load->getAlign().value())},
+        Load->getName());
+    Call->copyMetadata(*Load);
+    Call->setDebugLoc(Load->getDebugLoc());
+    Load->replaceAllUsesWith(Call);
+    Load->eraseFromParent();
+    Changed = true;
+  }
+
+  for (StoreInst *Store : Stores) {
+    IRBuilder<> Builder(Store);
+    Value *FPValue = Store->getValueOperand();
+    Value *Pointer = Store->getPointerOperand();
+    Function *StorageStore = Intrinsic::getOrInsertDeclaration(
+        &M, Intrinsic::c166_float_store,
+        {FPValue->getType(), Pointer->getType()});
+    CallInst *Call = Builder.CreateCall(
+        StorageStore,
+        {FPValue, Pointer, Builder.getInt32(Store->getAlign().value())});
+    Call->copyMetadata(*Store);
+    Call->setDebugLoc(Store->getDebugLoc());
+    Store->eraseFromParent();
+    Changed = true;
+  }
+
+  return Changed;
+}
+
+bool llvm::lowerC166FloatMemory(Module &M) {
+  bool Changed = encodeFloatGlobals(M);
+
+  SmallVector<LoadInst *, 16> Loads;
+  SmallVector<StoreInst *, 16> Stores;
+  SmallVector<VAArgInst *, 4> VAArgs;
+  SmallVector<IntrinsicInst *, 16> StorageLoads;
+  SmallVector<IntrinsicInst *, 16> StorageStores;
+  for (Function &F : M) {
+    if (F.isDeclaration())
+      continue;
+    for (Instruction &I : instructions(F)) {
+      if (auto *II = dyn_cast<IntrinsicInst>(&I);
+          II && II->getIntrinsicID() == Intrinsic::c166_float_load)
+        StorageLoads.push_back(II);
+      else if (auto *II = dyn_cast<IntrinsicInst>(&I);
+               II && II->getIntrinsicID() == Intrinsic::c166_float_store)
+        StorageStores.push_back(II);
+      else if (auto *VAArg = dyn_cast<VAArgInst>(&I);
           VAArg &&
           (VAArg->getType()->isFloatTy() || VAArg->getType()->isDoubleTy()))
         VAArgs.push_back(VAArg);
@@ -202,10 +367,8 @@ bool llvm::lowerC166FloatMemory(Module &M) {
     PointerType *DataPtrTy = Builder.getPtrTy();
 
     // Type legalization softens a floating VAARG to integer VAARG nodes before
-    // target DAG lowering, losing the target's different word
-    // order for floating objects.  Expand it while the IR type is still known:
-    // update the far va_list pointer, load the physical object as an integer,
-    // reverse its 16-bit words, and restore the logical floating value.
+    // target DAG lowering, losing the target's different word order for
+    // floating objects.  Expand it while the IR type is still known.
     LoadInst *Current = Builder.CreateLoad(
         DataPtrTy, VAArg->getPointerOperand(), VAArg->getName() + ".address");
     Current->setAlignment(Align(2));
@@ -234,41 +397,37 @@ bool llvm::lowerC166FloatMemory(Module &M) {
   }
 
   for (LoadInst *Load : Loads) {
-    IRBuilder<> Builder(Load);
-    Type *FloatTy = Load->getType();
-    IntegerType *IntTy = Builder.getIntNTy(FloatTy->isFloatTy() ? 32 : 64);
-    LoadInst *Physical = Builder.CreateLoad(IntTy, Load->getPointerOperand(),
-                                            Load->getName() + ".physical");
-    Physical->setVolatile(Load->isVolatile());
-    Physical->setAlignment(Load->getAlign());
-    if (Load->isAtomic())
-      Physical->setAtomic(Load->getOrdering(), Load->getSyncScopeID());
-    Physical->copyMetadata(*Load);
-    Physical->setDebugLoc(Load->getDebugLoc());
-    Value *Logical =
-        reverseFloatWords(Builder, Physical, Load->getName() + ".logical");
-    Value *Value =
-        Builder.CreateBitCast(Logical, FloatTy, Load->getName() + ".value");
+    Value *Value = createFloatLoad(
+        *Load, Load->getPointerOperand(), Load->getType(), Load->getAlign(),
+        Load->isVolatile(), Load->getOrdering(), Load->getSyncScopeID());
+    Load->replaceAllUsesWith(Value);
+    Load->eraseFromParent();
+    Changed = true;
+  }
+
+  for (IntrinsicInst *Load : StorageLoads) {
+    auto *Alignment = cast<ConstantInt>(Load->getArgOperand(1));
+    Value *Value = createFloatLoad(
+        *Load, Load->getArgOperand(0), Load->getType(),
+        Align(Alignment->getZExtValue()));
     Load->replaceAllUsesWith(Value);
     Load->eraseFromParent();
     Changed = true;
   }
 
   for (StoreInst *Store : Stores) {
-    IRBuilder<> Builder(Store);
-    Type *FloatTy = Store->getValueOperand()->getType();
-    IntegerType *IntTy = Builder.getIntNTy(FloatTy->isFloatTy() ? 32 : 64);
-    Value *Logical =
-        Builder.CreateBitCast(Store->getValueOperand(), IntTy, "fp.logical");
-    Value *Physical = reverseFloatWords(Builder, Logical, "fp.physical");
-    StoreInst *Encoded =
-        Builder.CreateStore(Physical, Store->getPointerOperand());
-    Encoded->setVolatile(Store->isVolatile());
-    Encoded->setAlignment(Store->getAlign());
-    if (Store->isAtomic())
-      Encoded->setAtomic(Store->getOrdering(), Store->getSyncScopeID());
-    Encoded->copyMetadata(*Store);
-    Encoded->setDebugLoc(Store->getDebugLoc());
+    createFloatStore(*Store, Store->getValueOperand(),
+                     Store->getPointerOperand(), Store->getAlign(),
+                     Store->isVolatile(), Store->getOrdering(),
+                     Store->getSyncScopeID());
+    Store->eraseFromParent();
+    Changed = true;
+  }
+
+  for (IntrinsicInst *Store : StorageStores) {
+    auto *Alignment = cast<ConstantInt>(Store->getArgOperand(2));
+    createFloatStore(*Store, Store->getArgOperand(0), Store->getArgOperand(1),
+                     Align(Alignment->getZExtValue()));
     Store->eraseFromParent();
     Changed = true;
   }

@@ -1,0 +1,92 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-isel \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @fold_adjacent() { ret void }
+  define void @fold_bounded_motion() { ret void }
+  define void @keep_nonadjacent() { ret void }
+...
+---
+name:            fold_adjacent
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr16 }
+  - { id: 1, class: gr16 }
+  - { id: 2, class: gr32 }
+  - { id: 3, class: gr32 }
+  - { id: 4, class: gr32 }
+body:             |
+  bb.0:
+    liveins: $r12, $r13, $r15r14
+
+    %0:gr16 = COPY $r12
+    %1:gr16 = COPY $r13
+    %3:gr32 = COPY $r15r14
+    %2:gr32 = UMUL16_32 %0, %1, implicit-def dead $psw, implicit-def dead $c
+    %4:gr32 = ADD32rr %3, killed %2, implicit-def dead $psw, implicit-def dead $c
+    $r5r4 = COPY %4
+    RETS implicit $r5r4
+
+# CHECK-LABEL: name: fold_adjacent
+# CHECK-NOT:   UMUL16_32
+# CHECK:       %4:gr32 = UMUL16_ADD32 %3, %0, %1
+...
+---
+name:            fold_bounded_motion
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr16 }
+  - { id: 1, class: gr16 }
+  - { id: 2, class: gr32 }
+  - { id: 3, class: gr32 }
+  - { id: 4, class: gr32 }
+  - { id: 5, class: gr16 }
+body:             |
+  bb.0:
+    liveins: $r10, $r12, $r13, $r15r14
+
+    %0:gr16 = COPY $r12
+    %1:gr16 = COPY $r13
+    %3:gr32 = COPY $r15r14
+    %2:gr32 = UMUL16_32 %0, %1, implicit-def dead $psw, implicit-def dead $c
+    %5:gr16 = COPY $r10
+    %4:gr32 = ADD32rr %3, killed %2, implicit-def dead $psw, implicit-def dead $c
+    $r4 = ADDrr %5, %1, implicit-def dead $psw, implicit-def dead $c
+    $r5 = COPY %4.sub_lo16
+    RETS implicit $r4, implicit $r5
+
+# CHECK-LABEL: name: fold_bounded_motion
+# CHECK-NOT:   UMUL16_32
+# CHECK:       %4:gr32 = UMUL16_ADD32 %3, %0, %1
+...
+---
+name:            keep_nonadjacent
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr16 }
+  - { id: 1, class: gr16 }
+  - { id: 2, class: gr32 }
+  - { id: 3, class: gr32 }
+  - { id: 4, class: gr32 }
+  - { id: 5, class: gr16 }
+body:             |
+  bb.0:
+    liveins: $r10, $r12, $r13, $r15r14
+
+    %0:gr16 = COPY $r12
+    %1:gr16 = COPY $r13
+    %3:gr32 = COPY $r15r14
+    %2:gr32 = UMUL16_32 %0, %1, implicit-def dead $psw, implicit-def dead $c
+    %5:gr16 = COPY $r10
+    %4:gr32 = ADD32rr %3, killed %2, implicit-def dead $psw, implicit-def dead $c
+    $r5r4 = COPY %4
+    RETS implicit $r5r4, implicit %5
+
+# CHECK-LABEL: name: keep_nonadjacent
+# CHECK:       %2:gr32 = UMUL16_32 %0, %1
+# CHECK-NEXT:  %5:gr16 = COPY $r10
+# CHECK-NEXT:  %4:gr32 = ADD32rr %3, killed %2
+# CHECK-NOT:   UMUL16_ADD32
+...

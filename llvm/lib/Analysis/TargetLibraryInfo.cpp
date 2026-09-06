@@ -118,9 +118,10 @@ static void initializeBase(TargetLibraryInfoImpl &TLI, const Triple &T) {
   TLI.setShouldSignExtI32Return(ShouldSignExtI32Return);
 
   // Let's assume by default that the size of int is 32 bits, unless the target
-  // is a 16-bit architecture because then it most likely is 16 bits. If that
-  // isn't true for a target those defaults should be overridden below.
-  TLI.setIntSize(T.isArch16Bit() ? 16 : 32);
+  // is a 16-bit architecture because then it most likely is 16 bits. C166 has
+  // a 32-bit default data pointer in its segmented memory models, but its C
+  // int is still 16 bits.
+  TLI.setIntSize(T.isArch16Bit() || T.isC166() ? 16 : 32);
 }
 
 /// Initialize the set of available library functions based on the specified

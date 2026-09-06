@@ -167,7 +167,9 @@ bank1_double_indirect_cross(bank2_double_fn *function, double value, u16 tail) {
 // ASM-NEXT: mov r5, [r0 + #4]
 // ASM-NEXT: rets
 // ASM-LABEL: _bank1_double_identity:
-// ASM: mov {{r[0-9]+}}, [r0 + #2]
+// ASM: mov [[DOUBLE_ARGS:r[0-9]+]], r0
+// ASM-NEXT: add [[DOUBLE_ARGS]], #2
+// ASM-NEXT: mov {{r[0-9]+}}, [[[DOUBLE_ARGS]]+]
 // ASM: mov [r0 + #12], {{r[0-9]+}}
 // ASM: mov r10, r4
 // ASM-NEXT: rets

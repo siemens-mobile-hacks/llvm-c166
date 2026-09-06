@@ -1,0 +1,187 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-ra \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  declare void @callee() addrspace(1)
+
+  define void @fold_call_spills() #0 { ret void }
+  define void @keep_equal_cost() #0 { ret void }
+  define void @keep_wrong_restore_order() #0 { ret void }
+  define void @keep_outgoing_stack_arguments() #0 { ret void }
+  define void @keep_call_without_register_mask() #0 { ret void }
+  define void @keep_extension_window() #0 { ret void }
+  define void @keep_with_unwind_info() #2 { ret void }
+  define void @keep_without_size_attribute() #1 { ret void }
+
+  attributes #0 = { nounwind optsize }
+  attributes #1 = { nounwind }
+  attributes #2 = { optsize uwtable }
+...
+---
+name:            fold_call_spills
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 2, alignment: 2 }
+  - { id: 1, type: spill-slot, size: 2, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r0, $r14, $r15
+
+    MOVmr16 $r0, 8, killed $r14, implicit-def dead $psw :: (store (s16) into %stack.0)
+    MOVmr16 $r0, 20, killed $r15, implicit-def dead $psw :: (store (s16) into %stack.1)
+    CALLS @callee, @callee, csr_c166_callpreserved
+    $r15 = MOVrm16 $r0, 20, implicit-def dead $psw :: (load (s16) from %stack.1)
+    $r14 = MOVrm16 $r0, 8, implicit-def dead $psw :: (load (s16) from %stack.0)
+    RETS implicit $r14, implicit $r15
+
+# CHECK-LABEL: name: fold_call_spills
+# CHECK:       $r0 = MOVmrPreDec $r0, killed $r14, implicit-def dead $psw
+# CHECK-NEXT:  $r0 = MOVmrPreDec $r0, killed $r15, implicit-def dead $psw
+# CHECK-NEXT:  CALLS @callee, @callee, csr_c166_callpreserved
+# CHECK-NEXT:  $r15, $r0 = MOVrmPostInc $r0, implicit-def dead $psw
+# CHECK-NEXT:  $r14, $r0 = MOVrmPostInc $r0, implicit-def dead $psw
+# CHECK-NEXT:  RETS implicit $r14, implicit $r15
+...
+---
+name:            keep_equal_cost
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 2, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r0, $r14
+
+    MOVmr $r0, killed $r14, implicit-def dead $psw :: (store (s16) into %stack.0)
+    CALLS @callee, @callee, csr_c166_callpreserved
+    $r14 = MOVrm $r0, implicit-def dead $psw :: (load (s16) from %stack.0)
+    RETS implicit $r14
+
+# CHECK-LABEL: name: keep_equal_cost
+# CHECK:       MOVmr $r0, killed $r14
+# CHECK-NEXT:  CALLS @callee, @callee, csr_c166_callpreserved
+# CHECK-NEXT:  $r14 = MOVrm $r0
+...
+---
+name:            keep_wrong_restore_order
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 2, alignment: 2 }
+  - { id: 1, type: spill-slot, size: 2, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r0, $r14, $r15
+
+    MOVmr16 $r0, 8, killed $r14, implicit-def dead $psw :: (store (s16) into %stack.0)
+    MOVmr16 $r0, 20, killed $r15, implicit-def dead $psw :: (store (s16) into %stack.1)
+    CALLS @callee, @callee, csr_c166_callpreserved
+    $r14 = MOVrm16 $r0, 8, implicit-def dead $psw :: (load (s16) from %stack.0)
+    $r15 = MOVrm16 $r0, 20, implicit-def dead $psw :: (load (s16) from %stack.1)
+    RETS implicit $r14, implicit $r15
+
+# CHECK-LABEL: name: keep_wrong_restore_order
+# CHECK:       MOVmr16 $r0, 8, killed $r14
+# CHECK-NEXT:  MOVmr16 $r0, 20, killed $r15
+# CHECK-NEXT:  CALLS @callee, @callee, csr_c166_callpreserved
+# CHECK-NEXT:  $r14 = MOVrm16 $r0, 8
+# CHECK-NEXT:  $r15 = MOVrm16 $r0, 20
+...
+---
+name:            keep_outgoing_stack_arguments
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 2, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r0, $r12, $r14
+
+    PUSHARG 2, killed $r12, implicit-def dead $r0, implicit-def dead $psw, implicit $r0
+    MOVmr16 $r0, 8, killed $r14, implicit-def dead $psw :: (store (s16) into %stack.0)
+    CALLS @callee, @callee, csr_c166_callpreserved
+    $r14 = MOVrm16 $r0, 8, implicit-def dead $psw :: (load (s16) from %stack.0)
+    RETS implicit $r14
+
+# CHECK-LABEL: name: keep_outgoing_stack_arguments
+# CHECK:       PUSHARG 2, killed $r12
+# CHECK-NEXT:  MOVmr16 $r0, 8, killed $r14
+# CHECK-NEXT:  CALLS @callee, @callee, csr_c166_callpreserved
+# CHECK-NEXT:  $r14 = MOVrm16 $r0, 8
+...
+name:            keep_call_without_register_mask
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 2, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r0, $r14
+
+    MOVmr16 $r0, 8, killed $r14, implicit-def dead $psw :: (store (s16) into %stack.0)
+    CALLS @callee, @callee
+    $r14 = MOVrm16 $r0, 8, implicit-def dead $psw :: (load (s16) from %stack.0)
+    RETS implicit $r14
+
+# CHECK-LABEL: name: keep_call_without_register_mask
+# CHECK:       MOVmr16 $r0, 8, killed $r14
+# CHECK-NEXT:  CALLS @callee, @callee
+# CHECK-NEXT:  $r14 = MOVrm16 $r0, 8
+...
+---
+name:            keep_extension_window
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 2, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r0, $r13, $r14
+
+    EXTPr $r13, 2
+    MOVmr16 $r0, 8, killed $r14, implicit-def dead $psw :: (store (s16) into %stack.0)
+    CALLS @callee, @callee, csr_c166_callpreserved
+    $r14 = MOVrm16 $r0, 8, implicit-def dead $psw :: (load (s16) from %stack.0)
+    RETS implicit $r14
+
+# CHECK-LABEL: name: keep_extension_window
+# CHECK:       EXTPr $r13, 2
+# CHECK-NEXT:  MOVmr16 $r0, 8, killed $r14
+# CHECK-NEXT:  CALLS @callee, @callee, csr_c166_callpreserved
+# CHECK-NEXT:  $r14 = MOVrm16 $r0, 8
+...
+---
+name:            keep_with_unwind_info
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 2, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r0, $r14
+
+    MOVmr16 $r0, 8, killed $r14, implicit-def dead $psw :: (store (s16) into %stack.0)
+    CALLS @callee, @callee, csr_c166_callpreserved
+    $r14 = MOVrm16 $r0, 8, implicit-def dead $psw :: (load (s16) from %stack.0)
+    RETS implicit $r14
+
+# CHECK-LABEL: name: keep_with_unwind_info
+# CHECK:       MOVmr16 $r0, 8, killed $r14
+# CHECK-NEXT:  CALLS @callee, @callee, csr_c166_callpreserved
+# CHECK-NEXT:  $r14 = MOVrm16 $r0, 8
+...
+---
+name:            keep_without_size_attribute
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 2, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r0, $r14
+
+    MOVmr16 $r0, 8, killed $r14, implicit-def dead $psw :: (store (s16) into %stack.0)
+    CALLS @callee, @callee, csr_c166_callpreserved
+    $r14 = MOVrm16 $r0, 8, implicit-def dead $psw :: (load (s16) from %stack.0)
+    RETS implicit $r14
+
+# CHECK-LABEL: name: keep_without_size_attribute
+# CHECK:       MOVmr16 $r0, 8, killed $r14
+# CHECK-NEXT:  CALLS @callee, @callee, csr_c166_callpreserved
+# CHECK-NEXT:  $r14 = MOVrm16 $r0, 8
+...

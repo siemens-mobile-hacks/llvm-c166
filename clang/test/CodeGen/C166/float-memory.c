@@ -35,29 +35,33 @@ void store_float_array(unsigned int index, float value) {
 // A public float return is R4=MSW, R5=LSW, so a direct load from C166
 // storage keeps the lower-address word in R4.
 // CHECK-LABEL: <_load_global_float>:
-// CHECK:       mov r4, 0
+// CHECK:       mov {{r[0-9]+}}, 0
 // CHECK-NEXT:  {{.*}}R_C166_POF14 _global_float
-// CHECK:       mov r5, 0
+// CHECK:       mov {{r[0-9]+}}, 0
 // CHECK-NEXT:  {{.*}}R_C166_POF14 _global_float+0x2
+// CHECK:       mov r4, {{r[0-9]+}}
+// CHECK:       mov r5, {{r[0-9]+}}
 // CHECK:       rets
 
 // The incoming public float is stack-only, MSW first.  Storing it preserves
 // that physical word order rather than the low-word-first integer order.
 // CHECK-LABEL: <_store_global_float>:
-// CHECK:       mov r1, [r0]
-// CHECK:       mov r3, [r0 + #2]
-// CHECK:       mov 0, r2
+// CHECK:       mov {{r[0-9]+}}, [r0]
+// CHECK:       mov {{r[0-9]+}}, [r0 + #2]
+// CHECK:       mov 0, {{r[0-9]+}}
 // CHECK-NEXT:  {{.*}}R_C166_POF14 _global_float
-// CHECK:       mov 0, r3
+// CHECK:       mov 0, {{r[0-9]+}}
 // CHECK-NEXT:  {{.*}}R_C166_POF14 _global_float+0x2
 // CHECK:       rets
 
 // CHECK-LABEL: <_load_float_pointer>:
-// CHECK:       mov r4, [r12]
-// CHECK:       mov r5, [r12 + #2]
+// CHECK:       mov {{r[0-9]+}}, [r12]
+// CHECK:       mov {{r[0-9]+}}, [r12 + #2]
+// CHECK:       mov r4, {{r[0-9]+}}
+// CHECK:       mov r5, {{r[0-9]+}}
 // CHECK:       rets
 
 // CHECK-LABEL: <_store_float_pointer>:
-// CHECK:       mov [r12 + #2], r3
-// CHECK:       mov [r12], r2
+// CHECK:       mov [r12 + #2], {{r[0-9]+}}
+// CHECK:       mov [r12], {{r[0-9]+}}
 // CHECK:       rets

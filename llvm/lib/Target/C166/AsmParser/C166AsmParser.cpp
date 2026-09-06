@@ -31,6 +31,8 @@
 
 using namespace llvm;
 
+static std::optional<unsigned> getBitWordAddress(MCRegister Reg);
+
 namespace {
 
 static C166::Specifier getC166Specifier(StringRef Name) {
@@ -115,6 +117,11 @@ public:
   bool isUImm3() const { return isUImm(3); }
   bool isUImm4() const { return isUImm(4); }
   bool isUImm8() const { return isUImm(8); }
+  bool isUImm8ALU() const {
+    int64_t Value;
+    return isImm() && HasHash && Expr->evaluateAsAbsolute(Value) &&
+           Value >= 8 && isUInt<8>(static_cast<uint64_t>(Value));
+  }
   bool isUImm16() const {
     if (!isImm())
       return false;
@@ -150,6 +157,9 @@ public:
            Value <= 4;
   }
   bool isBitAddress() const { return isUImm(12); }
+  bool isBitOffset() const {
+    return isUImm8() || (isReg() && getBitWordAddress(Reg).has_value());
+  }
 
   bool isSpecifier(C166::Specifier Specifier) const {
     const auto *SpecifierExpr =
@@ -213,6 +223,15 @@ public:
       Inst.addOperand(MCOperand::createExpr(Expr));
   }
 
+  void addBitOffsetOperands(MCInst &Inst, unsigned N) const {
+    assert(N == 1 && isBitOffset());
+    if (isReg()) {
+      Inst.addOperand(MCOperand::createImm(*getBitWordAddress(Reg)));
+      return;
+    }
+    addImmOperands(Inst, N);
+  }
+
   SMLoc getStartLoc() const override { return Start; }
   SMLoc getEndLoc() const override { return End; }
 
@@ -263,12 +282,14 @@ public:
     Match_InvalidUImm3 = FIRST_TARGET_MATCH_RESULT_TY,
     Match_InvalidUImm4,
     Match_InvalidUImm8,
+    Match_InvalidUImm8ALU,
     Match_InvalidUImm16,
     Match_InvalidUImm16Large,
     Match_InvalidUImm16ALU,
     Match_InvalidSequenceCount,
     Match_InvalidAtomicCount,
     Match_InvalidBitAddress,
+    Match_InvalidBitOffset,
     Match_InvalidSeg8,
     Match_InvalidSof16,
     Match_InvalidCof16,
@@ -727,6 +748,9 @@ bool C166AsmParser::matchAndEmitInstruction(SMLoc Loc, unsigned &Opcode,
   case Match_InvalidUImm8:
     return Error(Operands[ErrorInfo]->getStartLoc(),
                  "immediate must be in the range 0..255");
+  case Match_InvalidUImm8ALU:
+    return Error(Operands[ErrorInfo]->getStartLoc(),
+                 "immediate must be in the range 8..255");
   case Match_InvalidUImm16:
     return Error(Operands[ErrorInfo]->getStartLoc(),
                  "immediate must be in the range 0..65535");
@@ -745,6 +769,10 @@ bool C166AsmParser::matchAndEmitInstruction(SMLoc Loc, unsigned &Opcode,
   case Match_InvalidBitAddress:
     return Error(Operands[ErrorInfo]->getStartLoc(),
                  "expected an 8-bit word address and bit number 0..15");
+  case Match_InvalidBitOffset:
+    return Error(Operands[ErrorInfo]->getStartLoc(),
+                 "expected a bit-addressable direct register or 8-bit word "
+                 "address");
   case Match_InvalidSeg8:
     return Error(Operands[ErrorInfo]->getStartLoc(),
                  "expected an 8-bit segment or seg(expression)");

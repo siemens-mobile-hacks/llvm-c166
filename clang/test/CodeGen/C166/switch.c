@@ -16,6 +16,8 @@ extern void case_two(void);
 extern void case_three(void);
 extern void case_four(void);
 extern void case_five(void);
+extern void case_six(void);
+extern void case_seven(void);
 extern void case_default(void);
 
 unsigned int sparse_switch(int value) {
@@ -28,6 +30,29 @@ unsigned int sparse_switch(int value) {
   }
 }
 
+void four_way_dispatch(unsigned int value) {
+  switch (value) {
+  case 0: case_zero(); break;
+  case 1: case_one(); break;
+  case 2: case_two(); break;
+  case 3: case_three(); break;
+  default: case_default(); break;
+  }
+}
+
+void seven_way_dispatch(unsigned int value) {
+  switch (value) {
+  case 0: case_zero(); break;
+  case 1: case_one(); break;
+  case 2: case_two(); break;
+  case 3: case_three(); break;
+  case 4: case_four(); break;
+  case 5: case_five(); break;
+  case 6: case_six(); break;
+  default: case_default(); break;
+  }
+}
+
 void dense_dispatch(unsigned int value) {
   switch (value) {
   case 0: case_zero(); break;
@@ -36,15 +61,28 @@ void dense_dispatch(unsigned int value) {
   case 3: case_three(); break;
   case 4: case_four(); break;
   case 5: case_five(); break;
+  case 6: case_six(); break;
+  case 7: case_seven(); break;
   default: case_default(); break;
   }
 }
 
-// Sparse switches retain the comparison tree. Dense switches use six 16-bit
-// code offsets, matching the native JMPI table representation. Large and
-// Medium access the table through a paged data pointer; Small places it in the
-// direct LDAT range.
+// Sparse and four-case switches retain comparison trees. Seven cases still
+// favor branches when paged table setup is required, but fit a Small-model
+// table. Eight cases use 16-bit code-offset tables in every model.
 // LARGE-LABEL: <_sparse_switch>:
+// LARGE:       cmp
+// LARGE:       jmpr
+// LARGE-NOT:   jmpi
+// LARGE:       rets
+
+// LARGE-LABEL: <_four_way_dispatch>:
+// LARGE:       cmp
+// LARGE:       jmpr
+// LARGE-NOT:   jmpi
+// LARGE:       rets
+
+// LARGE-LABEL: <_seven_way_dispatch>:
 // LARGE:       cmp
 // LARGE:       jmpr
 // LARGE-NOT:   jmpi
@@ -61,6 +99,18 @@ void dense_dispatch(unsigned int value) {
 // LARGE:       calls
 // LARGE:       R_C166_SEG24 _case_zero
 
+// MEDIUM-LABEL: <_four_way_dispatch>:
+// MEDIUM:       cmp
+// MEDIUM:       jmpr
+// MEDIUM-NOT:   jmpi
+// MEDIUM:       ret
+
+// MEDIUM-LABEL: <_seven_way_dispatch>:
+// MEDIUM:       cmp
+// MEDIUM:       jmpr
+// MEDIUM-NOT:   jmpi
+// MEDIUM:       ret
+
 // MEDIUM-LABEL: <_dense_dispatch>:
 // MEDIUM:       shl
 // MEDIUM:       R_C166_POF14 __c166_jt.
@@ -71,6 +121,20 @@ void dense_dispatch(unsigned int value) {
 // MEDIUM:       jmpi
 // MEDIUM:       calla
 // MEDIUM:       R_C166_COF16 _case_zero
+
+// SMALL-LABEL: <_four_way_dispatch>:
+// SMALL:       cmp
+// SMALL:       jmpr
+// SMALL-NOT:   jmpi
+// SMALL:       rets
+
+// SMALL-LABEL: <_seven_way_dispatch>:
+// SMALL:       shl
+// SMALL:       R_C166_16 .c166.small.rodata
+// SMALL:       add
+// SMALL-NOT:   extp
+// SMALL:       mov
+// SMALL:       jmpi
 
 // SMALL-LABEL: <_dense_dispatch>:
 // SMALL:       shl
@@ -83,19 +147,20 @@ void dense_dispatch(unsigned int value) {
 // SMALL:       R_C166_SEG24 _case_zero
 
 // LARGE-ELF:      .rodata           PROGBITS
-// LARGE-ELF-SAME: 00000c
+// LARGE-ELF-SAME: 000010
 // LARGE-ELF:      Relocation section '.rela.rodata'
-// LARGE-ELF-COUNT-6: R_C166_SOF16
-// LARGE-ELF:      12 OBJECT  LOCAL  DEFAULT {{.*}} __c166_jt.
+// LARGE-ELF-COUNT-8: R_C166_SOF16
+// LARGE-ELF:      16 OBJECT  LOCAL  DEFAULT {{.*}} __c166_jt.
 
 // MEDIUM-ELF:      .rodata           PROGBITS
-// MEDIUM-ELF-SAME: 00000c
+// MEDIUM-ELF-SAME: 000010
 // MEDIUM-ELF:      Relocation section '.rela.rodata'
-// MEDIUM-ELF-COUNT-6: R_C166_16
-// MEDIUM-ELF:      12 OBJECT  LOCAL  DEFAULT {{.*}} __c166_jt.
+// MEDIUM-ELF-COUNT-8: R_C166_16
+// MEDIUM-ELF:      16 OBJECT  LOCAL  DEFAULT {{.*}} __c166_jt.
 
 // SMALL-ELF:      .c166.small.rodata PROGBITS
-// SMALL-ELF-SAME: 00000c
+// SMALL-ELF-SAME: 00001e
 // SMALL-ELF:      Relocation section '.rela.c166.small.rodata'
-// SMALL-ELF-COUNT-6: R_C166_SOF16
-// SMALL-ELF:      12 OBJECT  LOCAL  DEFAULT {{.*}} __c166_jt.
+// SMALL-ELF-COUNT-15: R_C166_SOF16
+// SMALL-ELF-DAG:  14 OBJECT  LOCAL  DEFAULT {{.*}} __c166_jt.
+// SMALL-ELF-DAG:  16 OBJECT  LOCAL  DEFAULT {{.*}} __c166_jt.

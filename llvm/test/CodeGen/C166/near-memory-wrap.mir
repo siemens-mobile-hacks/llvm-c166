@@ -1,0 +1,26 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=postrapseudos \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @near_memory_wrap() { ret void }
+...
+---
+name:            near_memory_wrap
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r12, $r13, $r5r4
+
+    $r5r4 = NEARLOAD32 $r12, 65534, implicit-def dead $psw
+    NEARSTORE32 $r13, 65534, $r5r4, implicit-def dead $psw
+    RETS
+
+# CHECK-LABEL: name: near_memory_wrap
+# CHECK:       $r4 = MOVrm16 $r12, 65534
+# CHECK-NEXT:  $r5 = MOVrm $r12
+# CHECK-NEXT:  MOVmr16 $r13, 65534, $r4
+# CHECK-NEXT:  MOVmr $r13, $r5
+# CHECK-NEXT:  RETS
+...

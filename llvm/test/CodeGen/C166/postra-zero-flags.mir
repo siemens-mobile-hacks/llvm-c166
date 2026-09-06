@@ -1,0 +1,316 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-ra \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @sink_logic_to_zero_branch() { ret void }
+  define void @fold_move_zero_or() { ret void }
+  define void @fold_move_signed_less() { ret void }
+  define void @fold_load_signed_greater_equal() { ret void }
+  define void @keep_move_signed_less_equal() { ret void }
+  define void @keep_move_test_with_live_carry() { ret void }
+  define void @keep_move_test_in_extension_window() { ret void }
+  define void @keep_logic_with_source_clobber() { ret void }
+  define void @keep_logic_with_value_use() { ret void }
+  define void @keep_logic_with_flag_use() { ret void }
+  define void @keep_logic_with_live_carry() { ret void }
+  define void @keep_logic_across_extension() { ret void }
+...
+---
+name:            sink_logic_to_zero_branch
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r2, $r3, $r4
+
+    $r1 = ORrr killed $r1, killed $r2, implicit-def dead $psw, implicit-def dead $c
+    MOVmr16 $r0, 2, $r3, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r0, 4, $r4, implicit-def dead $psw :: (store (s16))
+    CMPri3 killed $r1, 0, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: sink_logic_to_zero_branch
+# CHECK:       MOVmr16 $r0, 2, $r3
+# CHECK-NEXT:  MOVmr16 $r0, 4, $r4
+# CHECK-NEXT:  dead $r1 = ORrr killed $r1, killed $r2, implicit-def $psw, implicit-def dead $c
+# CHECK-NEXT:  JMPR_EQ %bb.2, implicit $psw
+# CHECK-NOT:   CMPri
+...
+---
+name:            fold_move_zero_or
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r2
+
+    $r1 = MOVrr killed $r2, implicit-def dead $psw
+    $r1 = ORri3 killed $r1, 0, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: fold_move_zero_or
+# CHECK:       dead $r1 = MOVrr killed $r2, implicit-def $psw
+# CHECK-NEXT:  JMPR_NE %bb.2, implicit $psw
+# CHECK-NOT:   ORri
+...
+---
+name:            fold_move_signed_less
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $rl2
+
+    $r5 = MOVBSrr killed $rl2, implicit-def dead $psw
+    CMPri3 killed $r5, 0, implicit-def $psw, implicit-def dead $c
+    JMPR_SLT %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: fold_move_signed_less
+# CHECK:       $r5 = MOVBSrr killed $rl2, implicit-def $psw
+# CHECK-NEXT:  JMPR_N %bb.2, implicit $psw
+# CHECK-NOT:   CMPri
+...
+---
+name:            fold_load_signed_greater_equal
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r3
+
+    $r4 = MOVrm $r3, implicit-def dead $psw :: (load (s16))
+    CMPri3 killed $r4, 0, implicit-def $psw, implicit-def dead $c
+    JMPR_SGE %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: fold_load_signed_greater_equal
+# CHECK:       $r4 = MOVrm $r3, implicit-def $psw
+# CHECK-NEXT:  JMPR_NN %bb.2, implicit $psw
+# CHECK-NOT:   CMPri
+...
+---
+name:            keep_move_signed_less_equal
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r3
+
+    $r4 = MOVrm $r3, implicit-def dead $psw :: (load (s16))
+    CMPri3 killed $r4, 0, implicit-def $psw, implicit-def dead $c
+    JMPR_SLE %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_move_signed_less_equal
+# CHECK:       $r4 = MOVrm $r3, implicit-def dead $psw
+# CHECK-NEXT:  CMPri3 killed $r4, 0
+# CHECK-NEXT:  JMPR_SLE %bb.2, implicit $psw
+...
+---
+name:            keep_move_test_with_live_carry
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r2
+
+    $r1 = MOVrr killed $r2, implicit-def dead $psw
+    CMPri3 killed $r1, 0, implicit-def $psw, implicit-def $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $c
+    RETS implicit $c
+
+  bb.2:
+    liveins: $c
+    RETS implicit $c
+
+# CHECK-LABEL: name: keep_move_test_with_live_carry
+# CHECK:       $r1 = MOVrr killed $r2, implicit-def dead $psw
+# CHECK-NEXT:  CMPri3 killed $r1, 0
+# CHECK-NEXT:  JMPR_EQ %bb.2, implicit $psw
+...
+---
+name:            keep_move_test_in_extension_window
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r2, $r3
+
+    EXTPr $r3, 2
+    $r1 = MOVrm $r2, implicit-def dead $psw :: (load (s16))
+    CMPri3 killed $r1, 0, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_move_test_in_extension_window
+# CHECK:       EXTPr $r3, 2
+# CHECK-NEXT:  $r1 = MOVrm $r2, implicit-def dead $psw
+# CHECK-NEXT:  CMPri3 killed $r1, 0
+# CHECK-NEXT:  JMPR_EQ %bb.2, implicit $psw
+...
+---
+name:            keep_logic_with_source_clobber
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r2, $r3
+
+    $r1 = ORrr killed $r1, $r2, implicit-def dead $psw, implicit-def dead $c
+    $r2 = MOVrr killed $r3, implicit-def dead $psw
+    CMPri3 killed $r1, 0, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_logic_with_source_clobber
+# CHECK:       $r1 = ORrr killed $r1, $r2
+# CHECK-NEXT:  $r2 = MOVrr killed $r3
+# CHECK-NEXT:  CMPri3 killed $r1, 0
+# CHECK-NEXT:  JMPR_NE %bb.2
+...
+name:            keep_logic_with_value_use
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r2, $r3
+
+    $r1 = ANDrr killed $r1, killed $r2, implicit-def dead $psw, implicit-def dead $c
+    MOVmr $r3, $r1, implicit-def dead $psw :: (store (s16))
+    CMPri3 killed $r1, 0, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_logic_with_value_use
+# CHECK:       $r1 = ANDrr killed $r1, killed $r2
+# CHECK-NEXT:  MOVmr $r3, $r1
+# CHECK-NEXT:  CMPri3 killed $r1, 0
+# CHECK-NEXT:  JMPR_EQ %bb.2
+...
+---
+name:            keep_logic_with_flag_use
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r2, $r3
+
+    $r1 = ORrr killed $r1, killed $r2, implicit-def dead $psw, implicit-def $c
+    dead $r3 = ADDCri3 killed $r3, 0, implicit $psw, implicit $c, implicit-def dead $psw, implicit-def dead $c
+    CMPri3 killed $r1, 0, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_logic_with_flag_use
+# CHECK:       $r1 = ORrr killed $r1, killed $r2
+# CHECK-NEXT:  $r3 = ADDCri3 killed $r3, 0
+# CHECK-NEXT:  CMPri3 killed $r1, 0
+# CHECK-NEXT:  JMPR_NE %bb.2
+...
+---
+name:            keep_logic_with_live_carry
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r2, $r3
+
+    $r1 = XORrr killed $r1, killed $r2, implicit-def dead $psw, implicit-def dead $c
+    MOVmr $r0, $r3, implicit-def dead $psw :: (store (s16))
+    CMPri3 killed $r1, 0, implicit-def $psw, implicit-def $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $c
+    RETS implicit $c
+
+  bb.2:
+    liveins: $c
+    RETS implicit $c
+
+# CHECK-LABEL: name: keep_logic_with_live_carry
+# CHECK:       $r1 = XORrr killed $r1, killed $r2
+# CHECK-NEXT:  MOVmr $r0, $r3
+# CHECK-NEXT:  CMPri3 killed $r1, 0
+# CHECK-NEXT:  JMPR_EQ %bb.2
+...
+---
+name:            keep_logic_across_extension
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r2, $r3, $r13
+
+    $r1 = ORrr killed $r1, killed $r2, implicit-def dead $psw, implicit-def dead $c
+    EXTPr $r13, 2
+    MOVmr $r0, $r3, implicit-def dead $psw :: (store (s16))
+    CMPri3 killed $r1, 0, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_logic_across_extension
+# CHECK:       $r1 = ORrr killed $r1, killed $r2
+# CHECK-NEXT:  EXTPr $r13, 2
+# CHECK-NEXT:  MOVmr $r0, $r3
+# CHECK-NEXT:  CMPri3 killed $r1, 0
+# CHECK-NEXT:  JMPR_NE %bb.2
+...

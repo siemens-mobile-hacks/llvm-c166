@@ -57,6 +57,6 @@ double exchange_atomic_double(double value) {
 // Multi-word floating accesses use the C166 runtime after physical
 // MSW-first storage lowering.  They remain non-lock-free, but are no longer
 // split or rejected.
-// ATOMIC-NM: U ___atomic_load
-// ATOMIC-NM: U ___atomic_store
-// ATOMIC-NM: U ___c166_atomic_rmw
+// ATOMIC-NM-DAG: U ___atomic_exchange
+// ATOMIC-NM-DAG: U ___atomic_load
+// ATOMIC-NM-DAG: U ___atomic_store

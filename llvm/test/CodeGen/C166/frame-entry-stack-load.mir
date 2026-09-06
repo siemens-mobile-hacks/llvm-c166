@@ -1,0 +1,135 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=prolog-epilog \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @hoist_first_argument() nounwind { ret void }
+  define void @hoist_across_local_frame() nounwind { ret void }
+  define void @keep_callee_saved_destination() nounwind { ret void }
+  define void @keep_volatile_load() nounwind { ret void }
+  define void @keep_live_flags() nounwind { ret void }
+  define void @keep_live_destination() nounwind { ret void }
+...
+---
+name:            hoist_first_argument
+tracksRegLiveness: true
+fixedStack:
+  - { id: 0, type: default, offset: 0, size: 2, alignment: 2,
+      isImmutable: true }
+body:             |
+  bb.0:
+    liveins: $r6, $r12
+    $r6 = MOVrr $r12, implicit-def dead $psw
+    $r10 = MOVfi %fixed-stack.0, 0, implicit-def dead $psw :: (load (s16) from %fixed-stack.0)
+    $r4 = MOVrr killed $r10, implicit-def dead $psw
+    RETS implicit $r4
+
+# CHECK-LABEL: name: hoist_first_argument
+# CHECK:       $r10 = MOVrm $r0, implicit-def dead $psw
+# CHECK-NEXT:  $r0 = frame-setup MOVmrPreDec $r0, killed $r6
+# CHECK:       $r6 = MOVrr $r12
+...
+---
+name:            hoist_across_local_frame
+tracksRegLiveness: true
+fixedStack:
+  - { id: 0, type: default, offset: 0, size: 2, alignment: 2,
+      isImmutable: true }
+stack:
+  - { id: 0, type: default, size: 8, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r6, $r12
+    $r6 = MOVrr $r12, implicit-def dead $psw
+    $r10 = MOVfi %fixed-stack.0, 0, implicit-def dead $psw :: (load (s16) from %fixed-stack.0)
+    $r1 = MOVfi %stack.0, 0, implicit-def dead $psw :: (load (s16) from %stack.0)
+    $r10 = ADDrr killed $r10, killed $r1, implicit-def dead $psw, implicit-def dead $c
+    $r4 = MOVrr killed $r10, implicit-def dead $psw
+    RETS implicit $r4
+
+# CHECK-LABEL: name: hoist_across_local_frame
+# CHECK:       $r10 = MOVrm $r0, implicit-def dead $psw
+# CHECK-NEXT:  $r0 = frame-setup MOVmrPreDec $r0, killed $r6
+# CHECK-NEXT:  $r0 = frame-setup SUBri16 $r0, 8
+# CHECK:       $r6 = MOVrr $r12
+...
+---
+name:            keep_callee_saved_destination
+tracksRegLiveness: true
+fixedStack:
+  - { id: 0, type: default, offset: 0, size: 2, alignment: 2,
+      isImmutable: true }
+body:             |
+  bb.0:
+    liveins: $r6
+    $r6 = MOVfi %fixed-stack.0, 0, implicit-def dead $psw :: (load (s16) from %fixed-stack.0)
+    $r4 = MOVrr killed $r6, implicit-def dead $psw
+    RETS implicit $r4
+
+# CHECK-LABEL: name: keep_callee_saved_destination
+# CHECK:       $r0 = frame-setup MOVmrPreDec $r0, killed $r6
+# CHECK-NEXT:  $r6 = MOVrm16 $r0, 2, implicit-def dead $psw
+...
+---
+name:            keep_volatile_load
+tracksRegLiveness: true
+fixedStack:
+  - { id: 0, type: default, offset: 0, size: 2, alignment: 2,
+      isImmutable: true }
+body:             |
+  bb.0:
+    liveins: $r6, $r12
+    $r6 = MOVrr $r12, implicit-def dead $psw
+    $r10 = MOVfi %fixed-stack.0, 0, implicit-def dead $psw :: (volatile load (s16) from %fixed-stack.0)
+    $r4 = MOVrr killed $r10, implicit-def dead $psw
+    RETS implicit $r4
+
+# CHECK-LABEL: name: keep_volatile_load
+# CHECK:       $r0 = frame-setup MOVmrPreDec $r0, killed $r6
+# CHECK:       $r10 = MOVrm16 $r0, 2, implicit-def dead $psw
+...
+---
+name:            keep_live_flags
+tracksRegLiveness: true
+fixedStack:
+  - { id: 0, type: default, offset: 0, size: 2, alignment: 2,
+      isImmutable: true }
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r6, $r12
+    $r6 = MOVrr $r12, implicit-def dead $psw
+    $r10 = MOVfi %fixed-stack.0, 0, implicit-def $psw :: (load (s16) from %fixed-stack.0)
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_live_flags
+# CHECK:       $r0 = frame-setup MOVmrPreDec $r0, killed $r6
+# CHECK:       $r10 = MOVrm16 $r0, 2, implicit-def $psw
+...
+---
+name:            keep_live_destination
+tracksRegLiveness: true
+fixedStack:
+  - { id: 0, type: default, offset: 0, size: 2, alignment: 2,
+      isImmutable: true }
+body:             |
+  bb.0:
+    liveins: $r6, $r10, $r12
+    $r6 = MOVrr $r12, implicit-def dead $psw
+    $r4 = MOVrr $r10, implicit-def dead $psw
+    $r10 = MOVfi %fixed-stack.0, 0, implicit-def dead $psw :: (load (s16) from %fixed-stack.0)
+    $r4 = ADDrr killed $r4, killed $r10, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r4
+
+# CHECK-LABEL: name: keep_live_destination
+# CHECK:       $r0 = frame-setup MOVmrPreDec $r0, killed $r6
+# CHECK:       $r4 = MOVrr $r10
+# CHECK-NEXT:  $r10 = MOVrm16 $r0, 2, implicit-def dead $psw
+...

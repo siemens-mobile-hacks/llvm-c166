@@ -7,7 +7,7 @@
 # RUN: not ld.lld -Ttext=0 -e _start --defsym=target=3 %t/odd.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=ODD
 # RUN: not ld.lld -Ttext=0 -e _start --defsym=target=0x1000000 %t/overflow.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=OVERFLOW
 
-# MALFORMED: error: {{.*}}R_C166_PC8_RELAX does not refer to a JMPR instruction
+# MALFORMED: error: {{.*}}R_C166_PC8_RELAX does not refer to a relative branch
 # ODD: error: {{.*}}R_C166_PC8_RELAX target is not word-aligned
 # OVERFLOW: error: {{.*}}relocation R_C166_PC8_RELAX out of range: 16777216 is not in [0, 16777215]; references 'target'
 

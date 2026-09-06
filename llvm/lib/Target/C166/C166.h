@@ -27,6 +27,8 @@ enum CondCode {
   CC_SLE,
   CC_SGE,
   CC_SGT,
+  CC_N,
+  CC_NN,
 };
 } // namespace C166
 
@@ -54,24 +56,36 @@ FunctionPass *createC166ISelDag(C166TargetMachine &TM,
                                 CodeGenOptLevel OptLevel);
 Pass *createC166FarPointerLoweringPass();
 Pass *createC166AtomicLoweringPass();
+Pass *createC166F64LoweringPass();
 Pass *createC166FloatMemoryLoweringPass();
 Pass *createC166UnsupportedFeaturesPass();
 FunctionPass *createC166ArgumentLoadSinkingPass();
 FunctionPass *createC166PostISelPass();
+FunctionPass *createC166PostRAPass();
+FunctionPass *createC166LongBranchOptPass();
 FunctionPass *createC166CallFrameExpansionPass();
 FunctionPass *createC166FrameAddressRematerializationPass();
+FunctionPass *createC166PHIEdgeSplittingPass();
 bool lowerC166FloatMemory(Module &M);
+bool lowerC166F64Operations(Module &M);
+bool prepareC166FloatMemory(Module &M);
 bool lowerC166PointerCasts(Function &F);
+bool lowerC166VAArgs(Module &M);
+bool forwardC166ByValTailArguments(Function &F);
 
 void initializeC166AsmPrinterPass(PassRegistry &);
 void initializeC166AtomicLoweringPass(PassRegistry &);
 void initializeC166FarPointerLoweringPass(PassRegistry &);
+void initializeC166F64LoweringPass(PassRegistry &);
 void initializeC166FloatMemoryLoweringPass(PassRegistry &);
 void initializeC166UnsupportedFeaturesPass(PassRegistry &);
 void initializeC166ArgumentLoadSinkingPass(PassRegistry &);
 void initializeC166PostISelPass(PassRegistry &);
+void initializeC166PostRAPass(PassRegistry &);
+void initializeC166LongBranchOptPass(PassRegistry &);
 void initializeC166CallFrameExpansionPass(PassRegistry &);
 void initializeC166FrameAddressRematerializationPass(PassRegistry &);
+void initializeC166PHIEdgeSplittingPass(PassRegistry &);
 void initializeC166DAGToDAGISelLegacyPass(PassRegistry &);
 
 } // namespace llvm

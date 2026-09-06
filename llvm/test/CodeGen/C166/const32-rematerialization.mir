@@ -1,0 +1,36 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=greedy,virtregrewriter \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  @value = addrspace(2) global i32 0
+
+  declare void @callee() addrspace(1)
+  define void @rematerialize_const32() addrspace(1) { ret void }
+...
+---
+name:            rematerialize_const32
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr32 }
+liveins:
+  - { reg: '$r6' }
+  - { reg: '$r7' }
+  - { reg: '$r8' }
+  - { reg: '$r9' }
+body:             |
+  bb.0:
+    liveins: $r6, $r7, $r8, $r9
+
+    %0:gr32 = CONST32 0, implicit-def dead $psw
+    CALLS @callee, @callee, csr_c166_callpreserved
+    GLOBALSTORE32 @value, %0, implicit-def dead $psw
+    RETS implicit $r6, implicit $r7, implicit $r8, implicit $r9
+
+# CHECK-LABEL: name: rematerialize_const32
+# CHECK:       stack: []
+# CHECK:       CALLS @callee
+# CHECK-NEXT:  ${{r[0-9]+r[0-9]+}} = CONST32 0
+# CHECK-NEXT:  GLOBALSTORE32 @value
+...

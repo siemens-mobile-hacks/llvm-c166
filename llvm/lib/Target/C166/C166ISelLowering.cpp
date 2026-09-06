@@ -21,9 +21,12 @@
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/IntrinsicsC166.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/KnownBits.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/TargetParser/C166TargetParser.h"
+
+#include <array>
 
 using namespace llvm;
 
@@ -39,19 +42,33 @@ C166TargetLowering::C166TargetLowering(const TargetMachine &TM,
 
   setStackPointerRegisterToSaveRestore(C166::R0);
   setBooleanContents(ZeroOrOneBooleanContent);
+  for (MVT VT : {MVT::i16, MVT::i32}) {
+    setOperationAction(ISD::UADDO, VT, Legal);
+    setOperationAction(ISD::USUBO, VT, Legal);
+    setOperationAction(ISD::UADDO_CARRY, VT, Legal);
+    setOperationAction(ISD::USUBO_CARRY, VT, Legal);
+  }
   setOperationAction(ISD::SETCC, MVT::i16, Expand);
   setOperationAction(ISD::SETCC, MVT::i32, Expand);
+  setOperationAction(ISD::SETCC, MVT::i64, Custom);
+  setOperationAction(ISD::BR_CC, MVT::i64, Custom);
   setOperationAction(ISD::SELECT, MVT::i16, Expand);
   setOperationAction(ISD::SELECT, MVT::i32, Expand);
   for (MVT VT : {MVT::i16, MVT::i32})
     for (unsigned Opcode : {ISD::ROTL, ISD::ROTR})
       setOperationAction(Opcode, VT, Expand);
+  // Constant 32-bit rotates map efficiently to native word shifts. Variable
+  // rotates still need the general shift expansion.
+  setOperationAction(ISD::ROTL, MVT::i32, Custom);
   // i32 is kept legal to model C166 register pairs, but operations which
   // require more than the native 16-bit ALU use the ordinary LLVM runtime
   // helper ABI.  The helpers therefore receive long operands through the
   // public R12-R15 convention and return through R4:R5.
-  for (unsigned Opcode : {ISD::MUL, ISD::SDIV, ISD::UDIV, ISD::SREM, ISD::UREM})
+  setOperationAction(ISD::MUL, MVT::i32, Custom);
+  for (unsigned Opcode : {ISD::SDIV, ISD::SREM})
     setOperationAction(Opcode, MVT::i32, LibCall);
+  for (unsigned Opcode : {ISD::UDIV, ISD::UREM})
+    setOperationAction(Opcode, MVT::i32, Custom);
   for (unsigned Opcode :
        {ISD::MULHS, ISD::MULHU, ISD::SMUL_LOHI, ISD::UMUL_LOHI})
     setOperationAction(Opcode, MVT::i32, Expand);
@@ -62,9 +79,12 @@ C166TargetLowering::C166TargetLowering(const TargetMachine &TM,
     setOperationAction(Opcode, MVT::i32, Custom);
   for (unsigned Opcode : {ISD::SHL_PARTS, ISD::SRL_PARTS, ISD::SRA_PARTS})
     setOperationAction(Opcode, MVT::i32, Expand);
-  // compiler-rt's single-precision routines use __builtin_clz on their
-  // 32-bit representation type.  The standard bit-counting libcall returns
-  // C int (i16 on C166), which SelectionDAG extends back to i32.
+  // PRIOR implements the zero-poison i16 operation directly.  The defined
+  // form expands the zero case around it.
+  setOperationAction(ISD::CTLZ, MVT::i16, Expand);
+  setOperationAction(ISD::CTLZ_ZERO_POISON, MVT::i16, Legal);
+  // The standard i32 bit-counting libcall returns C int (i16 on C166), which
+  // SelectionDAG extends back to i32.
   setOperationAction(ISD::CTLZ, MVT::i32, Expand);
   setOperationAction(ISD::CTLZ_ZERO_POISON, MVT::i32, LibCall);
   setOperationAction(ISD::VASTART, MVT::Other, Custom);
@@ -72,23 +92,62 @@ C166TargetLowering::C166TargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::BR_JT, MVT::Other, Custom);
   setOperationAction(ISD::VAEND, MVT::Other, Expand);
   setOperationAction(ISD::VACOPY, MVT::Other, Expand);
-  setIndexedLoadAction(ISD::POST_INC, MVT::i16, Legal);
-  setTargetDAGCombine(ISD::INTRINSIC_WO_CHAIN);
+  for (MVT VT : {MVT::i8, MVT::i16})
+    setIndexedLoadAction(ISD::POST_INC, VT, Legal);
+  setTargetDAGCombine({ISD::INTRINSIC_WO_CHAIN, ISD::OR, ISD::FSHL, ISD::FSHR,
+                       ISD::SHL, ISD::SRL, ISD::SRA});
   setMinFunctionAlignment(Align(2));
   setPrefFunctionAlignment(Align(2));
+  // Paged table setup breaks even later than direct Small-model access.
+  setMinimumJumpTableEntries(TM.getCodeModel() == CodeModel::Small ? 7 : 8);
   setMaxAtomicSizeInBitsSupported(0);
+}
+
+bool C166TargetLowering::shouldReduceLoadWidth(
+    SDNode *Load, ISD::LoadExtType ExtTy, EVT NewVT,
+    std::optional<unsigned> ByteOffset) const {
+  const auto *Ld = cast<LoadSDNode>(Load);
+  if (Ld->getMemoryVT() == MVT::i16 && NewVT == MVT::i8 && ByteOffset == 0 &&
+      SDValue(Load, 0).hasOneUse()) {
+    const SDNode *User = nullptr;
+    for (const SDUse &Use : Load->uses()) {
+      if (Use.getResNo() == 0) {
+        User = Use.getUser();
+        break;
+      }
+    }
+    assert(User && "missing load value user");
+    if (User->getOpcode() == ISD::AND) {
+      const auto *Mask = dyn_cast<ConstantSDNode>(User->getOperand(1));
+      // A byte load still needs MOVBZ when the mask does not consume every
+      // loaded bit. Keep the equally cheap word load and avoid that extension.
+      if (Mask && Mask->getAPIntValue().isMask() &&
+          Mask->getAPIntValue().countr_one() < NewVT.getSizeInBits())
+        return false;
+    }
+  }
+  return TargetLowering::shouldReduceLoadWidth(Load, ExtTy, NewVT, ByteOffset);
 }
 
 SDValue C166TargetLowering::PerformDAGCombine(SDNode *N,
                                               DAGCombinerInfo &DCI) const {
+  if (N->getOpcode() == ISD::OR || N->getOpcode() == ISD::FSHL) {
+    if (SDValue Result = CombineSplitLeftShiftOne(N, DCI))
+      return Result;
+  }
+
+  if (N->getOpcode() == ISD::OR || N->getOpcode() == ISD::FSHL ||
+      N->getOpcode() == ISD::FSHR)
+    return CombineSplitRightShiftOne(N, DCI);
+
+  if (N->getOpcode() == ISD::SHL || N->getOpcode() == ISD::SRL ||
+      N->getOpcode() == ISD::SRA)
+    return CombineI64ConstantShift(N, DCI.DAG);
+
   if (N->getOpcode() != ISD::INTRINSIC_WO_CHAIN ||
       !isa<ConstantSDNode>(N->getOperand(0)) ||
       cast<ConstantSDNode>(N->getOperand(0))->getZExtValue() !=
           Intrinsic::c166_far_add)
-    return SDValue();
-
-  auto *Increment = dyn_cast<ConstantSDNode>(N->getOperand(2));
-  if (!Increment || Increment->getZExtValue() != 2)
     return SDValue();
 
   SDValue Base = N->getOperand(1);
@@ -107,8 +166,14 @@ SDValue C166TargetLowering::PerformDAGCombine(SDNode *N,
   const auto *PointerValue =
       dyn_cast_if_present<const Value *>(Load->getPointerInfo().V);
   const auto *ByValArgument = dyn_cast_if_present<llvm::Argument>(PointerValue);
-  if (!Load->isSimple() || Load->getExtensionType() != ISD::NON_EXTLOAD ||
-      Load->getMemoryVT() != MVT::i16 || Load->getAlign() < Align(2) ||
+  EVT MemoryVT = Load->getMemoryVT();
+  bool IsWord = MemoryVT == MVT::i16 &&
+                Load->getExtensionType() == ISD::NON_EXTLOAD &&
+                Load->getAlign() >= Align(2);
+  bool IsByte = MemoryVT == MVT::i8 && Load->getValueType(0) == MVT::i16;
+  auto *Increment = dyn_cast<ConstantSDNode>(N->getOperand(2));
+  if (Load->isAtomic() || (!IsWord && !IsByte) || !Increment ||
+      Increment->getZExtValue() != MemoryVT.getStoreSize() ||
       Load->getAddressSpace() != C166::FarDataAddressSpace ||
       Load->getBasePtr() != Base ||
       isa<const PseudoSourceValue *>(Load->getPointerInfo().V) ||
@@ -118,9 +183,272 @@ SDValue C166TargetLowering::PerformDAGCombine(SDNode *N,
   SelectionDAG &DAG = DCI.DAG;
   SDValue Indexed = DAG.getIndexedLoad(
       SDValue(Load, 0), SDLoc(Load), Base,
-      DAG.getConstant(2, SDLoc(Load), MVT::i32), ISD::POST_INC);
+      DAG.getConstant(MemoryVT.getStoreSize(), SDLoc(Load), MVT::i32),
+      ISD::POST_INC);
   DCI.CombineTo(Load, Indexed.getValue(0), Indexed.getValue(2));
   return Indexed.getValue(1);
+}
+
+SDValue
+C166TargetLowering::CombineSplitLeftShiftOne(SDNode *N,
+                                             DAGCombinerInfo &DCI) const {
+  if (!DCI.isBeforeLegalize() || N->getValueType(0) != MVT::i16)
+    return SDValue();
+
+  auto IsShiftBy = [](SDValue Value, unsigned Opcode, uint64_t Amount) {
+    if (Value.getOpcode() != Opcode || Value->getNumOperands() < 2)
+      return false;
+    auto *AmountNode = dyn_cast<ConstantSDNode>(Value.getOperand(1));
+    return AmountNode && AmountNode->getZExtValue() == Amount;
+  };
+
+  SDValue HighShift;
+  SDValue Low;
+  if (N->getOpcode() == ISD::FSHL) {
+    auto *Amount = dyn_cast<ConstantSDNode>(N->getOperand(2));
+    if (!Amount || Amount->getZExtValue() != 1)
+      return SDValue();
+    HighShift = N->getOperand(0);
+    Low = N->getOperand(1);
+  } else {
+    SDValue Carry;
+    for (unsigned I = 0; I != 2; ++I) {
+      if (IsShiftBy(N->getOperand(I), ISD::SHL, 1) &&
+          IsShiftBy(N->getOperand(I ^ 1), ISD::SRL, 15)) {
+        HighShift = N->getOperand(I).getOperand(0);
+        Carry = N->getOperand(I ^ 1);
+        break;
+      }
+    }
+    if (!HighShift)
+      return SDValue();
+    Low = Carry.getOperand(0);
+  }
+
+  SDNode *LowShift = nullptr;
+  for (SDUse &Use : Low->uses()) {
+    SDNode *User = Use.getUser();
+    if (User->getNumOperands() >= 1 && User->getOperand(0) == Low &&
+        IsShiftBy(SDValue(User, 0), ISD::SHL, 1)) {
+      LowShift = User;
+      break;
+    }
+  }
+  if (!LowShift)
+    return SDValue();
+
+  SelectionDAG &DAG = DCI.DAG;
+  SDLoc DL(N);
+  SDVTList AddVTs = DAG.getVTList(MVT::i16, MVT::i1);
+  SDValue LowAdd = DAG.getNode(ISD::UADDO, DL, AddVTs, Low, Low);
+  SDValue HighAdd = DAG.getNode(ISD::UADDO_CARRY, DL, AddVTs, HighShift,
+                                HighShift, LowAdd.getValue(1));
+  DCI.CombineTo(LowShift, LowAdd.getValue(0));
+  return HighAdd.getValue(0);
+}
+
+SDValue
+C166TargetLowering::CombineSplitRightShiftOne(SDNode *N,
+                                              DAGCombinerInfo &DCI) const {
+  if (!DCI.isBeforeLegalize() || N->getValueType(0) != MVT::i16)
+    return SDValue();
+
+  auto IsShiftBy = [](SDValue Value, unsigned Opcode, uint64_t Amount) {
+    if (Value.getOpcode() != Opcode || Value->getNumOperands() < 2)
+      return false;
+    auto *AmountNode = dyn_cast<ConstantSDNode>(Value.getOperand(1));
+    return AmountNode && AmountNode->getZExtValue() == Amount;
+  };
+
+  SDValue Low;
+  SDValue High;
+  if (N->getOpcode() == ISD::FSHR) {
+    auto *Amount = dyn_cast<ConstantSDNode>(N->getOperand(2));
+    if (!Amount || Amount->getZExtValue() != 1)
+      return SDValue();
+    High = N->getOperand(0);
+    Low = N->getOperand(1);
+  } else if (N->getOpcode() == ISD::FSHL) {
+    auto *Amount = dyn_cast<ConstantSDNode>(N->getOperand(2));
+    if (!Amount || Amount->getZExtValue() != 15)
+      return SDValue();
+    High = N->getOperand(0);
+    Low = N->getOperand(1);
+  } else {
+    for (unsigned I = 0; I != 2; ++I) {
+      if (IsShiftBy(N->getOperand(I), ISD::SRL, 1) &&
+          IsShiftBy(N->getOperand(I ^ 1), ISD::SHL, 15)) {
+        Low = N->getOperand(I).getOperand(0);
+        High = N->getOperand(I ^ 1).getOperand(0);
+        break;
+      }
+    }
+  }
+  if (!Low || !High || Low == High)
+    return SDValue();
+
+  auto IsFunnelBy = [](SDNode *User, unsigned Opcode, uint64_t Amount) {
+    if (User->getOpcode() != Opcode || User->getNumOperands() < 3)
+      return false;
+    auto *AmountNode = dyn_cast<ConstantSDNode>(User->getOperand(2));
+    return AmountNode && AmountNode->getZExtValue() == Amount;
+  };
+  auto IsOtherCrossWordUse = [&](SDValue Value) {
+    for (SDUse &Use : Value->uses()) {
+      SDNode *User = Use.getUser();
+      if (User == N)
+        continue;
+      if (IsFunnelBy(User, ISD::FSHL, 15) || IsFunnelBy(User, ISD::FSHR, 1))
+        return true;
+      if (!IsShiftBy(SDValue(User, 0), ISD::SRL, 1) &&
+          !IsShiftBy(SDValue(User, 0), ISD::SHL, 15))
+        continue;
+      for (SDUse &ShiftUse : User->uses()) {
+        SDNode *ShiftUser = ShiftUse.getUser();
+        if (ShiftUser != N && ShiftUser->getOpcode() == ISD::OR)
+          return true;
+      }
+    }
+    return false;
+  };
+  if (IsOtherCrossWordUse(Low) || IsOtherCrossWordUse(High))
+    return SDValue();
+
+  SDNode *HighShift = nullptr;
+  for (SDUse &Use : High->uses()) {
+    SDNode *User = Use.getUser();
+    if (User->getNumOperands() < 2 || User->getOperand(0) != High)
+      continue;
+    SDValue Value(User, 0);
+    if (IsShiftBy(Value, ISD::SRL, 1) || IsShiftBy(Value, ISD::SRA, 1)) {
+      HighShift = User;
+      break;
+    }
+  }
+  if (!HighShift)
+    return SDValue();
+
+  SelectionDAG &DAG = DCI.DAG;
+  SDLoc DL(N);
+  unsigned Opcode = HighShift->getOpcode() == ISD::SRL ? C166ISD::SRLPAIR1
+                                                       : C166ISD::SRAPAIR1;
+  SDValue Pair =
+      DAG.getNode(Opcode, DL, DAG.getVTList(MVT::i16, MVT::i16), Low, High);
+  DCI.CombineTo(HighShift, Pair.getValue(1));
+  return Pair.getValue(0);
+}
+
+SDValue C166TargetLowering::CombineI64ConstantShift(SDNode *N,
+                                                    SelectionDAG &DAG) const {
+  if (N->getValueType(0) != MVT::i64)
+    return SDValue();
+
+  auto *AmountNode = dyn_cast<ConstantSDNode>(N->getOperand(1));
+  if (!AmountNode)
+    return SDValue();
+
+  uint64_t Amount = AmountNode->getZExtValue();
+  // Type legalization already reduces word-aligned shifts to register-pair
+  // moves.  Expanding those here would hide profitable word permutations.
+  if (Amount == 0 || Amount >= 64 || Amount % 16 == 0)
+    return SDValue();
+
+  SDLoc DL(N);
+  SDValue HalfIndex0 = DAG.getConstant(0, DL, MVT::i16);
+  SDValue HalfIndex1 = DAG.getConstant(1, DL, MVT::i16);
+  SDValue Low = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32,
+                            N->getOperand(0), HalfIndex0);
+  SDValue High = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32,
+                             N->getOperand(0), HalfIndex1);
+  unsigned WordAmount = static_cast<unsigned>(Amount / 16);
+  unsigned BitAmount = static_cast<unsigned>(Amount % 16);
+  if (N->getOpcode() == ISD::SHL && WordAmount == 0 && BitAmount >= 2 &&
+      BitAmount <= 3) {
+    SDVTList ShiftVTs = DAG.getVTList(MVT::i32, MVT::i32);
+    SDValue Shift = DAG.getNode(C166ISD::SHL64, DL, ShiftVTs, Low, High,
+                                DAG.getConstant(BitAmount, DL, MVT::i16));
+    return DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i64, Shift.getValue(0),
+                       Shift.getValue(1));
+  }
+  if ((N->getOpcode() == ISD::SRL || N->getOpcode() == ISD::SRA) &&
+      WordAmount == 0 && BitAmount == 1) {
+    unsigned Opcode =
+        N->getOpcode() == ISD::SRL ? C166ISD::SRL64_1 : C166ISD::SRA64_1;
+    SDVTList ShiftVTs = DAG.getVTList(MVT::i32, MVT::i32);
+    SDValue Shift = DAG.getNode(Opcode, DL, ShiftVTs, Low, High);
+    return DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i64, Shift.getValue(0),
+                       Shift.getValue(1));
+  }
+
+  std::array<SDValue, 4> Input = {
+      DAG.getNode(C166ISD::LOWORD, DL, MVT::i16, Low),
+      DAG.getNode(C166ISD::HIWORD, DL, MVT::i16, Low),
+      DAG.getNode(C166ISD::LOWORD, DL, MVT::i16, High),
+      DAG.getNode(C166ISD::HIWORD, DL, MVT::i16, High),
+  };
+  std::array<SDValue, 4> Output;
+
+  SDValue Zero = DAG.getConstant(0, DL, MVT::i16);
+  auto Shift = [&](unsigned Opcode, SDValue Value, unsigned Bits) {
+    return DAG.getNode(Opcode, DL, MVT::i16, Value,
+                       DAG.getConstant(Bits, DL, MVT::i16));
+  };
+
+  if (N->getOpcode() == ISD::SHL && BitAmount == 1) {
+    for (unsigned I = 0; I != WordAmount; ++I)
+      Output[I] = Zero;
+
+    SDVTList AddVTs = DAG.getVTList(MVT::i16, MVT::i1);
+    SDValue Add = DAG.getNode(ISD::UADDO, DL, AddVTs, Input[0], Input[0]);
+    Output[WordAmount] = Add;
+    SDValue Carry = Add.getValue(1);
+    for (unsigned I = WordAmount + 1; I != 4; ++I) {
+      unsigned Source = I - WordAmount;
+      Add = DAG.getNode(ISD::UADDO_CARRY, DL, AddVTs, Input[Source],
+                        Input[Source], Carry);
+      Output[I] = Add;
+      Carry = Add.getValue(1);
+    }
+  } else if (N->getOpcode() == ISD::SHL) {
+    for (unsigned I = 0; I != 4; ++I) {
+      if (I < WordAmount) {
+        Output[I] = Zero;
+        continue;
+      }
+      unsigned Source = I - WordAmount;
+      Output[I] = Shift(ISD::SHL, Input[Source], BitAmount);
+      if (Source != 0) {
+        SDValue Carry = Shift(ISD::SRL, Input[Source - 1], 16 - BitAmount);
+        Output[I] = DAG.getNode(ISD::OR, DL, MVT::i16, Output[I], Carry);
+      }
+    }
+  } else {
+    bool Arithmetic = N->getOpcode() == ISD::SRA;
+    SDValue Fill = Arithmetic ? DAG.getNode(ISD::SRA, DL, MVT::i16, Input[3],
+                                            DAG.getConstant(15, DL, MVT::i16))
+                              : Zero;
+    for (unsigned I = 0; I != 4; ++I) {
+      unsigned Source = I + WordAmount;
+      if (Source >= 4) {
+        Output[I] = Fill;
+        continue;
+      }
+      if (Arithmetic && Source == 3) {
+        Output[I] = Shift(ISD::SRA, Input[Source], BitAmount);
+        continue;
+      }
+      Output[I] = Shift(ISD::SRL, Input[Source], BitAmount);
+      SDValue Upper = Source == 3 ? Fill : Input[Source + 1];
+      SDValue Carry = Shift(ISD::SHL, Upper, 16 - BitAmount);
+      Output[I] = DAG.getNode(ISD::OR, DL, MVT::i16, Output[I], Carry);
+    }
+  }
+
+  SDValue ResultLow =
+      DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i32, Output[0], Output[1]);
+  SDValue ResultHigh =
+      DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i32, Output[2], Output[3]);
+  return DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i64, ResultLow, ResultHigh);
 }
 
 bool C166TargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
@@ -129,9 +457,7 @@ bool C166TargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
                                                     ISD::MemIndexedMode &AM,
                                                     SelectionDAG &DAG) const {
   auto *Load = dyn_cast<LoadSDNode>(N);
-  if (!Load || !Load->isSimple() ||
-      Load->getExtensionType() != ISD::NON_EXTLOAD ||
-      Load->getMemoryVT() != MVT::i16 || Load->getAlign() < Align(2) ||
+  if (!Load || Load->isAtomic() ||
       (Load->getAddressSpace() != C166::NearAddressSpace &&
        Load->getAddressSpace() != C166::XNearDataAddressSpace) ||
       isa<const PseudoSourceValue *>(Load->getPointerInfo().V) ||
@@ -144,13 +470,20 @@ bool C166TargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
   if (ByValArgument && ByValArgument->hasByValAttr())
     return false;
 
+  EVT MemoryVT = Load->getMemoryVT();
+  bool IsWord = MemoryVT == MVT::i16 &&
+                Load->getExtensionType() == ISD::NON_EXTLOAD &&
+                Load->getAlign() >= Align(2);
+  bool IsByte = MemoryVT == MVT::i8 && Load->getValueType(0) == MVT::i16;
   auto *Increment = dyn_cast<ConstantSDNode>(Op->getOperand(1));
-  if (!Increment || Increment->getZExtValue() != 2 ||
+  if ((!IsWord && !IsByte) || !Increment ||
+      Increment->getZExtValue() != MemoryVT.getStoreSize() ||
       Load->getBasePtr() != Op->getOperand(0))
     return false;
 
   Base = Op->getOperand(0);
-  Offset = DAG.getConstant(2, SDLoc(N), Base.getValueType());
+  Offset =
+      DAG.getConstant(MemoryVT.getStoreSize(), SDLoc(N), Base.getValueType());
   AM = ISD::POST_INC;
   return true;
 }
@@ -235,6 +568,26 @@ const char *C166TargetLowering::getTargetNodeName(unsigned Opcode) const {
     return "C166ISD::LOWORD";
   case C166ISD::HIWORD:
     return "C166ISD::HIWORD";
+  case C166ISD::SHL64:
+    return "C166ISD::SHL64";
+  case C166ISD::SRL64_1:
+    return "C166ISD::SRL64_1";
+  case C166ISD::SRA64_1:
+    return "C166ISD::SRA64_1";
+  case C166ISD::SRL32_1:
+    return "C166ISD::SRL32_1";
+  case C166ISD::SRA32_1:
+    return "C166ISD::SRA32_1";
+  case C166ISD::SRLPAIR1:
+    return "C166ISD::SRLPAIR1";
+  case C166ISD::SRAPAIR1:
+    return "C166ISD::SRAPAIR1";
+  case C166ISD::SMUL16:
+    return "C166ISD::SMUL16";
+  case C166ISD::UMUL16:
+    return "C166ISD::UMUL16";
+  case C166ISD::UDIVREM32BY16:
+    return "C166ISD::UDIVREM32BY16";
   default:
     return nullptr;
   }
@@ -249,10 +602,81 @@ SDValue C166TargetLowering::LowerOperation(SDValue Op,
     return LowerVAARG(Op, DAG);
   case ISD::BR_JT:
     return LowerBRJT(Op, DAG);
+  case ISD::BR_CC:
+    return LowerI64BRCC(Op, DAG);
+  case ISD::SETCC:
+    return LowerI64SetCC(Op, DAG);
+  case ISD::ROTL:
+    if (isa<ConstantSDNode>(Op.getOperand(1)))
+      return Op;
+    return expandROT(Op.getNode(), true, DAG);
   case ISD::SHL:
   case ISD::SRL:
   case ISD::SRA:
     return LowerI32Shift(Op, DAG);
+  case ISD::MUL: {
+    SDLoc DL(Op);
+    auto ExtendedWord = [&](SDValue Value, unsigned Extension) {
+      if (Value.getOpcode() == Extension &&
+          Value.getOperand(0).getValueType() == MVT::i16)
+        return Value.getOperand(0);
+      if (Extension == ISD::ZERO_EXTEND && Value.getOpcode() == ISD::AND) {
+        for (unsigned ConstantOperand : {0u, 1u}) {
+          auto *Mask =
+              dyn_cast<ConstantSDNode>(Value.getOperand(ConstantOperand));
+          if (Mask && Mask->getZExtValue() == 0xffff)
+            return DAG.getNode(C166ISD::LOWORD, DL, MVT::i16,
+                               Value.getOperand(ConstantOperand ^ 1));
+        }
+      }
+      return SDValue();
+    };
+    for (auto [Extension, Opcode] :
+         {std::pair{ISD::ZERO_EXTEND, C166ISD::UMUL16},
+          std::pair{ISD::SIGN_EXTEND, C166ISD::SMUL16}}) {
+      SDValue Lhs = ExtendedWord(Op.getOperand(0), Extension);
+      SDValue Rhs = ExtendedWord(Op.getOperand(1), Extension);
+      if (Lhs && Rhs)
+        return DAG.getNode(Opcode, DL, MVT::i32, Lhs, Rhs);
+    }
+    MakeLibCallOptions Options;
+    SmallVector<SDValue, 2> Args = {Op.getOperand(0), Op.getOperand(1)};
+    return makeLibCall(DAG, RTLIB::MUL_I32, MVT::i32, Args, Options, DL).first;
+  }
+  case ISD::UDIV:
+  case ISD::UREM: {
+    SDLoc DL(Op);
+    SDValue Divisor = Op.getOperand(1);
+    SDValue NarrowDivisor;
+    if (Divisor.getOpcode() == ISD::ZERO_EXTEND &&
+        Divisor.getOperand(0).getValueType() == MVT::i16) {
+      NarrowDivisor = Divisor.getOperand(0);
+    } else if (DAG.computeKnownBits(Divisor).countMaxActiveBits() <= 16) {
+      NarrowDivisor = DAG.getNode(C166ISD::LOWORD, DL, MVT::i16, Divisor);
+    }
+
+    if (!NarrowDivisor) {
+      MakeLibCallOptions Options;
+      RTLIB::Libcall Libcall =
+          Op.getOpcode() == ISD::UDIV ? RTLIB::UDIV_I32 : RTLIB::UREM_I32;
+      SmallVector<SDValue, 2> Args = {Op.getOperand(0), Divisor};
+      return makeLibCall(DAG, Libcall, MVT::i32, Args, Options, DL).first;
+    }
+
+    SDValue Dividend = Op.getOperand(0);
+    // DIVLU traps when the quotient does not fit in one word.  Divide the
+    // high word first, then divide the resulting remainder and low word.  The
+    // second dividend is safe because its high half is smaller than divisor.
+    SDVTList DivRemVTs = DAG.getVTList(MVT::i32, MVT::i16);
+    SDValue Result = DAG.getNode(C166ISD::UDIVREM32BY16, DL, DivRemVTs,
+                                 Dividend, NarrowDivisor);
+    if (Op.getOpcode() == ISD::UREM) {
+      SDValue Zero = DAG.getConstant(0, DL, MVT::i16);
+      return DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i32, Result.getValue(1),
+                         Zero);
+    }
+    return Result.getValue(0);
+  }
   default:
     llvm_unreachable("unexpected C166 custom-lowered operation");
   }
@@ -263,6 +687,136 @@ unsigned C166TargetLowering::getJumpTableEncoding() const {
   // AsmPrinter. Generic block-address entries would use the default data
   // pointer width, which is 32 bits in Large and Medium.
   return MachineJumpTableInfo::EK_Inline;
+}
+
+enum class I64CompareOutput { Carry, BorrowValue };
+
+struct I64CompareResult {
+  SDValue Borrow;
+  bool TrueOnBorrow;
+};
+
+static I64CompareResult lowerI64RelationalCC(SDValue LHS, SDValue RHS,
+                                             ISD::CondCode CC,
+                                             I64CompareOutput Output,
+                                             const SDLoc &DL,
+                                             SelectionDAG &DAG) {
+  SDValue LowIndex = DAG.getConstant(0, DL, MVT::i16);
+  SDValue HighIndex = DAG.getConstant(1, DL, MVT::i16);
+  SDValue LhsLow =
+      DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32, LHS, LowIndex);
+  SDValue LhsHigh =
+      DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32, LHS, HighIndex);
+  SDValue RhsLow =
+      DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32, RHS, LowIndex);
+  SDValue RhsHigh =
+      DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32, RHS, HighIndex);
+
+  if (CC == ISD::SETLT || CC == ISD::SETLE || CC == ISD::SETGE ||
+      CC == ISD::SETGT) {
+    SDValue SignBit = DAG.getConstant(UINT32_C(0x80000000), DL, MVT::i32);
+    LhsHigh = DAG.getNode(ISD::XOR, DL, MVT::i32, LhsHigh, SignBit);
+    RhsHigh = DAG.getNode(ISD::XOR, DL, MVT::i32, RhsHigh, SignBit);
+    switch (CC) {
+    case ISD::SETLT:
+      CC = ISD::SETULT;
+      break;
+    case ISD::SETLE:
+      CC = ISD::SETULE;
+      break;
+    case ISD::SETGE:
+      CC = ISD::SETUGE;
+      break;
+    case ISD::SETGT:
+      CC = ISD::SETUGT;
+      break;
+    default:
+      llvm_unreachable("unexpected signed i64 condition");
+    }
+  }
+
+  bool ReverseOperands = CC == ISD::SETUGT || CC == ISD::SETULE;
+  bool TrueOnBorrow = CC == ISD::SETULT || CC == ISD::SETUGT;
+  if (ReverseOperands) {
+    std::swap(LhsLow, RhsLow);
+    std::swap(LhsHigh, RhsHigh);
+  }
+
+  SDVTList SubtractVTs = DAG.getVTList(MVT::i16, MVT::i32, MVT::i32);
+  unsigned Opcode = Output == I64CompareOutput::BorrowValue
+                        ? C166::SUB64Borrowrr
+                        : C166::SUB64Carryrr;
+  SDNode *Subtract = DAG.getMachineNode(Opcode, DL, SubtractVTs,
+                                        {LhsLow, LhsHigh, RhsLow, RhsHigh});
+  return {SDValue(Subtract, 0), TrueOnBorrow};
+}
+
+SDValue C166TargetLowering::LowerI64BRCC(SDValue Op, SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  SDValue Chain = Op.getOperand(0);
+  ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(1))->get();
+  SDValue LHS = Op.getOperand(2);
+  SDValue RHS = Op.getOperand(3);
+  SDValue Destination = Op.getOperand(4);
+
+  SDValue Condition;
+  ISD::CondCode BranchCC = ISD::SETNE;
+  if (CC == ISD::SETEQ || CC == ISD::SETNE) {
+    Condition = DAG.getSetCC(DL, MVT::i16, LHS, RHS, CC);
+  } else {
+    I64CompareResult Comparison =
+        lowerI64RelationalCC(LHS, RHS, CC, I64CompareOutput::Carry, DL, DAG);
+    Condition = Comparison.Borrow;
+    BranchCC = Comparison.TrueOnBorrow ? ISD::SETNE : ISD::SETEQ;
+  }
+  return DAG.getNode(ISD::BR_CC, DL, MVT::Other, Chain,
+                     DAG.getCondCode(BranchCC), Condition,
+                     DAG.getConstant(0, DL, MVT::i16), Destination);
+}
+
+SDValue C166TargetLowering::LowerI64SetCC(SDValue Op, SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  SDValue LHS = Op.getOperand(0);
+  SDValue RHS = Op.getOperand(1);
+  ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(2))->get();
+
+  SDValue LowIndex = DAG.getConstant(0, DL, MVT::i16);
+  SDValue HighIndex = DAG.getConstant(1, DL, MVT::i16);
+  SDValue LhsLow =
+      DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32, LHS, LowIndex);
+  SDValue LhsHigh =
+      DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32, LHS, HighIndex);
+  SDValue RhsLow =
+      DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32, RHS, LowIndex);
+  SDValue RhsHigh =
+      DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32, RHS, HighIndex);
+
+  if (CC == ISD::SETEQ || CC == ISD::SETNE) {
+    SDValue LowDifference = DAG.getNode(ISD::XOR, DL, MVT::i32, LhsLow, RhsLow);
+    SDValue HighDifference =
+        DAG.getNode(ISD::XOR, DL, MVT::i32, LhsHigh, RhsHigh);
+    SDValue Difference =
+        DAG.getNode(ISD::OR, DL, MVT::i32, LowDifference, HighDifference);
+    return DAG.getSetCC(DL, MVT::i16, Difference,
+                        DAG.getConstant(0, DL, MVT::i32), CC);
+  }
+
+  SDNode *User = Op->hasOneUse() ? Op->use_begin()->getUser() : nullptr;
+  // Type legalization masks the promoted i1 before BRCOND.  Keep the borrow
+  // in the carry flag when that branch is its only consumer.
+  if (User && User->getOpcode() == ISD::AND && User->hasOneUse())
+    User = User->use_begin()->getUser();
+  bool BranchOnly = User && User->getOpcode() == ISD::BRCOND;
+  I64CompareOutput Output =
+      BranchOnly ? I64CompareOutput::Carry : I64CompareOutput::BorrowValue;
+  I64CompareResult Comparison =
+      lowerI64RelationalCC(LHS, RHS, CC, Output, DL, DAG);
+  SDValue Result = DAG.getNode(ISD::AssertZext, DL, MVT::i16, Comparison.Borrow,
+                               DAG.getValueType(MVT::i1));
+  if (!Comparison.TrueOnBorrow)
+    Result = DAG.getNode(ISD::XOR, DL, MVT::i16, Result,
+                         DAG.getConstant(1, DL, MVT::i16));
+  return Result;
 }
 
 SDValue C166TargetLowering::LowerBRJT(SDValue Op, SelectionDAG &DAG) const {
@@ -299,25 +853,45 @@ SDValue C166TargetLowering::LowerI32Shift(SDValue Op, SelectionDAG &DAG) const {
   if (auto *Amount = dyn_cast<ConstantSDNode>(Op.getOperand(1))) {
     if (Amount->isZero())
       return Op.getOperand(0);
-    if (Amount->getZExtValue() == 16) {
+    unsigned ShiftAmount = Amount->getZExtValue();
+    if (ShiftAmount == 1 &&
+        (Op.getOpcode() == ISD::SRL || Op.getOpcode() == ISD::SRA))
+      return DAG.getNode(Op.getOpcode() == ISD::SRL ? C166ISD::SRL32_1
+                                                    : C166ISD::SRA32_1,
+                         DL, MVT::i32, Op.getOperand(0));
+    if (ShiftAmount >= 16 && ShiftAmount < 32) {
       SDValue Value = Op.getOperand(0);
       SDValue Low = DAG.getNode(C166ISD::LOWORD, DL, MVT::i16, Value);
       SDValue High = DAG.getNode(C166ISD::HIWORD, DL, MVT::i16, Value);
       SDValue Zero = DAG.getConstant(0, DL, MVT::i16);
+      unsigned WordAmount = ShiftAmount - 16;
+      auto ShiftWord = [&](unsigned Opcode, SDValue Word) {
+        return WordAmount == 0
+                   ? Word
+                   : DAG.getNode(Opcode, DL, MVT::i16, Word,
+                                 DAG.getConstant(WordAmount, DL, MVT::i16));
+      };
       switch (Op.getOpcode()) {
       case ISD::SHL:
-        return DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i32, Zero, Low);
+        return DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i32, Zero,
+                           ShiftWord(ISD::SHL, Low));
       case ISD::SRL:
-        return DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i32, High, Zero);
+        return DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i32,
+                           ShiftWord(ISD::SRL, High), Zero);
       case ISD::SRA: {
         SDValue Sign = DAG.getNode(ISD::SRA, DL, MVT::i16, High,
                                    DAG.getConstant(15, DL, MVT::i16));
-        return DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i32, High, Sign);
+        return DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i32,
+                           ShiftWord(ISD::SRA, High), Sign);
       }
       default:
         llvm_unreachable("unexpected C166 i32 shift");
       }
     }
+    // Constant shifts map directly to word shifts and avoid a call-clobbering
+    // helper sequence. Variable shifts still use the general runtime helper.
+    if (ShiftAmount < 32)
+      return Op;
   }
 
   RTLIB::Libcall LC;
@@ -343,11 +917,65 @@ SDValue C166TargetLowering::LowerI32Shift(SDValue Op, SelectionDAG &DAG) const {
 MachineBasicBlock *
 C166TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
                                                 MachineBasicBlock *MBB) const {
+  auto GetSignBitCondition = [](MachineRegisterInfo &MRI, Register RHS,
+                                unsigned CC) -> std::optional<unsigned> {
+    MachineInstr *RHSDef = MRI.getUniqueVRegDef(RHS);
+    if (!RHSDef || RHSDef->getOpcode() != C166::CONST32 ||
+        !RHSDef->getOperand(1).isImm())
+      return std::nullopt;
+
+    int64_t Immediate = RHSDef->getOperand(1).getImm();
+    if ((CC == C166::CC_SGT && Immediate == -1) ||
+        (CC == C166::CC_SGE && Immediate == 0))
+      return C166::CC_EQ;
+    if ((CC == C166::CC_SLE && Immediate == -1) ||
+        (CC == C166::CC_SLT && Immediate == 0))
+      return C166::CC_NE;
+    return std::nullopt;
+  };
+
   auto EmitI32CompareBranch = [&](Register Lhs, Register Rhs, unsigned CC,
                                   MachineBasicBlock *TrueMBB,
                                   MachineBasicBlock *FalseMBB) {
     MachineFunction *MF = MBB->getParent();
     const TargetInstrInfo *TII = MF->getSubtarget().getInstrInfo();
+    MachineRegisterInfo &MRI = MF->getRegInfo();
+    if (std::optional<unsigned> BitCC =
+            GetSignBitCondition(MF->getRegInfo(), Rhs, CC)) {
+      BuildMI(*MBB, MI, MI.getDebugLoc(), TII->get(C166::BITBR))
+          .addReg(Lhs, {}, sub_hi16)
+          .addImm(15)
+          .addImm(*BitCC)
+          .addMBB(TrueMBB);
+      BuildMI(*MBB, MI, MI.getDebugLoc(), TII->get(C166::BR)).addMBB(FalseMBB);
+      return MBB;
+    }
+    auto CanUseTiedSubtract = [&] {
+      if (!Lhs.isVirtual() || !MRI.hasOneNonDBGUse(Lhs))
+        return false;
+
+      MachineInstr *Def = MRI.getUniqueVRegDef(Lhs);
+      if (!Def || Def->getOpcode() != TargetOpcode::REG_SEQUENCE)
+        return true;
+
+      for (unsigned I = 1, E = Def->getNumOperands(); I < E; I += 2) {
+        const MachineOperand &Source = Def->getOperand(I);
+        if (!Source.isReg() || !MRI.hasOneNonDBGUse(Source.getReg()))
+          return false;
+      }
+      return true;
+    };
+    if (CC != C166::CC_EQ && CC != C166::CC_NE && CanUseTiedSubtract()) {
+      Register Scratch = MRI.createVirtualRegister(&C166::GR32RegClass);
+      BuildMI(*MBB, MI, MI.getDebugLoc(), TII->get(C166::SUB32BR), Scratch)
+          .addReg(Lhs)
+          .addReg(Rhs)
+          .addImm(CC)
+          .addMBB(TrueMBB);
+      BuildMI(*MBB, MI, MI.getDebugLoc(), TII->get(C166::BR)).addMBB(FalseMBB);
+      return MBB;
+    }
+
     const BasicBlock *IRBB = MBB->getBasicBlock();
     MachineFunction::iterator InsertAt = std::next(MBB->getIterator());
     unsigned CallFrameSize = TII->getCallFrameSizeAt(MI);
@@ -362,6 +990,49 @@ C166TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     MachineBasicBlock *LowMBB = NewBlock();
     MachineBasicBlock *HighRemainderMBB = nullptr;
 
+    struct WordRegister {
+      Register Reg;
+      unsigned SubReg;
+    };
+    const TargetRegisterInfo &TRI = *MF->getSubtarget().getRegisterInfo();
+    auto GetWordRegister = [&](Register Reg, unsigned SubReg) {
+      if (Reg.isPhysical() && SubReg)
+        return WordRegister{TRI.getSubReg(Reg, SubReg), 0};
+      return WordRegister{Reg, SubReg};
+    };
+    auto ResolveWord = [&](Register Pair, unsigned WordSubReg) {
+      Register Value = Pair;
+      while (Value.isVirtual()) {
+        MachineInstr *Def = MRI.getUniqueVRegDef(Value);
+        if (!Def)
+          break;
+        if (Def->getOpcode() == TargetOpcode::COPY &&
+            Def->getOperand(1).isReg() && !Def->getOperand(1).getSubReg()) {
+          Register Source = Def->getOperand(1).getReg();
+          if (!Source.isVirtual())
+            break;
+          Value = Source;
+          continue;
+        }
+        if (Def->getOpcode() == TargetOpcode::REG_SEQUENCE) {
+          for (unsigned I = 1, E = Def->getNumOperands(); I + 1 < E; I += 2)
+            if (Def->getOperand(I).isReg() && Def->getOperand(I + 1).isImm() &&
+                Def->getOperand(I + 1).getImm() == WordSubReg)
+              return GetWordRegister(Def->getOperand(I).getReg(),
+                                     Def->getOperand(I).getSubReg());
+        }
+        break;
+      }
+      return GetWordRegister(Value, WordSubReg);
+    };
+    WordRegister LhsLow = ResolveWord(Lhs, sub_lo16);
+    WordRegister LhsHigh = ResolveWord(Lhs, sub_hi16);
+    WordRegister RhsLow = ResolveWord(Rhs, sub_lo16);
+    WordRegister RhsHigh = ResolveWord(Rhs, sub_hi16);
+    for (WordRegister Word : {LhsLow, LhsHigh, RhsLow, RhsHigh})
+      if (Word.Reg.isVirtual())
+        MRI.clearKillFlags(Word.Reg);
+
     TrueMBB->replacePhiUsesWith(MBB, TrueGate);
     FalseMBB->replacePhiUsesWith(MBB, FalseGate);
     while (!MBB->succ_empty())
@@ -370,12 +1041,14 @@ C166TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     auto EmitBranch = [&](MachineBasicBlock *Block, unsigned SubReg,
                           unsigned WordCC, MachineBasicBlock *BranchMBB,
                           MachineBasicBlock *FallthroughMBB) {
+      WordRegister LhsWord = SubReg == sub_lo16 ? LhsLow : LhsHigh;
+      WordRegister RhsWord = SubReg == sub_lo16 ? RhsLow : RhsHigh;
       MachineInstrBuilder Compare =
           Block == MBB
               ? BuildMI(*Block, MI, MI.getDebugLoc(), TII->get(C166::CMPBR))
               : BuildMI(Block, MI.getDebugLoc(), TII->get(C166::CMPBR));
-      Compare.addReg(Lhs, {}, SubReg)
-          .addReg(Rhs, {}, SubReg)
+      Compare.addReg(LhsWord.Reg, {}, LhsWord.SubReg)
+          .addReg(RhsWord.Reg, {}, RhsWord.SubReg)
           .addImm(WordCC)
           .addMBB(BranchMBB);
       if (Block == MBB)
@@ -392,11 +1065,10 @@ C166TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
       Gate->addSuccessor(Target);
     };
 
-    // A C166 MOV updates N/Z/E.  Keeping a 32-bit comparison as SUB/SUBC
-    // followed by a separate flags branch therefore lets register-allocation
-    // spills destroy the signed condition.  Compare the high words first and
-    // the low words only when they are equal.  CMPBR remains atomic until
-    // post-RA expansion, so every hardware CMP is adjacent to its JMPR.
+    // Compare the high and low words independently when a tied subtract would
+    // need another live register pair. CMPBR remains atomic until post-RA
+    // expansion, so a spill cannot clobber the flags between the hardware CMP
+    // and its JMPR.
     switch (CC) {
     case C166::CC_EQ:
       EmitBranch(MBB, sub_hi16, C166::CC_NE, FalseGate, LowMBB);
@@ -481,6 +1153,8 @@ C166TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
       Following->eraseFromParent();
     EmitI32CompareBranch(LHS, RHS, CC, TrueMBB, FalseMBB);
     MI.eraseFromParent();
+    if (RHSDef && MRI.use_nodbg_empty(RHS))
+      RHSDef->eraseFromParent();
     return MBB;
   }
 
@@ -492,7 +1166,99 @@ C166TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
 
   MachineFunction *MF = MBB->getParent();
   const TargetInstrInfo *TII = MF->getSubtarget().getInstrInfo();
+  MachineRegisterInfo &MRI = MF->getRegInfo();
+
+  auto GetImmediate = [&](Register Reg) -> std::optional<int64_t> {
+    if (!Reg.isVirtual())
+      return std::nullopt;
+    MachineInstr *Def = MRI.getUniqueVRegDef(Reg);
+    if (!Def ||
+        (Def->getOpcode() != C166::MOVri4 && Def->getOpcode() != C166::MOVri16))
+      return std::nullopt;
+    return Def->getOperand(1).getImm();
+  };
+  auto GetTrueBooleanValue = [&](Register TrueValue,
+                                 Register FalseValue) -> std::optional<bool> {
+    std::optional<int64_t> TrueImmediate = GetImmediate(TrueValue);
+    std::optional<int64_t> FalseImmediate = GetImmediate(FalseValue);
+    if (!TrueImmediate || !FalseImmediate ||
+        ((*TrueImmediate != 0 || *FalseImmediate != 1) &&
+         (*TrueImmediate != 1 || *FalseImmediate != 0)))
+      return std::nullopt;
+    return *TrueImmediate == 1;
+  };
+  auto EraseDeadDefs = [&](ArrayRef<Register> Registers) {
+    for (Register Reg : Registers) {
+      if (!Reg.isVirtual() || !MRI.use_nodbg_empty(Reg))
+        continue;
+      if (MachineInstr *Def = MRI.getUniqueVRegDef(Reg))
+        Def->eraseFromParent();
+    }
+  };
+
+  if (MI.getOpcode() == C166::SELECT16) {
+    Register LHS = MI.getOperand(1).getReg();
+    Register RHS = MI.getOperand(2).getReg();
+    Register TrueValue = MI.getOperand(3).getReg();
+    Register FalseValue = MI.getOperand(4).getReg();
+    unsigned CC = MI.getOperand(5).getImm();
+
+    std::optional<bool> TrueIsOne = GetTrueBooleanValue(TrueValue, FalseValue);
+    if (TrueIsOne && (CC == C166::CC_ULT || CC == C166::CC_UGE)) {
+      std::optional<int64_t> RHSImmediate = GetImmediate(RHS);
+      if (RHSImmediate)
+        BuildMI(
+            *MBB, MI, MI.getDebugLoc(),
+            TII->get(isUInt<3>(*RHSImmediate) ? C166::CMPri3 : C166::CMPri16))
+            .addReg(LHS)
+            .addImm(*RHSImmediate);
+      else
+        BuildMI(*MBB, MI, MI.getDebugLoc(), TII->get(C166::CMPrr))
+            .addReg(LHS)
+            .addReg(RHS);
+
+      Register Result = MI.getOperand(0).getReg();
+      Register Initial = MRI.createVirtualRegister(&C166::GR16RegClass);
+      bool ResultIsCarry = (CC == C166::CC_ULT) == *TrueIsOne;
+      // CMP sets C for unsigned lower. MOV preserves C, so ADDC materializes
+      // C while SUBC materializes its inverse.
+      BuildMI(*MBB, MI, MI.getDebugLoc(), TII->get(C166::MOVri4), Initial)
+          .addImm(ResultIsCarry ? 0 : 1);
+      BuildMI(*MBB, MI, MI.getDebugLoc(),
+              TII->get(ResultIsCarry ? C166::ADDCri3 : C166::SUBCri3), Result)
+          .addReg(Initial)
+          .addImm(0);
+
+      MI.eraseFromParent();
+      EraseDeadDefs({RHS, TrueValue, FalseValue});
+      return MBB;
+    }
+  }
+
   const BasicBlock *IRBB = MBB->getBasicBlock();
+  Register TrueValue = MI.getOperand(3).getReg();
+  Register FalseValue = MI.getOperand(4).getReg();
+  unsigned SelectCC = MI.getOperand(5).getImm();
+  Register CompareLHS = MI.getOperand(1).getReg();
+  MachineInstr *CompareLHSDef =
+      CompareLHS.isVirtual() ? MRI.getUniqueVRegDef(CompareLHS) : nullptr;
+  bool CompareLHSIsPhysicalCopy =
+      CompareLHSDef && CompareLHSDef->isCopy() &&
+      CompareLHSDef->getOperand(1).isReg() &&
+      CompareLHSDef->getOperand(1).getReg().isPhysical();
+  // Keep a value arriving in a fixed register on the direct edge and put the
+  // immediate replacement on the fallthrough edge.  This lets PHI coalescing
+  // retain the fixed register instead of copying the value through a
+  // temporary.  Restrict this to physical-register copies: reversing a select
+  // around a computed value can lengthen its live range and inhibit unrelated
+  // folds.
+  if (MI.getOpcode() == C166::SELECT16 &&
+      (SelectCC == C166::CC_EQ || SelectCC == C166::CC_NE) &&
+      FalseValue == CompareLHS && GetImmediate(TrueValue) &&
+      CompareLHSIsPhysicalCopy) {
+    std::swap(TrueValue, FalseValue);
+    SelectCC = SelectCC == C166::CC_EQ ? C166::CC_NE : C166::CC_EQ;
+  }
   MachineFunction::iterator InsertAt = std::next(MBB->getIterator());
   MachineBasicBlock *FalseMBB = MF->CreateMachineBasicBlock(IRBB);
   MachineBasicBlock *SinkMBB = MF->CreateMachineBasicBlock(IRBB);
@@ -522,8 +1288,7 @@ C166TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
       MI.getOpcode() == C166::SELECT32_16CMP) {
     Register LHS = MI.getOperand(1).getReg();
     Register RHS = MI.getOperand(2).getReg();
-    unsigned CC = MI.getOperand(5).getImm();
-    MachineRegisterInfo &MRI = MF->getRegInfo();
+    unsigned CC = SelectCC;
     MachineInstr *RHSDef = MRI.getUniqueVRegDef(RHS);
     MachineInstr *LHSDef = MRI.getUniqueVRegDef(LHS);
     bool IsZero = RHSDef &&
@@ -557,8 +1322,7 @@ C166TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   } else {
     Register LHS = MI.getOperand(1).getReg();
     Register RHS = MI.getOperand(2).getReg();
-    unsigned CC = MI.getOperand(5).getImm();
-    MachineRegisterInfo &MRI = MF->getRegInfo();
+    unsigned CC = SelectCC;
     MachineInstr *RHSDef = MRI.getUniqueVRegDef(RHS);
     if (RHSDef && RHSDef->getOpcode() == C166::CONST32 &&
         RHSDef->getOperand(1).getImm() == 0 &&
@@ -570,19 +1334,20 @@ C166TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
           .addMBB(SinkMBB);
       DeadCompareRHS = RHSDef;
     } else {
+      if (GetSignBitCondition(MRI, RHS, CC))
+        DeadCompareRHS = RHSDef;
       TrueValueMBB = EmitI32CompareBranch(LHS, RHS, CC, SinkMBB, FalseMBB);
     }
   }
 
   BuildMI(*SinkMBB, SinkMBB->begin(), MI.getDebugLoc(),
           TII->get(TargetOpcode::PHI), MI.getOperand(0).getReg())
-      .addReg(MI.getOperand(3).getReg())
+      .addReg(TrueValue)
       .addMBB(TrueValueMBB)
-      .addReg(MI.getOperand(4).getReg())
+      .addReg(FalseValue)
       .addMBB(FalseMBB);
 
   MI.eraseFromParent();
-  MachineRegisterInfo &MRI = MF->getRegInfo();
   for (MachineInstr *DeadDef : {DeadCompareLHS, DeadCompareRHS})
     if (DeadDef && MRI.use_nodbg_empty(DeadDef->getOperand(0).getReg()))
       DeadDef->eraseFromParent();
@@ -616,6 +1381,66 @@ static unsigned getCalleeCodeBank(const TargetLowering::CallLoweringInfo &CLI) {
   return 0;
 }
 
+static std::pair<SDValue, int64_t> decomposeC166Address(SDValue Address) {
+  int64_t Offset = 0;
+  while (true) {
+    if (Address.getOpcode() == ISD::ADD) {
+      auto *Amount = dyn_cast<ConstantSDNode>(Address.getOperand(1));
+      if (!Amount)
+        break;
+      Offset += Amount->getSExtValue();
+      Address = Address.getOperand(0);
+      continue;
+    }
+    if (Address.getOpcode() == ISD::INTRINSIC_WO_CHAIN &&
+        isa<ConstantSDNode>(Address.getOperand(0)) &&
+        cast<ConstantSDNode>(Address.getOperand(0))->getZExtValue() ==
+            Intrinsic::c166_far_add) {
+      auto *Amount = dyn_cast<ConstantSDNode>(Address.getOperand(2));
+      if (!Amount)
+        break;
+      Offset += Amount->getSExtValue();
+      Address = Address.getOperand(1);
+      continue;
+    }
+    break;
+  }
+  return {Address, Offset};
+}
+
+static SDValue findStoredByValWord(SDValue Chain, SDValue ObjectAddress,
+                                   unsigned Offset) {
+  auto [ObjectBase, ObjectOffset] = decomposeC166Address(ObjectAddress);
+  while (Chain) {
+    if (auto *Store = dyn_cast<StoreSDNode>(Chain)) {
+      if (!Store->isSimple())
+        return {};
+      auto [StoreBase, StoreOffset] = decomposeC166Address(Store->getBasePtr());
+      if (StoreBase != ObjectBase)
+        return {};
+      StoreOffset -= ObjectOffset;
+      uint64_t StoreBytes = Store->getMemoryVT().getStoreSize().getFixedValue();
+      bool Overlaps = StoreOffset < int64_t(Offset + 2) &&
+                      int64_t(StoreOffset + StoreBytes) > Offset;
+      if (Overlaps) {
+        if (StoreOffset == Offset && StoreBytes == 2 &&
+            !Store->isTruncatingStore() &&
+            Store->getValue().getValueType() == MVT::i16)
+          return Store->getValue();
+        return {};
+      }
+      Chain = Store->getChain();
+      continue;
+    }
+    if (auto *Load = dyn_cast<LoadSDNode>(Chain)) {
+      Chain = Load->getChain();
+      continue;
+    }
+    return {};
+  }
+  return {};
+}
+
 SDValue C166TargetLowering::LowerFormalArguments(
     SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
     const SmallVectorImpl<ISD::InputArg> &Ins, const SDLoc &DL,
@@ -630,6 +1455,7 @@ SDValue C166TargetLowering::LowerFormalArguments(
 
   MachineFunction &MF = DAG.getMachineFunction();
   MachineRegisterInfo &MRI = MF.getRegInfo();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
   unsigned NextWord = 0;
   // Every banked function has a hidden word at [R0]. __banksw
   // consumes it when switching banks, and even a same-bank caller reserves
@@ -639,6 +1465,15 @@ SDValue C166TargetLowering::LowerFormalArguments(
       C166::getCodeBank(MF.getFunction().getAddressSpace()) ? 2 : 0;
   bool UsedStack = CallConv == CallingConv::C166_StackParm;
   bool HasSRet = false;
+
+  auto LoadStackWord = [&](unsigned Offset, SDValue LoadChain) {
+    int FI = MFI.CreateFixedObject(2, Offset, true);
+    const DataLayout &Layout = DAG.getDataLayout();
+    SDValue FrameIndex = DAG.getFrameIndex(
+        FI, getPointerTy(Layout, Layout.getAllocaAddrSpace()));
+    return DAG.getLoad(MVT::i16, DL, LoadChain, FrameIndex,
+                       MachinePointerInfo::getFixedStack(MF, FI));
+  };
 
   for (const ISD::InputArg &Arg : Ins) {
     if (Arg.Flags.isSRet()) {
@@ -650,13 +1485,34 @@ SDValue C166TargetLowering::LowerFormalArguments(
     if (Arg.Flags.isByVal()) {
       UsedStack = true;
       unsigned Size = alignTo(Arg.Flags.getByValSize(), 2u);
-      MachineFrameInfo &MFI = MF.getFrameInfo();
       int PublicFI = MFI.CreateFixedObject(Size, StackOffset, true);
       const DataLayout &Layout = DAG.getDataLayout();
       SDValue PublicAddress = DAG.getFrameIndex(
           PublicFI, getPointerTy(Layout, Layout.getAllocaAddrSpace()));
       InVals.push_back(PublicAddress);
       StackOffset += Size;
+      continue;
+    }
+
+    if (Arg.OrigTy && Arg.OrigTy->isDoubleTy()) {
+      // A softened binary64 argument is split into pieces in
+      // least-significant-first order.  Its public representation is the
+      // reverse: stack-only, with the most-significant word first.
+      UsedStack = true;
+      unsigned ArgumentBase = StackOffset - Arg.PartOffset;
+      SDValue Value;
+      if (Arg.VT == MVT::i16) {
+        Value = LoadStackWord(ArgumentBase + 6 - Arg.PartOffset, Chain);
+      } else if (Arg.VT == MVT::i32) {
+        SDValue Low = LoadStackWord(ArgumentBase + 6 - Arg.PartOffset, Chain);
+        SDValue High =
+            LoadStackWord(ArgumentBase + 4 - Arg.PartOffset, Low.getValue(1));
+        Value = DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i32, Low, High);
+      } else {
+        report_fatal_error("unsupported C166 softened double part");
+      }
+      StackOffset += Arg.VT.getStoreSize().getFixedValue();
+      InVals.push_back(Value);
       continue;
     }
 
@@ -677,16 +1533,6 @@ SDValue C166TargetLowering::LowerFormalArguments(
 
     SDValue Value;
     if (UsedStack) {
-      MachineFrameInfo &MFI = MF.getFrameInfo();
-      auto LoadStackWord = [&](unsigned Offset, SDValue LoadChain) {
-        int FI = MFI.CreateFixedObject(2, Offset, true);
-        const DataLayout &Layout = DAG.getDataLayout();
-        SDValue FrameIndex = DAG.getFrameIndex(
-            FI, getPointerTy(Layout, Layout.getAllocaAddrSpace()));
-        return DAG.getLoad(MVT::i16, DL, LoadChain, FrameIndex,
-                           MachinePointerInfo::getFixedStack(MF, FI));
-      };
-
       if (LocVT == MVT::i16) {
         Value = LoadStackWord(StackOffset, Chain);
       } else if (LocVT == MVT::i32) {
@@ -786,6 +1632,8 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
   unsigned SRetObjectBytes = 0;
   Align SRetAlign(2);
   bool IsDoubleSRet = false;
+  bool CanForwardStackTail = RequestedTailCall && !CLI.IsVarArg;
+  unsigned ForwardedStackBytes = 0;
   SDValue Glue;
   unsigned NextWord = 0;
   bool UsedStack = CLI.CallConv == CallingConv::C166_StackParm;
@@ -848,6 +1696,16 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
       unsigned SlotSize = alignTo(ObjectSize, 2u);
       Align ObjectAlign = CLI.Outs[I].Flags.getNonZeroByValAlign();
       SDValue Base = CLI.OutVals[I];
+      if (CanForwardStackTail) {
+        auto *FI = dyn_cast<FrameIndexSDNode>(Base);
+        MachineFrameInfo &MFI = MF.getFrameInfo();
+        if (!FI || !MFI.isFixedObjectIndex(FI->getIndex()) ||
+            MFI.getObjectOffset(FI->getIndex()) != ForwardedStackBytes ||
+            MFI.getObjectSize(FI->getIndex()) < ObjectSize)
+          CanForwardStackTail = false;
+        else
+          ForwardedStackBytes += SlotSize;
+      }
       auto AddressAt = [&](unsigned Offset) {
         SDValue Address = Base;
         if (Offset)
@@ -866,9 +1724,14 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
         SDValue Word;
         if (Offset + 2 <= ObjectSize && ObjectAlign >= Align(2)) {
           // A word-aligned object remains aligned at every even ABI slot.
-          Word = DAG.getLoad(MVT::i16, DL, Chain, AddressAt(Offset),
-                             MachinePointerInfo().getWithOffset(Offset),
-                             commonAlignment(ObjectAlign, Offset));
+          // LowerCall creates these outgoing loads after ordinary store
+          // forwarding. Reuse an exact preceding word store when no memory
+          // write on its chain can change that word.
+          Word = findStoredByValWord(Chain, Base, Offset);
+          if (!Word)
+            Word = DAG.getLoad(MVT::i16, DL, Chain, AddressAt(Offset),
+                               MachinePointerInfo().getWithOffset(Offset),
+                               commonAlignment(ObjectAlign, Offset));
         } else {
           // Packed aggregates may begin at an odd address, and an odd-sized
           // aggregate has no source byte corresponding to the high byte of
@@ -887,6 +1750,8 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
       }
       continue;
     }
+
+    CanForwardStackTail = false;
 
     if (CLI.Outs[I].OrigTy->isDoubleTy()) {
       // Type legalization exposes a softened binary64 operand as four i16
@@ -955,12 +1820,23 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
   }
 
   unsigned StackBytes = StackWords.size() * 2;
-  unsigned CallFrameBytes = BankSlotBytes + SRetBytes + StackBytes;
+  bool ForwardStackTail = CanForwardStackTail && SRetDestination && SRetBytes &&
+                          ForwardedStackBytes == StackBytes &&
+                          BankSlotBytes == 0 && RegsToPass.empty();
+  if (ForwardStackTail) {
+    auto *FI = dyn_cast<FrameIndexSDNode>(SRetDestination);
+    MachineFrameInfo &MFI = MF.getFrameInfo();
+    ForwardStackTail = FI && MFI.isFixedObjectIndex(FI->getIndex()) &&
+                       MFI.getObjectOffset(FI->getIndex()) == StackBytes &&
+                       MFI.getObjectSize(FI->getIndex()) >= SRetObjectBytes;
+  }
+  unsigned CallFrameBytes =
+      ForwardStackTail ? 0 : BankSlotBytes + SRetBytes + StackBytes;
   if (CallFrameBytes)
     Chain = DAG.getCALLSEQ_START(Chain, CallFrameBytes, 0, DL);
 
   unsigned DynamicOffset = 0;
-  if (SRetBytes) {
+  if (SRetBytes && !ForwardStackTail) {
     DynamicOffset = SRetBytes;
     Chain = DAG.getNode(C166ISD::ALLOCSP, DL, MVT::Other, Chain,
                         DAG.getConstant(SRetBytes, DL, MVT::i16),
@@ -970,11 +1846,12 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
   // Build the final layout from high addresses to low addresses.  Keeping
   // each predecrement store in the call chain lets the scheduler form one
   // argument at a time instead of keeping every stack argument live at once.
-  for (SDValue Word : llvm::reverse(StackWords)) {
-    DynamicOffset += 2;
-    Chain = DAG.getNode(C166ISD::PUSHARG, DL, MVT::Other, Chain,
-                        DAG.getConstant(DynamicOffset, DL, MVT::i16), Word);
-  }
+  if (!ForwardStackTail)
+    for (SDValue Word : llvm::reverse(StackWords)) {
+      DynamicOffset += 2;
+      Chain = DAG.getNode(C166ISD::PUSHARG, DL, MVT::Other, Chain,
+                          DAG.getConstant(DynamicOffset, DL, MVT::i16), Word);
+    }
 
   SDValue BankWord;
   if (NeedsBankSwitch) {
@@ -1087,8 +1964,9 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
   const bool DirectCallee =
       isa<GlobalAddressSDNode, ExternalSymbolSDNode>(CLI.Callee);
   CLI.IsTailCall = RequestedTailCall && !CLI.IsVarArg && DirectCallee &&
-                   CallFrameBytes == 0 && !SRetDestination &&
-                   !NeedsBankSwitch && CallerBank == 0 && CalleeBank == 0 &&
+                   CallFrameBytes == 0 &&
+                   (!SRetDestination || ForwardStackTail) && !NeedsBankSwitch &&
+                   CallerBank == 0 && CalleeBank == 0 &&
                    CLI.CallConv == MF.getFunction().getCallingConv() &&
                    EmitNearCall == CallerReturnsNear;
   if (!CLI.IsTailCall && CLI.CB && CLI.CB->isMustTailCall())

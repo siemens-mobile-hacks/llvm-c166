@@ -151,12 +151,12 @@ unsigned int select_far_offset(const unsigned char *base,
 // DIS:       rets
 // DIS-LABEL: <_add_ffff>:
 // DIS:       mov r5, r13
-// DIS:       add r4, #65535
+// DIS:       sub r4, #1
 // DIS-NOT:   addc
 // DIS:       rets
 // DIS-LABEL: <_subtract_one>:
 // DIS:       mov r5, r13
-// DIS:       add r4, #65535
+// DIS:       sub r4, #1
 // DIS-NOT:   addc
 // DIS:       rets
 // DIS-LABEL: <_function_eq>:

@@ -134,8 +134,10 @@ unsigned int forward_five_words(unsigned int a, unsigned int b, unsigned int c,
 // MEDIUM:       mov r4, r{{1[23]}}
 // MEDIUM:       ret
 // MEDIUM-LABEL: <_add_mixed>:
-// MEDIUM:       mov r4, r12
-// MEDIUM:       mov r5, r13
+// MEDIUM:       mov r4, r14
+// MEDIUM:       mov r5, #0
+// MEDIUM:       add r4, r12
+// MEDIUM:       addc r5, r13
 // MEDIUM:       ret
 // MEDIUM-LABEL: <_load_far>:
 // MEDIUM:       extp r13, #1
@@ -152,12 +154,10 @@ unsigned int forward_five_words(unsigned int a, unsigned int b, unsigned int c,
 // MEDIUM:       add r0, #2
 // MEDIUM-NEXT:  ret
 // DIS-LABEL: <_add_mixed>:
-// DIS:       mov r4, r12
-// DIS-NEXT:  mov r5, r13
-// DIS-NEXT:  mov [[RHS:r[0-9]+]], r14
-// DIS-NEXT:  mov [[ZERO:r[0-9]+]], #0
-// DIS-NEXT:  add r4, [[RHS]]
-// DIS-NEXT:  addc r5, [[ZERO]]
+// DIS:       mov r4, r14
+// DIS-NEXT:  mov r5, #0
+// DIS-NEXT:  add r4, r12
+// DIS-NEXT:  addc r5, r13
 // DIS-NEXT:  rets
 // DIS-LABEL: <_load_far>:
 // DIS:       extp r13, #1
@@ -178,16 +178,18 @@ unsigned int forward_five_words(unsigned int a, unsigned int b, unsigned int c,
 // DIS-NEXT:  rets
 // DIS-LABEL: <_load_far_long>:
 // DIS:       extp r13, #2
-// DIS-NEXT:  mov r4, [r12]
-// DIS-NEXT:  mov r5, [r12 + #2]
+// DIS-NEXT:  mov r4, [r12+]
+// DIS-NEXT:  mov r5, [r12]
 // DIS-NEXT:  rets
 // DIS-LABEL: <_load_far_long_keep_address>:
 // Casting the data pointer to long uses the default huge/linear value,
 // while the load still uses the original far page and offset.
-// DIS:       calls
+// DIS:       shr {{r[0-9]+}}, #2
+// DIS:       shl {{r[0-9]+}}, #14
+// DIS:       shr {{r[0-9]+}}, #2
 // DIS:       extp [[KEEP_PAGE:r[0-9]+]], #2
-// DIS-NEXT:  mov r4, [{{r[0-9]+}}]
-// DIS-NEXT:  mov r5, [{{r[0-9]+}} + #2]
+// DIS-NEXT:  mov r4, [{{r[0-9]+}}+]
+// DIS-NEXT:  mov r5, [{{r[0-9]+}}]
 // DIS:       add r4, {{r[0-9]+}}
 // DIS-NEXT:  addc r5, {{r[0-9]+}}
 // DIS:       rets

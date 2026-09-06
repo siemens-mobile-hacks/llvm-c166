@@ -23,6 +23,10 @@ public:
     return MVT::i16;
   }
 
+  MVT::SimpleValueType getCmpLibcallReturnType() const override {
+    return MVT::i16;
+  }
+
   const char *getTargetNodeName(unsigned Opcode) const override;
 
   EVT getSetCCResultType(const DataLayout &DL, LLVMContext &Context,
@@ -50,6 +54,10 @@ public:
                                   SDValue &Offset, ISD::MemIndexedMode &AM,
                                   SelectionDAG &DAG) const override;
 
+  bool shouldReduceLoadWidth(
+      SDNode *Load, ISD::LoadExtType ExtTy, EVT NewVT,
+      std::optional<unsigned> ByteOffset = std::nullopt) const override;
+
   unsigned getJumpTableEncoding() const override;
 
   MVT getJumpTableRegTy(const DataLayout &DL) const override {
@@ -68,6 +76,11 @@ private:
 
   SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerVAARG(SDValue Op, SelectionDAG &DAG) const;
+  SDValue CombineSplitLeftShiftOne(SDNode *N, DAGCombinerInfo &DCI) const;
+  SDValue CombineSplitRightShiftOne(SDNode *N, DAGCombinerInfo &DCI) const;
+  SDValue CombineI64ConstantShift(SDNode *N, SelectionDAG &DAG) const;
+  SDValue LowerI64BRCC(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerI64SetCC(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerI32Shift(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerBRJT(SDValue Op, SelectionDAG &DAG) const;
 

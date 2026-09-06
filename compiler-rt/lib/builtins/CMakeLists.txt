@@ -914,20 +914,49 @@ set(avr_SOURCES
 
 # Generic 32-bit integer sources recurse through C166 libcalls.
 set(c166_SOURCES
-  adddf3.c
-  divdf3.c
+  c166/adddf3.c
+  c166/divdf3.c
   fp_mode.c
   c166/atomic.c
-  c166/fp32.c
-  c166/fp32_conv.c
+  c166/addsf3.c
+  c166/ashlsi3.c
+  c166/ashrsi3.c
+  c166/clzsi2.c
+  c166/cmpdf2.c
+  c166/comparedf2.c
+  c166/comparesf2.c
+  c166/divsf3.c
+  c166/divsi3.c
+  c166/fixdfsi.c
+  c166/fixsfsi.c
+  c166/fixunsdfsi.c
+  c166/fixunssfsi.c
+  c166/floatsisf.c
+  c166/floatsidf.c
+  c166/floatsidf_direct.c
+  c166/floatunsidf.c
+  c166/floatunsidf_direct.c
+  c166/floatunsisf.c
+  c166/fp32_round.c
+  c166/fp64_add.c
+  c166/fp64_add_impl.c
+  c166/fp64_div.c
+  c166/fp64_limbs.c
+  c166/fp64_mul.c
+  c166/fp64_sub.c
   c166/fp_width.c
-  c166/fp64_conv.c
   c166/icall.S
-  c166/int32.c
+  c166/lshrsi3.c
   c166/memory.c
+  c166/modsi3.c
+  c166/mulsf3.c
+  c166/mulsi3.c
+  c166/subsf3.c
+  c166/udivsi3.c
+  c166/umodsi3.c
   c166/float_helpers.S
-  muldf3.c
-  subdf3.c
+  c166/muldf3.c
+  c166/subdf3.c
 )
 
 # hexagon arch
@@ -1144,7 +1173,8 @@ else ()
       # TODO: we should probably make most of the checks in builtin-config depend on the target flags.
       set(BUILTIN_CFLAGS_${arch} ${BUILTIN_CFLAGS})
       if ("${arch}" STREQUAL "c166")
-        list(APPEND BUILTIN_CFLAGS_${arch} -ffreestanding
+        list(APPEND BUILTIN_CFLAGS_${arch} -Os -ffreestanding
+          -ffunction-sections -fdata-sections
           -Xclang -fexperimental-max-bitint-width=64
           -DCRT_USE_64BIT_BITINT
           -DCRT_REVERSE_16BIT_FP_WORDS)

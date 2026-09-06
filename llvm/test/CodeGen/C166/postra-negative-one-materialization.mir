@@ -1,0 +1,62 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-ra \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define i16 @fold_negative_one() { ret i16 0 }
+  define i16 @keep_live_carry() { ret i16 0 }
+...
+---
+name:            fold_negative_one
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.2, %bb.1
+    liveins: $psw, $c
+
+    $r3 = MOVri4 1, implicit-def dead $psw
+    JMPR_UGE %bb.2, implicit $psw, implicit $c
+
+  bb.1:
+    successors: %bb.2
+
+    $r3 = MOVri16 -1, implicit-def dead $psw
+
+  bb.2:
+    liveins: $r3
+
+    RETS implicit $r3
+
+# CHECK-LABEL: name: fold_negative_one
+# CHECK:       bb.1:
+# CHECK:       liveins: $r3
+# CHECK:       $r3 = NEG killed $r3, implicit-def dead $psw, implicit-def dead $c
+...
+---
+name:            keep_live_carry
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.2, %bb.1
+    liveins: $r4, $psw, $c
+
+    $r3 = MOVri4 1, implicit-def dead $psw
+    JMPR_UGE %bb.2, implicit $psw, implicit $c
+
+  bb.1:
+    successors: %bb.2
+    liveins: $r4, $c
+
+    $r3 = MOVri16 -1, implicit-def dead $psw
+
+  bb.2:
+    liveins: $r3, $r4, $c
+
+    $r4 = ADDCri3 $r4, 0, implicit-def dead $psw, implicit-def dead $c, implicit $psw, implicit $c
+    RETS implicit $r3, implicit $r4
+
+# CHECK-LABEL: name: keep_live_carry
+# CHECK:       bb.1:
+# CHECK:       $r3 = MOVri16 -1, implicit-def dead $psw
+...

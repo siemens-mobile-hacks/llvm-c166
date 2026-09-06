@@ -1,0 +1,85 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-ra \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @fold_following_address() { ret void }
+  define void @keep_cursor_source() { ret void }
+  define void @keep_live_address_flags() { ret void }
+...
+---
+name:            fold_following_address
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 4, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r0, $r4, $r5, $r9
+
+    MOVmr16 $r0, 8, killed $r4, implicit-def dead $psw :: (store (s32) into %stack.0, align 2)
+    MOVmr16 $r0, 10, killed $r5, implicit-def dead $psw :: (store (s32) into %stack.0, align 2)
+    $r12 = MOVri4 12, implicit-def dead $psw
+    $r12 = ADDrr killed $r12, $r0, implicit-def dead $psw, implicit-def dead $c
+    $r13 = MOVrr killed $r9, implicit-def dead $psw
+    RETS implicit $r12, implicit $r13
+
+# CHECK-LABEL: name: fold_following_address
+# CHECK:       $r12 = MOVri4 12, implicit-def dead $psw
+# CHECK-NEXT:  $r12 = ADDrr killed $r12, $r0, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  $r12 = MOVmrPreDec killed $r12, $r5, implicit-def dead $psw
+# CHECK-NEXT:  $r12 = MOVmrPreDec killed $r12, $r4, implicit-def dead $psw
+# CHECK-NEXT:  $r12 = ADDri3 killed $r12, 4, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  $r13 = MOVrr killed $r9, implicit-def dead $psw
+# CHECK-NEXT:  RETS implicit $r12, implicit $r13
+...
+---
+name:            keep_cursor_source
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r0, $r5, $r12
+
+    MOVmr16 $r0, 8, killed $r12, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r0, 10, killed $r5, implicit-def dead $psw :: (store (s16))
+    $r12 = MOVri4 12, implicit-def dead $psw
+    $r12 = ADDrr killed $r12, $r0, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r12
+
+# CHECK-LABEL: name: keep_cursor_source
+# CHECK:       MOVmr16 $r0, 8, killed $r12
+# CHECK-NEXT:  MOVmr16 $r0, 10, killed $r5
+# CHECK-NEXT:  $r12 = MOVri4 12
+# CHECK-NEXT:  $r12 = ADDrr killed $r12, $r0
+...
+---
+name:            keep_live_address_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r0, $r4, $r5
+
+    MOVmr16 $r0, 8, killed $r4, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r0, 10, killed $r5, implicit-def dead $psw :: (store (s16))
+    $r12 = MOVri4 12, implicit-def dead $psw
+    $r12 = ADDrr killed $r12, $r0, implicit-def $psw, implicit-def $c
+    JMPR_ULT %bb.2, implicit $psw, implicit $c
+
+  bb.1:
+    liveins: $r12
+
+    RETS implicit $r12
+
+  bb.2:
+    liveins: $r12
+
+    RETS implicit $r12
+
+# CHECK-LABEL: name: keep_live_address_flags
+# CHECK:       MOVmr16 $r0, 8, killed $r4
+# CHECK-NEXT:  MOVmr16 $r0, 10, killed $r5
+# CHECK-NEXT:  $r12 = MOVri4 12
+# CHECK-NEXT:  $r12 = ADDrr killed $r12, $r0, implicit-def $psw, implicit-def $c
+# CHECK-NEXT:  JMPR_ULT %bb.2, implicit $psw, implicit $c
+...

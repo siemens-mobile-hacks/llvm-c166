@@ -1,0 +1,71 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-ra \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @fold_inverted_bit_extract() { ret void }
+  define void @keep_live_flags() { ret void }
+  define void @keep_in_place_extract() { ret void }
+...
+---
+name:            fold_inverted_bit_extract
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r12
+
+    $r4 = MOVrr $r12, implicit-def $psw
+    $r4 = CPL killed $r4, implicit-def dead $psw, implicit-def dead $c
+    $r4 = SHRri4 killed $r4, 5, implicit-def dead $psw, implicit-def dead $c
+    $r4 = ANDri3 killed $r4, 1, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r4
+
+# CHECK-LABEL: name: fold_inverted_bit_extract
+# CHECK:       $r4 = MOVri4 0
+# CHECK-NEXT:  $r4 = BMOVNreg killed $r4, $r12, 0, 5
+# CHECK-NEXT:  RETS implicit $r4
+# CHECK-NOT:   CPL
+# CHECK-NOT:   SHRri4
+# CHECK-NOT:   ANDri3
+...
+---
+name:            keep_live_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r12
+
+    $r4 = MOVrr $r12, implicit-def $psw
+    $r4 = CPL killed $r4, implicit-def dead $psw, implicit-def dead $c
+    $r4 = SHRri4 killed $r4, 5, implicit-def dead $psw, implicit-def dead $c
+    $r4 = ANDri3 killed $r4, 1, implicit-def $psw, implicit-def $c
+    RETS implicit $r4, implicit $psw, implicit $c
+
+# CHECK-LABEL: name: keep_live_flags
+# CHECK:       $r4 = MOVrr $r12
+# CHECK-NEXT:  $r4 = CPL killed $r4
+# CHECK-NEXT:  $r4 = SHRri4 killed $r4, 5
+# CHECK-NEXT:  $r4 = ANDri3 killed $r4, 1
+# CHECK-NEXT:  RETS implicit $r4, implicit $psw, implicit $c
+# CHECK-NOT:   BMOVNreg
+...
+---
+name:            keep_in_place_extract
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r4
+
+    $r4 = CPL killed $r4, implicit-def dead $psw, implicit-def dead $c
+    $r4 = SHRri4 killed $r4, 5, implicit-def dead $psw, implicit-def dead $c
+    $r4 = ANDri3 killed $r4, 1, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r4
+
+# CHECK-LABEL: name: keep_in_place_extract
+# CHECK:       $r4 = CPL killed $r4
+# CHECK-NEXT:  $r4 = SHRri4 killed $r4, 5
+# CHECK-NEXT:  $r4 = ANDri3 killed $r4, 1
+# CHECK-NEXT:  RETS implicit $r4
+# CHECK-NOT:   BMOVNreg
+...

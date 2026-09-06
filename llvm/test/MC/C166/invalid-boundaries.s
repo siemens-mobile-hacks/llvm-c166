@@ -4,6 +4,8 @@ add r0, #-1
 ; CHECK: error: immediate must be in the range 0..7
 sub r0, #65536
 ; CHECK: error: immediate must be in the range 0..7
+addb rl0, #256
+; CHECK: error: immediate must be in the range 8..255
 
 movb rl0, #16
 ; CHECK: error: immediate must be in the range 0..15

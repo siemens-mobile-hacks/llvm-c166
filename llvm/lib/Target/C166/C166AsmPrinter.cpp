@@ -25,6 +25,7 @@
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCSymbolELF.h"
@@ -208,13 +209,74 @@ public:
     C166_MC::verifyInstructionPredicates(MI->getOpcode(),
                                          getSubtargetInfo().getFeatureBits());
     MCInst Out;
-    Out.setOpcode(MI->getOpcode());
+    const bool IsRegisterBitBranch =
+        MI->getOpcode() == C166::JBreg || MI->getOpcode() == C166::JNBreg;
+    const bool IsRegisterBitUpdate =
+        MI->getOpcode() == C166::BCLRreg || MI->getOpcode() == C166::BSETreg;
+    const bool IsRegisterBitFieldUpdate =
+        MI->getOpcode() == C166::BFLDLreg || MI->getOpcode() == C166::BFLDHreg;
+    const bool IsRegisterBitBinary =
+        MI->getOpcode() == C166::BMOVreg || MI->getOpcode() == C166::BMOVNreg ||
+        MI->getOpcode() == C166::BANDreg || MI->getOpcode() == C166::BORreg ||
+        MI->getOpcode() == C166::BXORreg;
+    const bool IsPSWBitMove = MI->getOpcode() == C166::BMOVPSWreg;
+    const bool IsRegisterBitCompare = MI->getOpcode() == C166::BCMPreg;
+    unsigned MCOpcode = MI->getOpcode();
+    if (IsRegisterBitBranch)
+      MCOpcode = MI->getOpcode() == C166::JBreg ? C166::JB : C166::JNB;
+    else if (IsRegisterBitUpdate)
+      MCOpcode = MI->getOpcode() == C166::BCLRreg ? C166::BCLR : C166::BSET;
+    else if (IsRegisterBitFieldUpdate)
+      MCOpcode = MI->getOpcode() == C166::BFLDLreg ? C166::BFLDL : C166::BFLDH;
+    else if (IsRegisterBitBinary || IsPSWBitMove) {
+      switch (MI->getOpcode()) {
+      case C166::BMOVreg:
+      case C166::BMOVPSWreg:
+        MCOpcode = C166::BMOV;
+        break;
+      case C166::BMOVNreg:
+        MCOpcode = C166::BMOVN;
+        break;
+      case C166::BANDreg:
+        MCOpcode = C166::BAND;
+        break;
+      case C166::BORreg:
+        MCOpcode = C166::BOR;
+        break;
+      case C166::BXORreg:
+        MCOpcode = C166::BXOR;
+        break;
+      default:
+        llvm_unreachable("unexpected C166 register bit instruction");
+      }
+    } else if (IsRegisterBitCompare)
+      MCOpcode = C166::BCMP;
+    Out.setOpcode(MCOpcode);
     const bool IsSegmentedControl = MI->getOpcode() == C166::CALLS ||
                                     MI->getOpcode() == C166::JMPS ||
                                     MI->getOpcode() == C166::TAILJMPS;
-    const bool IsAbsoluteControl = MI->getOpcode() == C166::CALLA ||
-                                   MI->getOpcode() == C166::JMPA ||
-                                   MI->getOpcode() == C166::TAILJMPA;
+    const bool IsAbsoluteControl = [&] {
+      switch (MI->getOpcode()) {
+      case C166::CALLA:
+      case C166::JMPA:
+      case C166::JMPA_EQ:
+      case C166::JMPA_NE:
+      case C166::JMPA_N:
+      case C166::JMPA_NN:
+      case C166::JMPA_ULT:
+      case C166::JMPA_UGE:
+      case C166::JMPA_SGT:
+      case C166::JMPA_SLE:
+      case C166::JMPA_SLT:
+      case C166::JMPA_SGE:
+      case C166::JMPA_UGT:
+      case C166::JMPA_ULE:
+      case C166::TAILJMPA:
+        return true;
+      default:
+        return false;
+      }
+    }();
     auto GetSpecifier = [&](const MachineOperand &MO,
                             unsigned OperandIndex) -> C166::Specifier {
       switch (MO.getTargetFlags()) {
@@ -247,9 +309,51 @@ public:
         return C166::S_POF;
       return C166::S_None;
     };
+    unsigned FirstOperand = 0;
+    if (IsRegisterBitBinary || IsRegisterBitCompare || IsPSWBitMove) {
+      const MCRegisterInfo *MRI = OutContext.getRegisterInfo();
+      auto AddBitAddress = [&](unsigned RegisterOperand, unsigned BitOperand) {
+        unsigned WordAddress =
+            0xf0 |
+            MRI->getEncodingValue(MI->getOperand(RegisterOperand).getReg());
+        unsigned Bit = MI->getOperand(BitOperand).getImm();
+        Out.addOperand(MCOperand::createImm((WordAddress << 4) | Bit));
+      };
+      if (IsRegisterBitBinary) {
+        AddBitAddress(1, 3);
+        AddBitAddress(2, 4);
+        FirstOperand = 5;
+      } else if (IsPSWBitMove) {
+        AddBitAddress(1, 2);
+        unsigned WordAddress = MRI->getEncodingValue(C166::PSW);
+        unsigned Bit = MI->getOperand(3).getImm();
+        Out.addOperand(MCOperand::createImm((WordAddress << 4) | Bit));
+        FirstOperand = 4;
+      } else {
+        AddBitAddress(0, 2);
+        AddBitAddress(1, 3);
+        FirstOperand = 4;
+      }
+    } else if (IsRegisterBitFieldUpdate) {
+      const MCRegisterInfo *MRI = OutContext.getRegisterInfo();
+      unsigned WordAddress =
+          0xf0 | MRI->getEncodingValue(MI->getOperand(1).getReg());
+      Out.addOperand(MCOperand::createImm(WordAddress));
+      FirstOperand = 2;
+    } else if (IsRegisterBitBranch || IsRegisterBitUpdate) {
+      const MCRegisterInfo *MRI = OutContext.getRegisterInfo();
+      unsigned RegisterOperand = IsRegisterBitUpdate ? 1 : 0;
+      unsigned BitOperand = IsRegisterBitUpdate ? 2 : 1;
+      unsigned WordAddress =
+          0xf0 |
+          MRI->getEncodingValue(MI->getOperand(RegisterOperand).getReg());
+      unsigned Bit = MI->getOperand(BitOperand).getImm();
+      Out.addOperand(MCOperand::createImm((WordAddress << 4) | Bit));
+      FirstOperand = IsRegisterBitUpdate ? 3 : 2;
+    }
     unsigned NumMCOperands =
         IsSegmentedControl ? 2 : MI->getDesc().getNumOperands();
-    for (unsigned I = 0; I != NumMCOperands; ++I) {
+    for (unsigned I = FirstOperand; I != NumMCOperands; ++I) {
       const MachineOperand &MO = MI->getOperand(I);
       if (MO.isRegMask() || (MO.isReg() && MO.isImplicit()))
         continue;

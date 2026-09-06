@@ -1,0 +1,281 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-ra \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @fold_full_mask_equal() { ret void }
+  define void @fold_full_mask_not_equal() { ret void }
+  define void @fold_short_mask_long_compare() { ret void }
+  define void @keep_equal_cost_short_mask() { ret void }
+  define void @keep_different_compare_mask() { ret void }
+  define void @keep_relational_branch() { ret void }
+  define void @keep_live_masked_value() { ret void }
+  define void @keep_live_carry() { ret void }
+  define void @keep_live_psw() { ret void }
+  define void @keep_debug_use() { ret void }
+  define void @keep_extension_window() { ret void }
+...
+---
+name:            fold_full_mask_equal
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1
+
+    $r1 = ANDri16 killed $r1, 32752, implicit-def dead $psw, implicit-def dead $c
+    CMPri16 killed $r1, 32752, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: fold_full_mask_equal
+# CHECK:       $r1 = CPL killed $r1, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  dead $r1 = ANDri16 killed $r1, 32752, implicit-def $psw, implicit-def dead $c
+# CHECK-NEXT:  JMPR_EQ %bb.2, implicit $psw
+# CHECK-NOT:   CMPri
+...
+---
+name:            fold_full_mask_not_equal
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r2
+
+    $r2 = ANDri16 killed $r2, -16, implicit-def dead $psw, implicit-def dead $c
+    CMPri16 killed $r2, 65520, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: fold_full_mask_not_equal
+# CHECK:       $r2 = CPL killed $r2, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  dead $r2 = ANDri16 killed $r2, -16, implicit-def $psw, implicit-def dead $c
+# CHECK-NEXT:  JMPR_NE %bb.2, implicit $psw
+# CHECK-NOT:   CMPri
+...
+---
+name:            fold_short_mask_long_compare
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r10
+
+    $r10 = ANDri3 killed $r10, 7, implicit-def dead $psw, implicit-def dead $c
+    CMPri16 killed $r10, 7, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: fold_short_mask_long_compare
+# CHECK:       $r10 = CPL killed $r10, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  dead $r10 = ANDri3 killed $r10, 7, implicit-def $psw, implicit-def dead $c
+# CHECK-NEXT:  JMPR_EQ %bb.2, implicit $psw
+# CHECK-NOT:   CMPri
+...
+---
+name:            keep_equal_cost_short_mask
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r3
+
+    $r3 = ANDri3 killed $r3, 7, implicit-def dead $psw, implicit-def dead $c
+    CMPri3 killed $r3, 7, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_equal_cost_short_mask
+# CHECK:       $r3 = ANDri3 killed $r3, 7
+# CHECK-NEXT:  CMPri3 killed $r3, 7
+# CHECK-NEXT:  JMPR_EQ %bb.2
+...
+---
+name:            keep_different_compare_mask
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    $r4 = ANDri16 killed $r4, 32752, implicit-def dead $psw, implicit-def dead $c
+    CMPri16 killed $r4, 32753, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_different_compare_mask
+# CHECK:       $r4 = ANDri16 killed $r4, 32752
+# CHECK-NEXT:  CMPri16 killed $r4, 32753
+# CHECK-NEXT:  JMPR_EQ %bb.2
+...
+---
+name:            keep_relational_branch
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r5
+
+    $r5 = ANDri16 killed $r5, 32752, implicit-def dead $psw, implicit-def dead $c
+    CMPri16 killed $r5, 32752, implicit-def $psw, implicit-def $c
+    JMPR_UGE %bb.2, implicit $psw, implicit $c
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_relational_branch
+# CHECK:       $r5 = ANDri16 killed $r5, 32752
+# CHECK-NEXT:  CMPri16 killed $r5, 32752
+# CHECK-NEXT:  JMPR_UGE %bb.2
+...
+---
+name:            keep_live_masked_value
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r6
+
+    $r6 = ANDri16 killed $r6, 32752, implicit-def dead $psw, implicit-def dead $c
+    CMPri16 $r6, 32752, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $r6
+    RETS implicit $r6
+
+  bb.2:
+    liveins: $r6
+    RETS implicit $r6
+
+# CHECK-LABEL: name: keep_live_masked_value
+# CHECK:       $r6 = ANDri16 killed $r6, 32752
+# CHECK-NEXT:  CMPri16 $r6, 32752
+# CHECK-NEXT:  JMPR_EQ %bb.2
+...
+---
+name:            keep_live_carry
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r7
+
+    $r7 = ANDri16 killed $r7, 32752, implicit-def dead $psw, implicit-def dead $c
+    CMPri16 killed $r7, 32752, implicit-def $psw, implicit-def $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $c
+    RETS implicit $c
+
+  bb.2:
+    liveins: $c
+    RETS implicit $c
+
+# CHECK-LABEL: name: keep_live_carry
+# CHECK:       $r7 = ANDri16 killed $r7, 32752
+# CHECK-NEXT:  CMPri16 killed $r7, 32752
+# CHECK-NEXT:  JMPR_EQ %bb.2
+...
+---
+name:            keep_live_psw
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1
+    liveins: $r8
+
+    $r8 = ANDri16 killed $r8, 32752, implicit-def dead $psw, implicit-def dead $c
+    CMPri16 killed $r8, 32752, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.1, implicit $psw
+    RETS implicit $psw
+
+  bb.1:
+    RETS
+
+# CHECK-LABEL: name: keep_live_psw
+# CHECK:       $r8 = ANDri16 killed $r8, 32752
+# CHECK-NEXT:  CMPri16 killed $r8, 32752
+# CHECK-NEXT:  JMPR_EQ %bb.1
+# CHECK-NEXT:  RETS implicit $psw
+...
+---
+name:            keep_debug_use
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r11
+
+    $r11 = ANDri16 killed $r11, 32752, implicit-def dead $psw, implicit-def dead $c
+    DBG_VALUE $r11, $noreg
+    CMPri16 killed $r11, 32752, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_debug_use
+# CHECK:       $r11 = ANDri16 killed $r11, 32752
+# CHECK-NEXT:  DBG_VALUE $r11
+# CHECK-NEXT:  CMPri16 killed $r11, 32752
+# CHECK-NEXT:  JMPR_EQ %bb.2
+...
+---
+name:            keep_extension_window
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r9, $r13
+
+    EXTPr $r13, 3
+    $r9 = ANDri16 killed $r9, 32752, implicit-def dead $psw, implicit-def dead $c
+    CMPri16 killed $r9, 32752, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_extension_window
+# CHECK:       EXTPr $r13, 3
+# CHECK-NEXT:  $r9 = ANDri16 killed $r9, 32752
+# CHECK-NEXT:  CMPri16 killed $r9, 32752
+# CHECK-NEXT:  JMPR_EQ %bb.2
+...

@@ -1,0 +1,140 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-ra \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define i32 @fold_left_shift() { ret i32 0 }
+  define i32 @fold_right_shift() { ret i32 0 }
+  define i32 @keep_value_used_in_loop() { ret i32 0 }
+  define i32 @keep_live_copy_flags() { ret i32 0 }
+...
+---
+name:            fold_left_shift
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1
+    liveins: $r5r4, $r14
+
+    $r1 = MOVrr $r5, implicit-def dead $psw
+
+  bb.1:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r14, $r5r4
+
+    $r4, $c = ADDCarryrr $r4, $r4, implicit-def dead $psw, implicit killed $r5r4, implicit-def $r5r4
+    $r1, dead $c = ADDCCarryrr killed $r1, $r1, killed $c, implicit-def dead $psw, implicit $psw
+    $r14 = SUBri3 killed $r14, 1, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.1, implicit $psw
+
+  bb.2:
+    liveins: $r1, $r5r4
+
+    $r5 = MOVrr killed $r1, implicit-def dead $psw, implicit $r5r4, implicit-def $r5r4
+    RETS implicit $r5r4
+
+# CHECK-LABEL: name: fold_left_shift
+# CHECK-NOT:   MOVrr
+# CHECK:       $r4, $c = ADDCarryrr $r4, $r4
+# CHECK-NEXT:  $r5, dead $c = ADDCCarryrr $r5, $r5, killed $c
+# CHECK:       RETS implicit $r5r4
+...
+---
+name:            fold_right_shift
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1
+    liveins: $r5r4, $r14
+
+    $r1 = MOVrr $r5, implicit-def dead $psw
+
+  bb.1:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r14, $r5r4
+
+    $r4 = SHRri4 $r4, 1, implicit-def dead $psw, implicit-def dead $c
+    $r4 = BMOVreg $r4, $r1, 15, 0, implicit-def dead $psw, implicit-def dead $c
+    $r1 = ASHRri4 $r1, 1, implicit-def dead $psw, implicit-def dead $c
+    $r14 = SUBri3 killed $r14, 1, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.1, implicit $psw
+
+  bb.2:
+    liveins: $r1, $r5r4
+
+    $r5 = MOVrr killed $r1, implicit-def dead $psw, implicit $r5r4, implicit-def $r5r4
+    RETS implicit $r5r4
+
+# CHECK-LABEL: name: fold_right_shift
+# CHECK-NOT:   MOVrr
+# CHECK:       $r4 = BMOVreg $r4, $r5, 15, 0
+# CHECK-NEXT:  $r5 = ASHRri4 $r5, 1
+# CHECK:       RETS implicit $r5r4
+...
+---
+name:            keep_value_used_in_loop
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1
+    liveins: $r5, $r14
+
+    $r1 = MOVrr $r5, implicit-def dead $psw
+
+  bb.1:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r5, $r14
+
+    $r1 = ADDrr $r1, $r5, implicit-def dead $psw, implicit-def dead $c
+    $r1 = ADDri3 killed $r1, 1, implicit-def dead $psw, implicit-def dead $c
+    $r14 = SUBri3 killed $r14, 1, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.1, implicit $psw
+
+  bb.2:
+    liveins: $r1
+
+    $r5 = MOVrr killed $r1, implicit-def dead $psw
+    RETS implicit $r5
+
+# CHECK-LABEL: name: keep_value_used_in_loop
+# CHECK:       $r1 = MOVrr $r5
+# CHECK:       $r1 = ADDrr $r1, $r5
+# CHECK:       $r5 = MOVrr killed $r1
+...
+---
+name:            keep_live_copy_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1
+    liveins: $r5, $r14
+
+    $r1 = MOVrr $r5, implicit-def dead $psw
+
+  bb.1:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r14
+
+    $r1 = ADDri3 killed $r1, 1, implicit-def dead $psw, implicit-def dead $c
+    $r14 = SUBri3 killed $r14, 1, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.1, implicit $psw
+
+  bb.2:
+    successors: %bb.3, %bb.4
+    liveins: $r1
+
+    $r5 = MOVrr killed $r1, implicit-def $psw
+    JMPR_EQ %bb.4, implicit $psw
+
+  bb.3:
+    RETS
+
+  bb.4:
+    RETS
+
+# CHECK-LABEL: name: keep_live_copy_flags
+# CHECK:       $r1 = MOVrr $r5
+# CHECK:       $r5 = MOVrr killed $r1, implicit-def $psw
+# CHECK-NEXT:  JMPR_EQ %bb.4
+...

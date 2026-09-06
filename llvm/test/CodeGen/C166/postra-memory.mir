@@ -1,0 +1,1244 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-ra \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @dead_base_load_chain() { ret void }
+  define void @unannotated_load_chain() { ret void }
+  define void @stack_pointer_load_chain() { ret void }
+  define void @three_store_chain() { ret void }
+  define void @live_base_high_store_chain() { ret void }
+  define void @four_store_chain() { ret void }
+  define void @permuted_store_chain() { ret void }
+  define void @store_chain_hoists_copy() { ret void }
+  define void @store_chain_keeps_overlapping_copy() { ret void }
+  define void @store_chain_keeps_base_copy() { ret void }
+  define void @store_chain_keeps_trailing_copy() { ret void }
+  define void @permuted_store_chain_live_flags() { ret void }
+  define void @gapped_store_chain() { ret void }
+  define void @carry_live_store_chain() { ret void }
+  define void @extended_store_chain() { ret void }
+  define void @base_source_store_chain() { ret void }
+  define void @volatile_store_chain() { ret void }
+  define void @stack_pointer_store_chain() { ret void }
+  define void @frame_setup_store_chain() nounwind { ret void }
+  define void @frame_setup_store_chain_live_carry() nounwind { ret void }
+  define void @frame_setup_store_chain_with_cfi() nounwind uwtable { ret void }
+  define void @frame_setup_store_chain_no_saving() nounwind { ret void }
+  define void @stack_pointer_high_offset_store_chain() { ret void }
+  define void @stack_pointer_high_offset_no_scratch() { ret void }
+  define void @base_overwritten_by_last_load() { ret void }
+  define void @live_base_load_chain() { ret void }
+  define void @spaced_live_base_load_chain() { ret void }
+  define void @spaced_load_chain_live_carry() { ret void }
+  define void @spaced_load_chain_no_scratch() { ret void }
+  define void @split_word_load_chain() { ret void }
+  define void @split_word_load_chain_live_flags() { ret void }
+  define void @split_word_load_chain_early_use() { ret void }
+  define void @split_word_load_chain_store_barrier() { ret void }
+  define void @late_scratch_load_cluster() { ret void }
+  define void @late_scratch_load_store_barrier() { ret void }
+  define void @base_overwritten_before_last_load() { ret void }
+  define void @fold_physical_compare_load() { ret void }
+  define void @fold_spaced_postincrement_load() { ret void }
+  define void @keep_multiuse_alu_load() { ret void }
+  define void @keep_postincrement_base_use() { ret void }
+  define void @keep_volatile_alu_load() { ret void }
+  define void @keep_extended_alu_load() { ret void }
+  define void @keep_left_alu_load() { ret void }
+  define void @keep_live_flags_alu_load() { ret void }
+  define void @keep_alu_load_across_store() { ret void }
+  define void @remove_dead_physical_load() { ret void }
+  define void @remove_dead_physical_load_at_branch() { ret void }
+  define void @remove_dead_high_half_load_through_low_half_update() { ret void }
+  define void @remove_dead_high_half_load_across_successor() { ret void }
+  define void @remove_dead_low_half_load_through_high_half_update() { ret void }
+  define void @keep_high_half_load_used_after_low_half_update() { ret void }
+  define void @keep_high_half_load_used_in_successor() { ret void }
+  define void @keep_physical_load_live_in_successor() { ret void }
+  define void @keep_dead_physical_load_debug_use() { ret void }
+  define void @keep_dead_physical_load_successor_debug_use() { ret void }
+  define void @keep_dead_physical_load_live_flags() { ret void }
+  define void @keep_volatile_dead_physical_load() { ret void }
+  define void @keep_extended_dead_physical_load() { ret void }
+  define void @volatile_load_chain() { ret void }
+...
+---
+name:            dead_base_load_chain
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r7
+
+    $r1 = MOVrm $r7, implicit-def dead $psw :: (load (s16))
+    $r2 = MOVrm16 $r7, 2, implicit-def dead $psw :: (load (s16))
+    $r3 = MOVrm16 $r7, 4, implicit-def dead $psw :: (load (s16))
+    $r4 = MOVrm16 $r7, 6, implicit-def $psw :: (load (s16))
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $r1, $r2, $r3, $r4
+    RETS implicit $r1, implicit $r2, implicit $r3, implicit $r4
+
+  bb.2:
+    liveins: $r1, $r2, $r3, $r4
+    RETS implicit $r1, implicit $r2, implicit $r3, implicit $r4
+
+# CHECK-LABEL: name: dead_base_load_chain
+# CHECK:       $r1, $r7 = MOVrmPostInc killed $r7, implicit-def dead $psw
+# CHECK-NEXT:  $r2, $r7 = MOVrmPostInc killed $r7, implicit-def dead $psw
+# CHECK-NEXT:  $r3, $r7 = MOVrmPostInc killed $r7, implicit-def dead $psw
+# CHECK-NEXT:  $r4 = MOVrm killed $r7, implicit-def $psw
+# CHECK-NEXT:  JMPR_EQ %bb.2, implicit $psw
+...
+---
+name:            unannotated_load_chain
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r7
+
+    $r1 = MOVrm $r7, implicit-def dead $psw
+    $r2 = MOVrm16 $r7, 2, implicit-def dead $psw
+    $r3 = MOVrm16 $r7, 4, implicit-def dead $psw
+    RETS implicit $r1, implicit $r2, implicit $r3
+
+# CHECK-LABEL: name: unannotated_load_chain
+# CHECK:       $r1, $r7 = MOVrmPostInc killed $r7
+# CHECK-NEXT:  $r2, $r7 = MOVrmPostInc killed $r7
+# CHECK-NEXT:  $r3 = MOVrm killed $r7
+...
+---
+name:            stack_pointer_load_chain
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    $r1 = MOVrm $r0, implicit-def dead $psw :: (load (s16))
+    $r2 = MOVrm16 $r0, 2, implicit-def dead $psw :: (load (s16))
+    RETS implicit $r1, implicit $r2
+
+# CHECK-LABEL: name: stack_pointer_load_chain
+# CHECK:       $r1 = MOVrm $r0
+# CHECK-NEXT:  $r2 = MOVrm16 $r0, 2
+...
+---
+name:            three_store_chain
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3, $r7
+
+    MOVmr16 $r7, 4, $r1, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r7, 2, $r2, implicit-def dead $psw :: (store (s16))
+    MOVmr $r7, $r3, implicit-def dead $psw :: (store (s16))
+    RETS implicit $r7
+
+# CHECK-LABEL: name: three_store_chain
+# CHECK:       $r7 = ADDri3 killed $r7, 6, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  $r7 = MOVmrPreDec killed $r7, $r1, implicit-def dead $psw
+# CHECK-NEXT:  $r7 = MOVmrPreDec killed $r7, $r2, implicit-def dead $psw
+# CHECK-NEXT:  $r7 = MOVmrPreDec killed $r7, $r3, implicit-def dead $psw
+# CHECK-NEXT:  RETS implicit $r7
+...
+---
+name:            live_base_high_store_chain
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3, $r7
+
+    MOVmr16 $r7, 6, $r1, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r7, 4, $r2, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r7, 2, $r3, implicit-def dead $psw :: (store (s16))
+    RETS implicit $r7
+
+# CHECK-LABEL: name: live_base_high_store_chain
+# CHECK:       $r4 = MOVri4 8, implicit-def dead $psw
+# CHECK-NEXT:  $r4 = ADDrr killed $r4, $r7, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  $r4 = MOVmrPreDec killed $r4, $r1, implicit-def dead $psw
+# CHECK-NEXT:  $r4 = MOVmrPreDec killed $r4, $r2, implicit-def dead $psw
+# CHECK-NEXT:  dead $r4 = MOVmrPreDec killed $r4, $r3, implicit-def dead $psw
+# CHECK-NEXT:  RETS implicit $r7
+...
+---
+name:            four_store_chain
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3, $r4, $r7
+
+    MOVmr16 $r7, 6, $r1, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r7, 4, $r2, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r7, 2, $r3, implicit-def dead $psw :: (store (s16))
+    MOVmr $r7, $r4, implicit-def $psw :: (store (s16))
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: four_store_chain
+# CHECK:       $r7 = ADDri16 killed $r7, 8, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  $r7 = MOVmrPreDec killed $r7, $r1, implicit-def dead $psw
+# CHECK-NEXT:  $r7 = MOVmrPreDec killed $r7, $r2, implicit-def dead $psw
+# CHECK-NEXT:  $r7 = MOVmrPreDec killed $r7, $r3, implicit-def dead $psw
+# CHECK-NEXT:  dead $r7 = MOVmrPreDec killed $r7, $r4, implicit-def $psw
+# CHECK-NEXT:  JMPR_EQ %bb.2, implicit $psw
+...
+---
+name:            permuted_store_chain
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3, $r4, $r7
+
+    MOVmr16 $r7, 4, $r1, implicit-def $psw :: (store (s16))
+    MOVmr16 $r7, 6, $r2, implicit-def $psw :: (store (s16))
+    MOVmr $r7, $r3, implicit-def $psw :: (store (s16))
+    MOVmr16 $r7, 2, $r4, implicit-def $psw :: (store (s16))
+    RETS implicit $r7
+
+# CHECK-LABEL: name: permuted_store_chain
+# CHECK:       $r7 = ADDri16 killed $r7, 8, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  $r7 = MOVmrPreDec killed $r7, $r2, implicit-def dead $psw
+# CHECK-NEXT:  $r7 = MOVmrPreDec killed $r7, $r1, implicit-def dead $psw
+# CHECK-NEXT:  $r7 = MOVmrPreDec killed $r7, $r4, implicit-def dead $psw
+# CHECK-NEXT:  $r7 = MOVmrPreDec killed $r7, $r3, implicit-def dead $psw
+# CHECK-NEXT:  RETS implicit $r7
+...
+---
+name:            store_chain_hoists_copy
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r4, $r5, $r7
+
+    MOVmr16 $r7, 4, $r1, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r7, 6, $r2, implicit-def dead $psw :: (store (s16))
+    $r3 = MOVrr $r4, implicit-def dead $psw
+    MOVmr $r7, $r3, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r7, 2, $r5, implicit-def dead $psw :: (store (s16))
+    RETS implicit $r7
+
+# CHECK-LABEL: name: store_chain_hoists_copy
+# CHECK:       $r7 = ADDri16 killed $r7, 8, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  $r3 = MOVrr $r4, implicit-def dead $psw
+# CHECK-NEXT:  $r7 = MOVmrPreDec killed $r7, $r2, implicit-def dead $psw
+# CHECK-NEXT:  $r7 = MOVmrPreDec killed $r7, $r1, implicit-def dead $psw
+# CHECK-NEXT:  $r7 = MOVmrPreDec killed $r7, $r5, implicit-def dead $psw
+# CHECK-NEXT:  $r7 = MOVmrPreDec killed $r7, $r3, implicit-def dead $psw
+# CHECK-NEXT:  RETS implicit $r7
+...
+---
+name:            store_chain_keeps_overlapping_copy
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2, $r3, $r4, $r5, $r7
+
+    MOVmr16 $r7, 4, $r3, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r7, 6, $r2, implicit-def dead $psw :: (store (s16))
+    $r3 = MOVrr $r4, implicit-def dead $psw
+    MOVmr $r7, $r3, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r7, 2, $r5, implicit-def dead $psw :: (store (s16))
+    RETS implicit $r7
+
+# CHECK-LABEL: name: store_chain_keeps_overlapping_copy
+# CHECK:       MOVmr16 $r7, 4, $r3
+# CHECK-NEXT:  MOVmr16 $r7, 6, $r2
+# CHECK-NEXT:  $r3 = MOVrr $r4
+# CHECK-NEXT:  MOVmr $r7, $r3
+# CHECK-NEXT:  MOVmr16 $r7, 2, $r5
+# CHECK-NEXT:  RETS implicit $r7
+...
+---
+name:            store_chain_keeps_base_copy
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r4, $r7
+
+    MOVmr16 $r7, 4, $r1, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r7, 6, $r2, implicit-def dead $psw :: (store (s16))
+    $r3 = MOVrr $r7, implicit-def dead $psw
+    MOVmr $r7, $r3, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r7, 2, $r4, implicit-def dead $psw :: (store (s16))
+    RETS implicit $r3, implicit $r7
+
+# CHECK-LABEL: name: store_chain_keeps_base_copy
+# CHECK:       MOVmr16 $r7, 4, $r1
+# CHECK-NEXT:  MOVmr16 $r7, 6, $r2
+# CHECK-NEXT:  $r3 = MOVrr $r7
+# CHECK-NEXT:  MOVmr $r7, $r3
+# CHECK-NEXT:  MOVmr16 $r7, 2, $r4
+# CHECK-NEXT:  RETS implicit $r3, implicit $r7
+...
+---
+name:            store_chain_keeps_trailing_copy
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3, $r4, $r5, $r7
+
+    MOVmr16 $r7, 4, $r1, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r7, 6, $r2, implicit-def dead $psw :: (store (s16))
+    MOVmr $r7, $r3, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r7, 2, $r4, implicit-def dead $psw :: (store (s16))
+    $r6 = MOVrr $r5, implicit-def dead $psw
+    RETS implicit $r6, implicit $r7
+
+# CHECK-LABEL: name: store_chain_keeps_trailing_copy
+# CHECK:       $r7 = ADDri16 killed $r7, 8
+# CHECK:       $r7 = MOVmrPreDec killed $r7, $r2
+# CHECK:       $r7 = MOVmrPreDec killed $r7, $r1
+# CHECK:       $r7 = MOVmrPreDec killed $r7, $r4
+# CHECK:       $r7 = MOVmrPreDec killed $r7, $r3
+# CHECK-NEXT:  $r6 = MOVrr $r5
+# CHECK-NEXT:  RETS implicit $r6, implicit $r7
+...
+---
+name:            permuted_store_chain_live_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3, $r4, $r7
+
+    MOVmr16 $r7, 4, $r1, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r7, 6, $r2, implicit-def dead $psw :: (store (s16))
+    MOVmr $r7, $r3, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r7, 2, $r4, implicit-def $psw :: (store (s16))
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: permuted_store_chain_live_flags
+# CHECK:       MOVmr16 $r7, 4, $r1
+# CHECK-NEXT:  MOVmr16 $r7, 6, $r2
+# CHECK-NEXT:  MOVmr $r7, $r3
+# CHECK-NEXT:  MOVmr16 $r7, 2, $r4, implicit-def $psw
+# CHECK-NEXT:  JMPR_EQ %bb.2, implicit $psw
+...
+---
+name:            gapped_store_chain
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3, $r7
+
+    MOVmr16 $r7, 6, $r1, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r7, 2, $r2, implicit-def dead $psw :: (store (s16))
+    MOVmr $r7, $r3, implicit-def dead $psw :: (store (s16))
+    RETS
+
+# CHECK-LABEL: name: gapped_store_chain
+# CHECK:       MOVmr16 $r7, 6, $r1
+# CHECK-NEXT:  MOVmr16 $r7, 2, $r2
+# CHECK-NEXT:  MOVmr $r7, $r3
+...
+---
+name:            carry_live_store_chain
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3, $r7, $c
+
+    MOVmr16 $r7, 4, $r1, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r7, 2, $r2, implicit-def dead $psw :: (store (s16))
+    MOVmr $r7, $r3, implicit-def dead $psw :: (store (s16))
+    RETS implicit $c
+
+# CHECK-LABEL: name: carry_live_store_chain
+# CHECK:       MOVmr16 $r7, 4, $r1
+# CHECK-NEXT:  MOVmr16 $r7, 2, $r2
+# CHECK-NEXT:  MOVmr $r7, $r3
+...
+---
+name:            extended_store_chain
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3, $r7, $r13
+
+    EXTPr $r13, 3
+    MOVmr16 $r7, 4, $r1, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r7, 2, $r2, implicit-def dead $psw :: (store (s16))
+    MOVmr $r7, $r3, implicit-def dead $psw :: (store (s16))
+    RETS
+
+# CHECK-LABEL: name: extended_store_chain
+# CHECK:       EXTPr $r13, 3
+# CHECK-NEXT:  MOVmr16 $r7, 4, $r1
+# CHECK-NEXT:  MOVmr16 $r7, 2, $r2
+# CHECK-NEXT:  MOVmr $r7, $r3
+...
+---
+name:            base_source_store_chain
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r7
+
+    MOVmr16 $r7, 4, $r7, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r7, 2, $r1, implicit-def dead $psw :: (store (s16))
+    MOVmr $r7, $r2, implicit-def dead $psw :: (store (s16))
+    RETS
+
+# CHECK-LABEL: name: base_source_store_chain
+# CHECK:       MOVmr16 $r7, 4, $r7
+# CHECK-NEXT:  MOVmr16 $r7, 2, $r1
+# CHECK-NEXT:  MOVmr $r7, $r2
+...
+---
+name:            volatile_store_chain
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3, $r7
+
+    MOVmr16 $r7, 4, $r1, implicit-def dead $psw :: (volatile store (s16))
+    MOVmr16 $r7, 2, $r2, implicit-def dead $psw :: (volatile store (s16))
+    MOVmr $r7, $r3, implicit-def dead $psw :: (volatile store (s16))
+    RETS
+
+# CHECK-LABEL: name: volatile_store_chain
+# CHECK:       MOVmr16 $r7, 4, $r1
+# CHECK-NEXT:  MOVmr16 $r7, 2, $r2
+# CHECK-NEXT:  MOVmr $r7, $r3
+...
+---
+name:            stack_pointer_store_chain
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3
+
+    MOVmr16 $r0, 4, $r1, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r0, 2, $r2, implicit-def dead $psw :: (store (s16))
+    MOVmr $r0, $r3, implicit-def dead $psw :: (store (s16))
+    RETS
+
+# CHECK-LABEL: name: stack_pointer_store_chain
+# CHECK:       MOVmr16 $r0, 4, $r1
+# CHECK-NEXT:  MOVmr16 $r0, 2, $r2
+# CHECK-NEXT:  MOVmr $r0, $r3
+...
+---
+name:            frame_setup_store_chain
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r13, $r14
+
+    $r0 = frame-setup SUBri16 $r0, 12, implicit-def dead $psw, implicit-def dead $c
+    MOVmr16 $r0, 6, $r13, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r0, 8, $r14, implicit-def dead $psw :: (store (s16))
+    RETS
+
+# CHECK-LABEL: name: frame_setup_store_chain
+# CHECK:       $r0 = frame-setup SUBri3 $r0, 2, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  $r0 = frame-setup MOVmrPreDec $r0, $r14, implicit-def dead $psw
+# CHECK-NEXT:  $r0 = frame-setup MOVmrPreDec $r0, $r13, implicit-def dead $psw
+# CHECK-NEXT:  $r0 = frame-setup SUBri3 $r0, 6, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  RETS
+...
+---
+name:            frame_setup_store_chain_live_carry
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r13, $r14, $c
+
+    $r0 = frame-setup SUBri16 $r0, 12, implicit-def dead $psw, implicit-def $c
+    MOVmr16 $r0, 6, $r13, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r0, 8, $r14, implicit-def dead $psw :: (store (s16))
+    JMPR_ULT %bb.2, implicit $psw, implicit $c
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: frame_setup_store_chain_live_carry
+# CHECK:       $r0 = frame-setup SUBri16 $r0, 12
+# CHECK-NEXT:  MOVmr16 $r0, 6, $r13
+# CHECK-NEXT:  MOVmr16 $r0, 8, $r14
+# CHECK-NEXT:  JMPR_ULT
+...
+---
+name:            frame_setup_store_chain_with_cfi
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r13, $r14
+
+    $r0 = frame-setup SUBri16 $r0, 12, implicit-def dead $psw, implicit-def dead $c
+    MOVmr16 $r0, 6, $r13, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r0, 8, $r14, implicit-def dead $psw :: (store (s16))
+    RETS
+
+# CHECK-LABEL: name: frame_setup_store_chain_with_cfi
+# CHECK:       $r0 = frame-setup SUBri16 $r0, 12
+# CHECK-NEXT:  MOVmr16 $r0, 6, $r13
+# CHECK-NEXT:  MOVmr16 $r0, 8, $r14
+# CHECK-NEXT:  RETS
+...
+---
+name:            frame_setup_store_chain_no_saving
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r13
+
+    $r0 = frame-setup SUBri16 $r0, 12, implicit-def dead $psw, implicit-def dead $c
+    MOVmr16 $r0, 8, $r13, implicit-def dead $psw :: (store (s16))
+    RETS
+
+# CHECK-LABEL: name: frame_setup_store_chain_no_saving
+# CHECK:       $r0 = frame-setup SUBri16 $r0, 12
+# CHECK-NEXT:  MOVmr16 $r0, 8, $r13
+# CHECK-NEXT:  RETS
+...
+---
+name:            stack_pointer_high_offset_store_chain
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r4, $r5, $r8, $r9
+
+    MOVmr16 $r0, 34, $r8, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r0, 36, $r9, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r0, 38, $r4, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r0, 40, $r5, implicit-def dead $psw :: (store (s16))
+    RETS
+
+# CHECK-LABEL: name: stack_pointer_high_offset_store_chain
+# CHECK:       $r1 = MOVrr killed $r0, implicit-def dead $psw
+# CHECK-NEXT:  $r1 = ADDri16 killed $r1, 42, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  $r1 = MOVmrPreDec killed $r1, $r5, implicit-def dead $psw
+# CHECK-NEXT:  $r1 = MOVmrPreDec killed $r1, $r4, implicit-def dead $psw
+# CHECK-NEXT:  $r1 = MOVmrPreDec killed $r1, $r9, implicit-def dead $psw
+# CHECK-NEXT:  dead $r1 = MOVmrPreDec killed $r1, $r8, implicit-def dead $psw
+# CHECK-NEXT:  RETS
+...
+---
+name:            stack_pointer_high_offset_no_scratch
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3, $r4, $r5, $r6, $r7, $r8, $r9, $r10, $r11, $r12, $r13, $r14, $r15
+
+    MOVmr16 $r0, 34, $r6, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r0, 36, $r7, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r0, 38, $r8, implicit-def dead $psw :: (store (s16))
+    MOVmr16 $r0, 40, $r9, implicit-def dead $psw :: (store (s16))
+    RETS implicit $r1, implicit $r2, implicit $r3, implicit $r4, implicit $r5, implicit $r10, implicit $r11, implicit $r12, implicit $r13, implicit $r14, implicit $r15
+
+# CHECK-LABEL: name: stack_pointer_high_offset_no_scratch
+# CHECK:       MOVmr16 $r0, 34, $r6
+# CHECK-NEXT:  MOVmr16 $r0, 36, $r7
+# CHECK-NEXT:  MOVmr16 $r0, 38, $r8
+# CHECK-NEXT:  MOVmr16 $r0, 40, $r9
+# CHECK-NEXT:  RETS
+...
+---
+name:            base_overwritten_by_last_load
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r4
+
+    $r1 = MOVrm $r4, implicit-def dead $psw :: (load (s16))
+    $r2 = MOVrm16 $r4, 2, implicit-def dead $psw :: (load (s16))
+    $r3 = MOVrm16 $r4, 4, implicit-def dead $psw :: (load (s16))
+    $r4 = MOVrm16 $r4, 6, implicit-def dead $psw :: (load (s16))
+    RETS implicit $r1, implicit $r2, implicit $r3, implicit $r4
+
+# CHECK-LABEL: name: base_overwritten_by_last_load
+# CHECK:       $r1, $r4 = MOVrmPostInc killed $r4
+# CHECK-NEXT:  $r2, $r4 = MOVrmPostInc killed $r4
+# CHECK-NEXT:  $r3, $r4 = MOVrmPostInc killed $r4
+# CHECK-NEXT:  $r4 = MOVrm killed $r4
+...
+---
+name:            live_base_load_chain
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r7
+
+    $r1 = MOVrm $r7, implicit-def dead $psw :: (load (s16))
+    $r2 = MOVrm16 $r7, 2, implicit-def dead $psw :: (load (s16))
+    $r3 = MOVrm16 $r7, 4, implicit-def dead $psw :: (load (s16))
+    RETS implicit $r1, implicit $r2, implicit $r3, implicit $r7
+
+# CHECK-LABEL: name: live_base_load_chain
+# CHECK:       $r4 = MOVrr $r7, implicit-def dead $psw
+# CHECK-NEXT:  $r1, $r4 = MOVrmPostInc killed $r4, implicit-def dead $psw
+# CHECK-NEXT:  $r2, $r4 = MOVrmPostInc killed $r4, implicit-def dead $psw
+# CHECK-NEXT:  $r3 = MOVrm killed $r4, implicit-def dead $psw
+...
+---
+name:            spaced_live_base_load_chain
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r7
+
+    $r1 = MOVrm16 $r7, 2, implicit-def dead $psw :: (load (s16))
+    NOP
+    $r2 = MOVrm16 $r7, 4, implicit-def dead $psw :: (load (s16))
+    NOP
+    $r3 = MOVrm16 $r7, 6, implicit-def dead $psw :: (load (s16))
+    RETS implicit $r1, implicit $r2, implicit $r3, implicit $r7
+
+# CHECK-LABEL: name: spaced_live_base_load_chain
+# CHECK:       $r4 = MOVrr $r7, implicit-def dead $psw
+# CHECK-NEXT:  $r4 = ADDri3 killed $r4, 2, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  $r1, $r4 = MOVrmPostInc killed $r4, implicit-def dead $psw
+# CHECK-NEXT:  NOP
+# CHECK-NEXT:  $r2, $r4 = MOVrmPostInc killed $r4, implicit-def dead $psw
+# CHECK-NEXT:  NOP
+# CHECK-NEXT:  $r3 = MOVrm killed $r4, implicit-def dead $psw
+...
+---
+name:            spaced_load_chain_live_carry
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r7, $c
+
+    $r1 = MOVrm16 $r7, 2, implicit-def dead $psw :: (load (s16))
+    NOP
+    $r2 = MOVrm16 $r7, 4, implicit-def dead $psw :: (load (s16))
+    NOP
+    $r3 = MOVrm16 $r7, 6, implicit-def dead $psw :: (load (s16))
+    RETS implicit $r1, implicit $r2, implicit $r3, implicit $r7, implicit $c
+
+# CHECK-LABEL: name: spaced_load_chain_live_carry
+# CHECK:       $r1 = MOVrm16 $r7, 2
+# CHECK-NEXT:  NOP
+# CHECK-NEXT:  $r2 = MOVrm16 $r7, 4
+# CHECK-NEXT:  NOP
+# CHECK-NEXT:  $r3 = MOVrm16 $r7, 6
+...
+---
+name:            spaced_load_chain_no_scratch
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3, $r4, $r5, $r6, $r7, $r8, $r9, $r10, $r11, $r12, $r13, $r14, $r15
+
+    $r6 = MOVrm16 $r7, 2, implicit-def dead $psw :: (load (s16))
+    NOP
+    $r8 = MOVrm16 $r7, 4, implicit-def dead $psw :: (load (s16))
+    NOP
+    $r9 = MOVrm16 $r7, 6, implicit-def dead $psw :: (load (s16))
+    RETS implicit $r1, implicit $r2, implicit $r3, implicit $r4, implicit $r5, implicit $r6, implicit $r7, implicit $r8, implicit $r9, implicit $r10, implicit $r11, implicit $r12, implicit $r13, implicit $r14, implicit $r15
+
+# CHECK-LABEL: name: spaced_load_chain_no_scratch
+# CHECK:       $r6 = MOVrm16 $r7, 2
+# CHECK-NEXT:  NOP
+# CHECK-NEXT:  $r8 = MOVrm16 $r7, 4
+# CHECK-NEXT:  NOP
+# CHECK-NEXT:  $r9 = MOVrm16 $r7, 6
+...
+---
+name:            split_word_load_chain
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r6, $r9
+
+    $r7 = MOVrm16 $r9, 4, implicit-def $psw :: (load (s16))
+    $r8 = MOVrm16 $r9, 6, implicit-def $psw :: (load (s16))
+    $r1 = MOVrm $r9, implicit-def $psw :: (load (s16))
+    $r2 = MOVrm16 $r9, 2, implicit-def $psw :: (load (s16))
+    MOVmr $r6, $r8, implicit-def dead $psw :: (store (s16))
+    RETS implicit $r1, implicit $r2, implicit $r7, implicit $r8
+
+# CHECK-LABEL: name: split_word_load_chain
+# CHECK:       $r1, $r9 = MOVrmPostInc killed $r9, implicit-def dead $psw
+# CHECK-NEXT:  $r2, $r9 = MOVrmPostInc killed $r9, implicit-def dead $psw
+# CHECK-NEXT:  $r7, $r9 = MOVrmPostInc killed $r9, implicit-def dead $psw
+# CHECK-NEXT:  $r8 = MOVrm killed $r9, implicit-def dead $psw
+# CHECK-NEXT:  MOVmr $r6, $r8
+...
+---
+name:            split_word_load_chain_live_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r9
+
+    $r7 = MOVrm16 $r9, 4, implicit-def $psw :: (load (s16))
+    $r8 = MOVrm16 $r9, 6, implicit-def $psw :: (load (s16))
+    $r1 = MOVrm $r9, implicit-def $psw :: (load (s16))
+    $r2 = MOVrm16 $r9, 2, implicit-def $psw :: (load (s16))
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $r1, $r2, $r7, $r8
+
+    RETS implicit $r1, implicit $r2, implicit $r7, implicit $r8
+
+  bb.2:
+    liveins: $r1, $r2, $r7, $r8
+
+    RETS implicit $r1, implicit $r2, implicit $r7, implicit $r8
+
+# CHECK-LABEL: name: split_word_load_chain_live_flags
+# CHECK:       $r7 = MOVrm16 $r9, 4
+# CHECK-NEXT:  $r8 = MOVrm16 $r9, 6
+# CHECK-NEXT:  $r1, $r9 = MOVrmPostInc killed $r9
+# CHECK-NEXT:  $r2 = MOVrm killed $r9
+# CHECK-NEXT:  JMPR_EQ
+...
+---
+name:            split_word_load_chain_early_use
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r6, $r9
+
+    $r7 = MOVrm16 $r9, 4, implicit-def $psw :: (load (s16))
+    $r8 = MOVrm16 $r9, 6, implicit-def $psw :: (load (s16))
+    $r3 = MOVrr $r7, implicit-def dead $psw
+    $r1 = MOVrm $r9, implicit-def $psw :: (load (s16))
+    $r2 = MOVrm16 $r9, 2, implicit-def $psw :: (load (s16))
+    MOVmr $r6, $r8, implicit-def dead $psw :: (store (s16))
+    RETS implicit $r1, implicit $r2, implicit $r3, implicit $r8
+
+# CHECK-LABEL: name: split_word_load_chain_early_use
+# CHECK:       $r7 = MOVrm16 $r9, 4
+# CHECK-NEXT:  $r8 = MOVrm16 $r9, 6
+# CHECK-NEXT:  $r3 = MOVrr $r7
+# CHECK-NEXT:  $r1, $r9 = MOVrmPostInc killed $r9
+# CHECK-NEXT:  $r2 = MOVrm killed $r9
+...
+---
+name:            split_word_load_chain_store_barrier
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r5, $r6, $r9
+
+    $r7 = MOVrm16 $r9, 4, implicit-def $psw :: (load (s16))
+    $r8 = MOVrm16 $r9, 6, implicit-def $psw :: (load (s16))
+    MOVmr $r5, $r6, implicit-def dead $psw :: (store (s16))
+    $r1 = MOVrm $r9, implicit-def $psw :: (load (s16))
+    $r2 = MOVrm16 $r9, 2, implicit-def $psw :: (load (s16))
+    MOVmr $r6, $r8, implicit-def dead $psw :: (store (s16))
+    RETS implicit $r1, implicit $r2, implicit $r7, implicit $r8
+
+# CHECK-LABEL: name: split_word_load_chain_store_barrier
+# CHECK:       $r7 = MOVrm16 $r9, 4
+# CHECK-NEXT:  $r8 = MOVrm16 $r9, 6
+# CHECK-NEXT:  MOVmr $r5, $r6
+# CHECK-NEXT:  $r1, $r9 = MOVrmPostInc killed $r9
+# CHECK-NEXT:  $r2 = MOVrm killed $r9
+...
+---
+name:            late_scratch_load_cluster
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r0, $r6, $r7, $r8, $r9, $r14, $r15
+
+    $r3 = MOVrm $r0, implicit-def dead $psw :: (load (s16))
+    $r4 = MOVrm16 $r0, 2, implicit-def dead $psw :: (load (s16))
+    $r10 = MOVrm16 $r0, 12, implicit-def dead $psw, implicit-def $r11r10 :: (load (s16))
+    $r11 = MOVrm16 $r0, 14, implicit-def dead $psw, implicit killed $r11r10, implicit-def $r11r10 :: (load (s16))
+    $r1 = MOVrm16 $r0, 4, implicit-def dead $psw :: (load (s16))
+    $r2 = MOVrm16 $r0, 6, implicit-def dead $psw :: (load (s16))
+    $r12 = MOVrm16 $r0, 16, implicit-def dead $psw, implicit-def $r13r12 :: (load (s16))
+    $r13 = MOVrm16 $r0, 18, implicit-def dead $psw, implicit killed $r13r12, implicit-def $r13r12 :: (load (s16))
+    RETS implicit $r1, implicit $r2, implicit $r3, implicit $r4, implicit $r6, implicit $r7, implicit $r8, implicit $r9, implicit $r10, implicit $r11, implicit $r12, implicit $r13, implicit $r14, implicit $r15
+
+# CHECK-LABEL: name: late_scratch_load_cluster
+# CHECK:       $r1, $r5 = MOVrmPostInc killed $r5
+# CHECK-NEXT:  $r2 = MOVrm killed $r5
+# CHECK-NEXT:  $r5 = MOVri4 12, implicit-def dead $psw
+# CHECK-NEXT:  $r5 = ADDrr killed $r5, $r0, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  $r10, $r5 = MOVrmPostInc killed $r5
+# CHECK-NEXT:  $r11, $r5 = MOVrmPostInc killed $r5
+# CHECK-NEXT:  $r12, $r5 = MOVrmPostInc killed $r5
+# CHECK-NEXT:  $r13 = MOVrm killed $r5
+...
+---
+name:            late_scratch_load_store_barrier
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r0, $r5, $r6, $r7, $r8, $r9, $r14, $r15
+
+    $r5 = MOVrr $r0, implicit-def dead $psw
+    $r3, $r5 = MOVrmPostInc killed $r5, implicit-def dead $psw :: (load (s16))
+    $r4, $r5 = MOVrmPostInc killed $r5, implicit-def dead $psw :: (load (s16))
+    $r10 = MOVrm16 $r0, 12, implicit-def dead $psw :: (load (s16))
+    $r11 = MOVrm16 $r0, 14, implicit-def dead $psw :: (load (s16))
+    MOVmr $r0, $r14, implicit-def dead $psw :: (store (s16))
+    $r1, $r5 = MOVrmPostInc killed $r5, implicit-def dead $psw :: (load (s16))
+    $r2 = MOVrm killed $r5, implicit-def dead $psw :: (load (s16))
+    $r12 = MOVrm16 $r0, 16, implicit-def dead $psw :: (load (s16))
+    $r13 = MOVrm16 $r0, 18, implicit-def dead $psw :: (load (s16))
+    RETS implicit $r1, implicit $r2, implicit $r3, implicit $r4, implicit $r6, implicit $r7, implicit $r8, implicit $r9, implicit $r10, implicit $r11, implicit $r12, implicit $r13, implicit $r14, implicit $r15
+
+# CHECK-LABEL: name: late_scratch_load_store_barrier
+# CHECK:       $r10 = MOVrm16 $r0, 12
+# CHECK-NEXT:  $r11 = MOVrm16 $r0, 14
+# CHECK-NEXT:  MOVmr $r0, $r14
+# CHECK:       $r12 = MOVrm16 $r0, 16
+# CHECK-NEXT:  $r13 = MOVrm16 $r0, 18
+...
+---
+name:            base_overwritten_before_last_load
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r7
+
+    $r1 = MOVrm $r7, implicit-def dead $psw :: (load (s16))
+    $r7 = MOVrm16 $r7, 2, implicit-def dead $psw :: (load (s16))
+    $r3 = MOVrm16 $r7, 4, implicit-def dead $psw :: (load (s16))
+    RETS implicit $r1, implicit $r3
+
+# CHECK-LABEL: name: base_overwritten_before_last_load
+# CHECK:       $r1 = MOVrm $r7
+# CHECK-NEXT:  $r7 = MOVrm16 $r7, 2
+# CHECK-NEXT:  $r3 = MOVrm16 $r7, 4
+...
+---
+name:            fold_physical_compare_load
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r2, $r3
+
+    $r2 = MOVrm killed $r2, implicit-def dead $psw :: (load (s16))
+    $r3 = MOVrm killed $r3, implicit-def dead $psw :: (load (s16))
+    CMPrr killed $r3, killed $r2, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: fold_physical_compare_load
+# CHECK-NOT:   $r2 = MOVrm
+# CHECK:       $r3 = MOVrm killed $r3, implicit-def dead $psw
+# CHECK-NEXT:  CMPrm killed $r3, killed $r2, implicit-def $psw, implicit-def dead $c
+# CHECK-NEXT:  JMPR_NE %bb.2, implicit $psw
+...
+---
+name:            fold_spaced_postincrement_load
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r0, $r3, $r5
+
+    $r1, $r3 = MOVrmPostInc killed $r3, implicit-def dead $psw :: (load (s16))
+    $r6 = MOVrm $r0, implicit-def dead $psw :: (load (s16))
+    $r5 = XORrr killed $r5, killed $r1, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r3, implicit $r5, implicit $r6
+
+# CHECK-LABEL: name: fold_spaced_postincrement_load
+# CHECK-NOT:   MOVrmPostInc
+# CHECK:       $r6 = MOVrm $r0, implicit-def dead $psw
+# CHECK-NEXT:  $r5, $r3 = XORrmPostInc killed $r5, killed $r3, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  RETS implicit $r3, implicit $r5, implicit $r6
+...
+---
+name:            keep_multiuse_alu_load
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r0, $r4, $r5
+
+    $r1 = MOVrm $r0, implicit-def dead $psw :: (load (s16))
+    $r4 = ADDrr killed $r4, $r1, implicit-def dead $psw, implicit-def dead $c
+    $r5 = ADDrr killed $r5, killed $r1, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r4, implicit $r5
+
+# CHECK-LABEL: name: keep_multiuse_alu_load
+# CHECK:       $r1 = MOVrm $r0
+# CHECK-NEXT:  $r4 = ADDrr killed $r4, $r1
+# CHECK-NEXT:  $r5 = ADDrr killed $r5, killed $r1
+...
+---
+name:            keep_postincrement_base_use
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r3, $r5
+
+    $r1, $r3 = MOVrmPostInc killed $r3, implicit-def dead $psw :: (load (s16))
+    $r6 = MOVrm $r3, implicit-def dead $psw :: (load (s16))
+    $r5 = XORrr killed $r5, killed $r1, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r3, implicit $r5, implicit $r6
+
+# CHECK-LABEL: name: keep_postincrement_base_use
+# CHECK:       $r1, $r3 = MOVrmPostInc killed $r3
+# CHECK-NEXT:  $r6 = MOVrm $r3
+# CHECK-NEXT:  $r5 = XORrr killed $r5, killed $r1
+...
+---
+name:            keep_volatile_alu_load
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2, $r4
+
+    $r1 = MOVrm $r2, implicit-def dead $psw :: (volatile load (s16))
+    $r4 = ORrr killed $r4, killed $r1, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r4
+
+# CHECK-LABEL: name: keep_volatile_alu_load
+# CHECK:       $r1 = MOVrm $r2
+# CHECK-NEXT:  $r4 = ORrr killed $r4, killed $r1
+...
+---
+name:            keep_extended_alu_load
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2, $r4, $r13
+
+    EXTPr $r13, 2
+    $r1 = MOVrm $r2, implicit-def dead $psw :: (load (s16))
+    $r4 = ORrr killed $r4, killed $r1, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r4
+
+# CHECK-LABEL: name: keep_extended_alu_load
+# CHECK:       EXTPr $r13, 2
+# CHECK-NEXT:  $r1 = MOVrm $r2
+# CHECK-NEXT:  $r4 = ORrr killed $r4, killed $r1
+...
+---
+name:            keep_left_alu_load
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2, $r4
+
+    $r1 = MOVrm $r2, implicit-def dead $psw :: (load (s16))
+    $r1 = ORrr killed $r1, killed $r4, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r1
+
+# CHECK-LABEL: name: keep_left_alu_load
+# CHECK:       $r1 = MOVrm $r2
+# CHECK-NEXT:  $r1 = ORrr killed $r1, killed $r4
+...
+---
+name:            keep_live_flags_alu_load
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r2, $r4
+
+    $r1 = MOVrm $r2, implicit-def $psw :: (load (s16))
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $r1, $r4
+    $r4 = ORrr killed $r4, killed $r1, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r4
+
+  bb.2:
+    liveins: $r1
+    RETS implicit $r1
+
+# CHECK-LABEL: name: keep_live_flags_alu_load
+# CHECK:       $r1 = MOVrm $r2, implicit-def $psw
+# CHECK-NEXT:  JMPR_EQ %bb.2, implicit $psw
+# CHECK:       $r4 = ORrr killed $r4, killed $r1
+...
+---
+name:            keep_alu_load_across_store
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2, $r4, $r6, $r7
+
+    $r1 = MOVrm $r2, implicit-def dead $psw :: (load (s16))
+    MOVmr $r6, $r7, implicit-def dead $psw :: (store (s16))
+    $r4 = ORrr killed $r4, killed $r1, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r4
+
+# CHECK-LABEL: name: keep_alu_load_across_store
+# CHECK:       $r1 = MOVrm $r2
+# CHECK-NEXT:  MOVmr $r6, $r7
+# CHECK-NEXT:  $r4 = ORrr killed $r4, killed $r1
+...
+---
+name:            remove_dead_physical_load
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2, $r3
+
+    $r1 = MOVrm $r2, implicit-def $psw :: (load (s16))
+    $r1 = MOVrr killed $r3, implicit-def dead $psw
+    RETS implicit $r1
+
+# CHECK-LABEL: name: remove_dead_physical_load
+# CHECK-NOT:   MOVrm
+# CHECK:       $r1 = MOVrr killed $r3, implicit-def dead $psw
+...
+---
+name:            remove_dead_physical_load_at_branch
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r2, $r3, $r4
+
+    $r1 = MOVrm16 $r2, 2, implicit-def $psw :: (load (s16))
+    CMPrr killed $r3, killed $r4, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: remove_dead_physical_load_at_branch
+# CHECK-NOT:   MOVrm16
+# CHECK:       CMPrr killed $r3, killed $r4
+# CHECK-NEXT:  JMPR_EQ %bb.2
+...
+---
+name:            remove_dead_high_half_load_through_low_half_update
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r0, $r1, $r3, $r6
+
+    $r7 = MOVrm16 $r0, 2, implicit-def dead $psw :: (load (s16))
+    $r6 = ADDrr killed $r6, killed $r1, implicit-def dead $psw, implicit-def dead $c, implicit $r7r6, implicit-def $r7r6
+    $r7 = MOVrr killed $r3, implicit-def dead $psw
+    RETS implicit $r7
+
+# CHECK-LABEL: name: remove_dead_high_half_load_through_low_half_update
+# CHECK-NOT:   MOVrm16
+# CHECK:       $r6 = ADDrr killed $r6, killed $r1
+# CHECK-NEXT:  $r7 = MOVrr killed $r3
+...
+---
+name:            remove_dead_high_half_load_across_successor
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1
+    liveins: $r0, $r1, $r6
+
+    $r7 = MOVrm16 $r0, 2, implicit-def dead $psw :: (load (s16))
+    $r6 = ADDrr killed $r6, killed $r1, implicit-def dead $psw, implicit-def dead $c, implicit $r7r6, implicit-def $r7r6
+    JMPR_UC %bb.1
+
+  bb.1:
+    liveins: $r3, $r7r6
+
+    $r7 = MOVrr killed $r3, implicit-def dead $psw
+    RETS implicit $r7
+
+# CHECK-LABEL: name: remove_dead_high_half_load_across_successor
+# CHECK-NOT:   MOVrm16
+# CHECK:       $r6 = ADDrr killed $r6, killed $r1
+# CHECK:       $r7 = MOVrr killed $r3
+...
+---
+name:            remove_dead_low_half_load_through_high_half_update
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r0, $r1, $r3, $r7
+
+    $r6 = MOVrm16 $r0, 2, implicit-def dead $psw :: (load (s16))
+    $r7 = ADDrr killed $r7, killed $r1, implicit-def dead $psw, implicit-def dead $c, implicit $r7r6, implicit-def $r7r6
+    $r6 = MOVrr killed $r3, implicit-def dead $psw
+    RETS implicit $r6
+
+# CHECK-LABEL: name: remove_dead_low_half_load_through_high_half_update
+# CHECK-NOT:   MOVrm16
+# CHECK:       $r7 = ADDrr killed $r7, killed $r1
+# CHECK-NEXT:  $r6 = MOVrr killed $r3
+...
+---
+name:            keep_high_half_load_used_after_low_half_update
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r0, $r1, $r6
+
+    $r7 = MOVrm16 $r0, 2, implicit-def dead $psw :: (load (s16))
+    $r6 = ADDrr killed $r6, killed $r1, implicit-def dead $psw, implicit-def dead $c, implicit $r7r6, implicit-def $r7r6
+    RETS implicit $r7
+
+# CHECK-LABEL: name: keep_high_half_load_used_after_low_half_update
+# CHECK:       $r7 = MOVrm16 $r0, 2
+# CHECK-NEXT:  $r6 = ADDrr killed $r6, killed $r1
+# CHECK-NEXT:  RETS implicit $r7
+...
+---
+name:            keep_high_half_load_used_in_successor
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1
+    liveins: $r0, $r1, $r6
+
+    $r7 = MOVrm16 $r0, 2, implicit-def dead $psw :: (load (s16))
+    $r6 = ADDrr killed $r6, killed $r1, implicit-def dead $psw, implicit-def dead $c, implicit $r7r6, implicit-def $r7r6
+    JMPR_UC %bb.1
+
+  bb.1:
+    liveins: $r7
+
+    RETS implicit $r7
+
+# CHECK-LABEL: name: keep_high_half_load_used_in_successor
+# CHECK:       $r7 = MOVrm16 $r0, 2
+# CHECK:       RETS implicit $r7
+...
+---
+name:            keep_physical_load_live_in_successor
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r2, $r3, $r4
+
+    $r1 = MOVrm16 $r2, 2, implicit-def $psw :: (load (s16))
+    CMPrr killed $r3, killed $r4, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $r1
+    RETS implicit $r1
+
+  bb.2:
+    liveins: $r1
+    RETS implicit $r1
+
+# CHECK-LABEL: name: keep_physical_load_live_in_successor
+# CHECK:       $r1 = MOVrm16 $r2, 2
+# CHECK-NEXT:  CMPrr killed $r3, killed $r4
+# CHECK-NEXT:  JMPR_EQ %bb.2
+...
+---
+name:            keep_dead_physical_load_debug_use
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2, $r3
+
+    $r1 = MOVrm $r2, implicit-def $psw :: (load (s16))
+    DBG_VALUE $r1, $noreg
+    $r1 = MOVrr killed $r3, implicit-def dead $psw
+    RETS implicit $r1
+
+# CHECK-LABEL: name: keep_dead_physical_load_debug_use
+# CHECK:       $r1 = MOVrm $r2
+# CHECK-NEXT:  DBG_VALUE $r1
+# CHECK-NEXT:  $r1 = MOVrr killed $r3
+...
+---
+name:            keep_dead_physical_load_successor_debug_use
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1
+    liveins: $r2
+
+    $r1 = MOVrm $r2, implicit-def $psw :: (load (s16))
+    JMPR_UC %bb.1
+
+  bb.1:
+    DBG_VALUE $r1, $noreg
+    RETS
+
+# CHECK-LABEL: name: keep_dead_physical_load_successor_debug_use
+# CHECK:       $r1 = MOVrm $r2
+# CHECK-NEXT:  JMPR_UC %bb.1
+# CHECK:       DBG_VALUE $r1
+...
+---
+name:            keep_dead_physical_load_live_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2, $r3
+
+    $r1 = MOVrm $r2, implicit-def $psw :: (load (s16))
+    NOP implicit $psw
+    $r1 = MOVrr killed $r3, implicit-def dead $psw
+    RETS implicit $r1
+
+# CHECK-LABEL: name: keep_dead_physical_load_live_flags
+# CHECK:       $r1 = MOVrm $r2, implicit-def $psw
+# CHECK-NEXT:  NOP implicit $psw
+# CHECK-NEXT:  $r1 = MOVrr killed $r3
+...
+---
+name:            keep_volatile_dead_physical_load
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2, $r3
+
+    $r1 = MOVrm $r2, implicit-def dead $psw :: (volatile load (s16))
+    $r1 = MOVrr killed $r3, implicit-def dead $psw
+    RETS implicit $r1
+
+# CHECK-LABEL: name: keep_volatile_dead_physical_load
+# CHECK:       $r1 = MOVrm $r2
+# CHECK-NEXT:  $r1 = MOVrr killed $r3
+...
+---
+name:            keep_extended_dead_physical_load
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2, $r3, $r13
+
+    EXTPr $r13, 1
+    $r1 = MOVrm $r2, implicit-def dead $psw :: (load (s16))
+    $r1 = MOVrr killed $r3, implicit-def dead $psw
+    RETS implicit $r1
+
+# CHECK-LABEL: name: keep_extended_dead_physical_load
+# CHECK:       EXTPr $r13, 1
+# CHECK-NEXT:  $r1 = MOVrm $r2
+# CHECK-NEXT:  $r1 = MOVrr killed $r3
+...
+---
+name:            volatile_load_chain
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r7
+
+    $r1 = MOVrm $r7, implicit-def dead $psw :: (volatile load (s16))
+    $r2 = MOVrm16 $r7, 2, implicit-def dead $psw :: (volatile load (s16))
+    $r3 = MOVrm16 $r7, 4, implicit-def dead $psw :: (volatile load (s16))
+    RETS implicit $r1, implicit $r2, implicit $r3
+
+# CHECK-LABEL: name: volatile_load_chain
+# CHECK:       $r1 = MOVrm $r7
+# CHECK-NEXT:  $r2 = MOVrm16 $r7, 2
+# CHECK-NEXT:  $r3 = MOVrm16 $r7, 4
+...

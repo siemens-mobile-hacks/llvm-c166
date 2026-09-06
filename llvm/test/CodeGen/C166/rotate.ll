@@ -19,3 +19,60 @@ define i16 @rotl5(i16 %value) {
   %result = or i16 %left, %right
   ret i16 %result
 }
+
+define i32 @rotl32_5(i32 %value) {
+; CHECK-LABEL: rotl32_5:
+; CHECK-NOT:   calls
+; CHECK:       shr {{r[0-9]+}}, #11
+; CHECK-NEXT:  shl {{r[0-9]+}}, #5
+; CHECK-NEXT:  or {{r[0-9]+}}, {{r[0-9]+}}
+; CHECK:       shr {{r[0-9]+}}, #11
+; CHECK-NEXT:  shl {{r[0-9]+}}, #5
+; CHECK-NEXT:  or {{r[0-9]+}}, {{r[0-9]+}}
+; HUGE:        rets
+; NEAR:        ret
+  %result = call i32 @llvm.fshl.i32(i32 %value, i32 %value, i32 5)
+  ret i32 %result
+}
+
+define i32 @rotl32_16(i32 %value) {
+; CHECK-LABEL: rotl32_16:
+; CHECK-NOT:   calls
+; CHECK-NOT:   shl
+; CHECK-NOT:   shr
+; CHECK:       mov r4, r13
+; CHECK-NEXT:  mov r5, r12
+; HUGE-NEXT:   rets
+; NEAR-NEXT:   ret
+  %result = call i32 @llvm.fshl.i32(i32 %value, i32 %value, i32 16)
+  ret i32 %result
+}
+
+define i32 @rotl32_21(i32 %value) {
+; CHECK-LABEL: rotl32_21:
+; CHECK-NOT:   calls
+; CHECK:       shr {{r[0-9]+}}, #11
+; CHECK-NEXT:  shl {{r[0-9]+}}, #5
+; CHECK-NEXT:  or {{r[0-9]+}}, {{r[0-9]+}}
+; CHECK:       shr {{r[0-9]+}}, #11
+; CHECK-NEXT:  shl {{r[0-9]+}}, #5
+; CHECK-NEXT:  or {{r[0-9]+}}, {{r[0-9]+}}
+; HUGE:        rets
+; NEAR:        ret
+  %result = call i32 @llvm.fshl.i32(i32 %value, i32 %value, i32 21)
+  ret i32 %result
+}
+
+define i32 @rotl32_variable(i32 %value, i16 %amount) {
+; CHECK-LABEL: rotl32_variable:
+; CHECK:       ___ashlsi3
+; CHECK:       ___lshrsi3
+; CHECK:       or
+; HUGE:        rets
+; NEAR:        ret
+  %wide = zext i16 %amount to i32
+  %result = call i32 @llvm.fshl.i32(i32 %value, i32 %value, i32 %wide)
+  ret i32 %result
+}
+
+declare i32 @llvm.fshl.i32(i32, i32, i32)

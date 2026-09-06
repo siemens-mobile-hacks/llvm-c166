@@ -21,7 +21,14 @@ public:
   bool hasReservedCallFrame(const MachineFunction &) const override {
     return false;
   }
+  void
+  orderFrameObjects(const MachineFunction &MF,
+                    SmallVectorImpl<int> &ObjectsToAllocate) const override;
   bool needsFrameIndexResolution(const MachineFunction &MF) const override;
+  void processFunctionBeforeFrameFinalized(
+      MachineFunction &MF, RegScavenger *RS = nullptr) const override;
+  void processFunctionBeforeFrameIndicesReplaced(
+      MachineFunction &MF, RegScavenger *RS = nullptr) const override;
   bool
   assignCalleeSavedSpillSlots(MachineFunction &MF,
                               const TargetRegisterInfo *TRI,

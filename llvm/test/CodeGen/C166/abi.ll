@@ -151,12 +151,10 @@ define i32 @add_dword(i32 %lhs, i32 %rhs) {
 
 define i32 @add_word_to_dword(i32 %lhs, i16 %rhs) {
 ; CHECK-LABEL: _add_word_to_dword:
-; CHECK:       mov r4, r12
-; CHECK-NEXT:  mov r5, r13
-; CHECK-NEXT:  mov [[RHS:r[0-9]+]], r14
-; CHECK-NEXT:  mov [[ZERO:r[0-9]+]], #0
-; CHECK-NEXT:  add r4, [[RHS]]
-; CHECK-NEXT:  addc r5, [[ZERO]]
+; CHECK:       mov r4, r14
+; CHECK-NEXT:  mov r5, #0
+; CHECK-NEXT:  add r4, r12
+; CHECK-NEXT:  addc r5, r13
 ; HUGE-NEXT:   rets
 ; NEAR-NEXT:   ret
   %wide = zext i16 %rhs to i32
@@ -214,9 +212,8 @@ define i32 @dword_forced_to_stack(i16 %a, i16 %b, i16 %c, i32 %d) {
 
 define i16 @stack_stop_after_dword(i16 %a, i16 %b, i16 %c, i32 %d, i16 %e) {
 ; CHECK-LABEL: _stack_stop_after_dword:
-; CHECK-DAG:   mov r4, [r0]
-; CHECK-DAG:   mov [[TMP:r[0-9]+]], [r0 + #4]
-; CHECK:       add r4, [[TMP]]
+; CHECK:       mov r4, [r0 + #4]
+; CHECK-NEXT:  add r4, [r0]
 ; HUGE-NEXT:   rets
 ; NEAR-NEXT:   ret
   %low = trunc i32 %d to i16
@@ -322,15 +319,16 @@ define i16 @forward_packed3(ptr addrspace(2) %value, i16 %tail) {
 ; C166 and the final such load would also read beyond the source object.
 ; CHECK-LABEL: _forward_packed3:
 ; CHECK:       mov [-r0], r14
-; CHECK:       movb [[LAST_BYTE:r[lh][0-7]]], [{{r[0-9]+}}]
+; CHECK:       movb [[LAST_BYTE:r[lh][0-7]]], [{{r[0-9]+}} + #2]
 ; CHECK-NEXT:  movbz [[LAST_WORD:r[0-9]+]], [[LAST_BYTE]]
 ; CHECK-NEXT:  mov [-r0], [[LAST_WORD]]
-; CHECK:       movb [[HIGH_BYTE:r[lh][0-7]]], [{{r[0-9]+}}]
-; CHECK-NEXT:  movbz [[HIGH_WORD:r[0-9]+]], [[HIGH_BYTE]]
-; CHECK-NEXT:  shl [[HIGH_WORD]], #8
-; CHECK:       movb [[LOW_BYTE:r[lh][0-7]]], [{{r[0-9]+}}]
-; CHECK-NEXT:  movbz [[FIRST_WORD:r[0-9]+]], [[LOW_BYTE]]
-; CHECK-NEXT:  or [[FIRST_WORD]], [[HIGH_WORD]]
+; The two source bytes are independent and may be loaded in either order.
+; CHECK-DAG:   movb [[LOW_BYTE:r[lh][0-7]]], [{{r[0-9]+}}]
+; CHECK-DAG:   movbz [[LOW_WORD:r[0-9]+]], [[LOW_BYTE]]
+; CHECK-DAG:   movb [[HIGH_BYTE:r[lh][0-7]]], [{{r[0-9]+}} + #1]
+; CHECK-DAG:   movbz [[HIGH_WORD:r[0-9]+]], [[HIGH_BYTE]]
+; CHECK:       shl [[HIGH_WORD]], #8
+; CHECK-NEXT:  or [[FIRST_WORD:r[0-9]+]], [[LOW_WORD]]
 ; CHECK-NOT:   mov {{r[0-9]+}}, [{{r[0-9]+}}]
 ; CHECK:       mov [-r0], [[FIRST_WORD]]
 ; HUGE:        calls seg(_callee_packed3), sof(_callee_packed3)

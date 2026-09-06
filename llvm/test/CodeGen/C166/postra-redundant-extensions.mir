@@ -1,0 +1,236 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-ra \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @remove_cross_block_zero_extend() { ret void }
+  define void @remove_cross_block_sign_extend() { ret void }
+  define void @keep_extension_with_live_flags() { ret void }
+  define void @keep_extension_after_source_clobber() { ret void }
+  define void @keep_extension_from_high_byte() { ret void }
+  define void @keep_extension_on_self_loop() { ret void }
+  define void @remove_dead_zero_extension() { ret void }
+  define void @remove_dead_sign_extension() { ret void }
+  define void @keep_extension_with_live_word() { ret void }
+  define void @keep_extension_in_page_window() { ret void }
+  define void @keep_extension_from_different_byte() { ret void }
+...
+---
+name:            remove_cross_block_zero_extend
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r4
+
+    $r1 = MOVBZrr $rl1, implicit-def $psw
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $r1, $r4
+
+    $r1 = MOVBZrr $rl1, implicit-def $psw
+    $r4 = ADDri3 killed $r4, 1, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r1, implicit $r4
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: remove_cross_block_zero_extend
+# CHECK-COUNT-1: $r1 = MOVBZrr $rl1
+# CHECK:       bb.1:
+# CHECK-NEXT:    liveins: $r1, $r4
+# CHECK-NOT:     MOVBZrr
+# CHECK:         $r4 = ADDri3
+...
+---
+name:            remove_cross_block_sign_extend
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1
+    liveins: $r1, $r4
+
+    $r1 = MOVBSrr $rl1, implicit-def dead $psw
+    JMPR_UC %bb.1
+
+  bb.1:
+    liveins: $r1, $r4
+
+    $r1 = MOVBSrr $rl1, implicit-def $psw
+    $r4 = ADDri3 killed $r4, 1, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r1, implicit $r4
+
+# CHECK-LABEL: name: remove_cross_block_sign_extend
+# CHECK-COUNT-1: $r1 = MOVBSrr $rl1
+...
+---
+name:            keep_extension_with_live_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1
+    liveins: $rl1
+
+    $r1 = MOVBZrr $rl1, implicit-def dead $psw
+    JMPR_UC %bb.1
+
+  bb.1:
+    successors: %bb.2, %bb.3
+    liveins: $r1
+
+    $r1 = MOVBZrr $rl1, implicit-def $psw
+    JMPR_EQ %bb.3, implicit $psw
+
+  bb.2:
+    liveins: $r1
+
+    RETS implicit $r1
+
+  bb.3:
+    liveins: $r1
+
+    RETS implicit $r1
+
+# CHECK-LABEL: name: keep_extension_with_live_flags
+# CHECK-COUNT-2: $r1 = MOVBZrr $rl1
+...
+---
+name:            keep_extension_after_source_clobber
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1
+    liveins: $r1, $r4
+
+    $r1 = MOVBZrr $rl1, implicit-def dead $psw
+    $rl1 = MOVBri4 3, implicit-def dead $psw
+    JMPR_UC %bb.1
+
+  bb.1:
+    liveins: $r1, $r4
+
+    $r1 = MOVBZrr killed $rl1, implicit-def $psw
+    $r4 = ADDri3 killed $r4, 1, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r1, implicit $r4
+
+# CHECK-LABEL: name: keep_extension_after_source_clobber
+# CHECK-COUNT-2: $r1 = MOVBZrr
+...
+---
+name:            keep_extension_from_high_byte
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1
+    liveins: $r1, $r4
+
+    $r1 = MOVBZrr $rh1, implicit-def dead $psw
+    JMPR_UC %bb.1
+
+  bb.1:
+    liveins: $r1, $r4
+
+    $r1 = MOVBZrr $rh1, implicit-def $psw
+    $r4 = ADDri3 killed $r4, 1, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r1, implicit $r4
+
+# CHECK-LABEL: name: keep_extension_from_high_byte
+# CHECK-COUNT-2: $r1 = MOVBZrr $rh1
+...
+---
+name:            keep_extension_on_self_loop
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.0, %bb.1
+    liveins: $r1, $r4
+
+    $r1 = MOVBZrr $rl1, implicit-def dead $psw
+    $r4 = ADDri3 killed $r4, 1, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.0, implicit $psw
+
+  bb.1:
+    liveins: $r1, $r4
+
+    RETS implicit $r1, implicit $r4
+
+# CHECK-LABEL: name: keep_extension_on_self_loop
+# CHECK:       $r1 = MOVBZrr $rl1
+...
+---
+name:            remove_dead_zero_extension
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r12
+
+    $r1 = MOVBZrr $rl1, implicit-def dead $psw
+    MOVBmr killed $r12, killed $rl1, implicit-def dead $psw :: (store (s8))
+    RETS
+
+# CHECK-LABEL: name: remove_dead_zero_extension
+# CHECK-NOT:   MOVBZrr
+# CHECK:       MOVBmr killed $r12, killed $rl1
+...
+---
+name:            remove_dead_sign_extension
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r12
+
+    $r1 = MOVBSrr $rl1, implicit-def dead $psw
+    MOVBmr killed $r12, killed $rl1, implicit-def dead $psw :: (store (s8))
+    RETS
+
+# CHECK-LABEL: name: remove_dead_sign_extension
+# CHECK-NOT:   MOVBSrr
+# CHECK:       MOVBmr killed $r12, killed $rl1
+...
+---
+name:            keep_extension_with_live_word
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r12
+
+    $r1 = MOVBZrr $rl1, implicit-def dead $psw
+    MOVBmr killed $r12, $rl1, implicit-def dead $psw :: (store (s8))
+    RETS implicit $r1
+
+# CHECK-LABEL: name: keep_extension_with_live_word
+# CHECK:       $r1 = MOVBZrr $rl1
+# CHECK:       RETS implicit $r1
+...
+---
+name:            keep_extension_in_page_window
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r12, $r13
+
+    EXTPr $r13, 2
+    $r1 = MOVBZrr $rl1, implicit-def dead $psw
+    MOVBmr killed $r12, killed $rl1, implicit-def dead $psw :: (store (s8))
+    RETS
+
+# CHECK-LABEL: name: keep_extension_in_page_window
+# CHECK:       EXTPr $r13, 2
+# CHECK-NEXT:  $r1 = MOVBZrr $rl1
+...
+---
+name:            keep_extension_from_different_byte
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $rl1, $r12
+
+    $r2 = MOVBZrr killed $rl1, implicit-def dead $psw
+    MOVBmr killed $r12, killed $rl2, implicit-def dead $psw :: (store (s8))
+    RETS
+
+# CHECK-LABEL: name: keep_extension_from_different_byte
+# CHECK:       $r2 = MOVBZrr killed $rl1
+...

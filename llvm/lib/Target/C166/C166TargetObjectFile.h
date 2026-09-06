@@ -9,6 +9,7 @@
 #ifndef LLVM_LIB_TARGET_C166_C166TARGETOBJECTFILE_H
 #define LLVM_LIB_TARGET_C166_C166TARGETOBJECTFILE_H
 
+#include "llvm/ADT/StringRef.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 
 namespace llvm {
@@ -16,7 +17,6 @@ namespace llvm {
 class C166TargetObjectFile final : public TargetLoweringObjectFileELF {
   using Base = TargetLoweringObjectFileELF;
 
-  MCSection *NearTextSection = nullptr;
   MCSection *NearDataSection = nullptr;
   MCSection *NearBSSSection = nullptr;
   MCSection *NearReadOnlySection = nullptr;
@@ -35,8 +35,14 @@ class C166TargetObjectFile final : public TargetLoweringObjectFileELF {
   MCSection *SmallSHugeDataSection = nullptr;
   MCSection *SmallSHugeBSSSection = nullptr;
   MCSection *SmallSHugeReadOnlySection = nullptr;
+  mutable unsigned NextTextSectionID = 1;
+
+  MCSection *remapTextSection(MCSection *Section, StringRef Name,
+                              bool MakeUnique) const;
 
 public:
+  unsigned getTextSectionAlignment() const override { return 2; }
+
   void Initialize(MCContext &Ctx, const TargetMachine &TM) override;
 
   MCSection *SelectSectionForGlobal(const GlobalObject *GO, SectionKind Kind,

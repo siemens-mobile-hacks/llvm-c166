@@ -38,7 +38,6 @@ using namespace llvm;
 namespace {
 
 enum C166AtomicRMWOp : unsigned {
-  C166AtomicXchg,
   C166AtomicAdd,
   C166AtomicSub,
   C166AtomicAnd,
@@ -54,8 +53,6 @@ enum C166AtomicRMWOp : unsigned {
 static std::optional<C166AtomicRMWOp>
 getAtomicRMWOpcode(AtomicRMWInst::BinOp Op) {
   switch (Op) {
-  case AtomicRMWInst::Xchg:
-    return C166AtomicXchg;
   case AtomicRMWInst::Add:
     return C166AtomicAdd;
   case AtomicRMWInst::Sub:
@@ -222,9 +219,10 @@ void C166AtomicBuilder::lowerStore(StoreInst *Store) const {
 }
 
 void C166AtomicBuilder::lowerRMW(AtomicRMWInst *RMW) const {
+  bool IsExchange = RMW->getOperation() == AtomicRMWInst::Xchg;
   std::optional<C166AtomicRMWOp> Opcode =
       getAtomicRMWOpcode(RMW->getOperation());
-  if (!Opcode) {
+  if (!IsExchange && !Opcode) {
     Ctx.emitError("C166 does not support this atomicrmw operation");
     return;
   }
@@ -236,16 +234,24 @@ void C166AtomicBuilder::lowerRMW(AtomicRMWInst *RMW) const {
   StoreInst *Copy = Builder.CreateStore(RMW->getValOperand(), ValueTmp);
   Copy->setAlignment(ValueTmp->getAlign());
   Copy->setDebugLoc(RMW->getDebugLoc());
-  Value *Args[] = {
-      getSize(Builder, Ty),
-      asDataPointer(Builder, RMW->getPointerOperand(), "atomic.object"),
-      asDataPointer(Builder, ValueTmp, "atomic.rmw.value.pointer"),
-      asDataPointer(Builder, Result, "atomic.rmw.result.pointer"),
-      Builder.getInt16(*Opcode),
-      getOrder(Builder, RMW->getOrdering()),
-  };
-  createCall(Builder, "__c166_atomic_rmw", Builder.getVoidTy(), Args,
-             RMW->getDebugLoc());
+  Value *Size = getSize(Builder, Ty);
+  Value *Object =
+      asDataPointer(Builder, RMW->getPointerOperand(), "atomic.object");
+  Value *ValuePointer =
+      asDataPointer(Builder, ValueTmp, "atomic.rmw.value.pointer");
+  Value *ResultPointer =
+      asDataPointer(Builder, Result, "atomic.rmw.result.pointer");
+  Value *Order = getOrder(Builder, RMW->getOrdering());
+  if (IsExchange) {
+    Value *Args[] = {Size, Object, ValuePointer, ResultPointer, Order};
+    createCall(Builder, "__atomic_exchange", Builder.getVoidTy(), Args,
+               RMW->getDebugLoc());
+  } else {
+    Value *Args[] = {Size, Object, ValuePointer, ResultPointer,
+                     Builder.getInt16(*Opcode)};
+    createCall(Builder, "__c166_atomic_rmw", Builder.getVoidTy(), Args,
+               RMW->getDebugLoc());
+  }
   LoadInst *Old = Builder.CreateLoad(Ty, Result, RMW->getName());
   Old->setAlignment(Result->getAlign());
   Old->setDebugLoc(RMW->getDebugLoc());

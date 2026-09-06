@@ -29,7 +29,7 @@ entry:
 ; ATOMIC-LABEL: define i16 @integer_ops(
 ; ATOMIC: call addrspace(1) void @__atomic_load(i16 2, ptr addrspace(2) %object, ptr addrspace(2) {{%.*}}, i16 2)
 ; ATOMIC: call addrspace(1) void @__atomic_store(i16 2, ptr addrspace(2) %object, ptr addrspace(2) {{%.*}}, i16 3)
-; ATOMIC: call addrspace(1) void @__c166_atomic_rmw(i16 2, ptr addrspace(2) %object, ptr addrspace(2) {{%.*}}, ptr addrspace(2) {{%.*}}, i16 1, i16 5)
+; ATOMIC: call addrspace(1) void @__c166_atomic_rmw(i16 2, ptr addrspace(2) %object, ptr addrspace(2) {{%.*}}, ptr addrspace(2) {{%.*}}, i16 0)
 ; ATOMIC: call zeroext addrspace(1) i1 @__atomic_compare_exchange(i16 2, ptr addrspace(2) %object, ptr addrspace(2) {{%.*}}, ptr addrspace(2) {{%.*}}, i16 4, i16 2)
 ; ATOMIC: call addrspace(1) void @__c166_atomic_fence(i16 5)
 ; ATOMIC-NOT: load atomic
@@ -45,7 +45,7 @@ entry:
 ; FLOAT: %[[PHYSICAL_PART:.*]] = or i32 0, {{%.*}}
 ; FLOAT: %[[PHYSICAL:.*]] = or i32 %[[PHYSICAL_PART]], {{%.*}}
 ; FLOAT: store i32 %[[PHYSICAL]], ptr addrspace(2) {{%.*}}, align 2
-; FLOAT: call addrspace(1) void @__c166_atomic_rmw(i16 4, ptr addrspace(2) %object, ptr addrspace(2) {{%.*}}, ptr addrspace(2) {{%.*}}, i16 0, i16 5)
+; FLOAT: call addrspace(1) void @__atomic_exchange(i16 4, ptr addrspace(2) %object, ptr addrspace(2) {{%.*}}, ptr addrspace(2) {{%.*}}, i16 5)
 ; FLOAT: %[[OLD_PHYSICAL:.*]] = load i32, ptr addrspace(2) {{%.*}}, align 2
 ; FLOAT: %[[LOGICAL_PART:.*]] = or i32 0, {{%.*}}
 ; FLOAT: %[[LOGICAL:.*]] = or i32 %[[LOGICAL_PART]], {{%.*}}

@@ -32,13 +32,19 @@ COMPILER_RT_ABI void *memmove(void *destination, const void *source,
   unsigned char *dst = (unsigned char *)destination;
   const unsigned char *src = (const unsigned char *)source;
 
-  if ((__UINTPTR_TYPE__)dst < (__UINTPTR_TYPE__)src) {
-    for (c166_size_t index = 0; index != count; ++index)
-      dst[index] = src[index];
-  } else if (dst != src) {
+  if (dst < src) {
     while (count != 0) {
+      *dst++ = *src++;
       --count;
-      dst[count] = src[count];
+    }
+  } else {
+    dst += count;
+    src += count;
+    while (count != 0) {
+      --dst;
+      --src;
+      --count;
+      *dst = *src;
     }
   }
   return destination;

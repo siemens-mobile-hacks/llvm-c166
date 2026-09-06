@@ -1,0 +1,600 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=postrapseudos \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @reuse_sub_flags() { ret void }
+  define void @reuse_and_flags() { ret void }
+  define void @reuse_store_flags() { ret void }
+  define void @keep_nonzero_compare() { ret void }
+  define void @reuse_predecessor_compare() { ret void }
+  define void @reuse_predecessor_immediate_compare() { ret void }
+  define void @keep_predecessor_register_mismatch() { ret void }
+  define void @keep_predecessor_immediate_mismatch() { ret void }
+  define void @reuse_compare_carry_after_move() { ret void }
+  define void @reuse_immediate_carry_after_move() { ret void }
+  define void @reuse_ult_carry_after_move() { ret void }
+  define void @keep_ule_compare_on_equal_path() { ret void }
+  define void @keep_compare_after_carry_clobber() { ret void }
+  define void @keep_compare_after_psw_write() { ret void }
+  define void @keep_ule_compare_without_distinct_edges() { ret void }
+  define void @keep_compare_after_predecessor_flag_clobber() { ret void }
+  define void @keep_compare_with_multiple_predecessors() { ret void }
+  define void @keep_signed_compare() { ret void }
+  define void @keep_unrelated_flags() { ret void }
+  define void @keep_carry_zero_compare() { ret void }
+...
+---
+name:            reuse_sub_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1
+
+    $r1 = SUBri3 $r1, 1, implicit-def dead $psw, implicit-def dead $c
+    CMPBRi $r1, 0, 0, %bb.2, implicit-def dead $psw, implicit-def dead $c
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: reuse_sub_flags
+# CHECK:       $r1 = SUBri3 $r1, 1, implicit-def $psw
+# CHECK-NEXT:  JMPR_EQ %bb.2, implicit $psw
+# CHECK-NOT:   CMPri
+...
+---
+name:            reuse_and_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r2
+
+    $r2 = ANDri16 $r2, 128, implicit-def dead $psw, implicit-def dead $c
+    CMPBRi killed $r2, 0, 1, %bb.2, implicit-def dead $psw, implicit-def dead $c
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: reuse_and_flags
+# CHECK:       $r2 = ANDri16 $r2, 128, implicit-def $psw
+# CHECK-NEXT:  JMPR_NE %bb.2, implicit $psw
+# CHECK-NOT:   CMPri
+...
+---
+name:            reuse_store_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r2
+
+    MOVmr $r2, $r1, implicit-def dead $psw
+    CMPBRi killed $r1, 0, 0, %bb.2, implicit-def dead $psw, implicit-def dead $c
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: reuse_store_flags
+# CHECK:       MOVmr $r2, $r1, implicit-def $psw
+# CHECK-NEXT:  JMPR_EQ %bb.2, implicit $psw
+# CHECK-NOT:   CMPri
+...
+---
+name:            keep_nonzero_compare
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r3
+
+    $r3 = SUBri3 $r3, 1, implicit-def dead $psw, implicit-def dead $c
+    CMPBRi killed $r3, 1, 0, %bb.2, implicit-def dead $psw, implicit-def dead $c
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_nonzero_compare
+# CHECK:       $r3 = SUBri3
+# CHECK-NEXT:  CMPri3 killed $r3, 1, implicit-def $psw
+# CHECK-NEXT:  JMPR_EQ %bb.2, implicit $psw
+...
+---
+name:            reuse_predecessor_compare
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r2
+
+    CMPBR $r1, $r2, 1, %bb.2, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.1:
+    RETS
+
+  bb.2:
+    successors: %bb.3, %bb.4
+    liveins: $r1, $r2
+
+    CMPBR $r1, $r2, 3, %bb.4, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.3
+
+  bb.3:
+    RETS
+
+  bb.4:
+    RETS
+
+# CHECK-LABEL: name: reuse_predecessor_compare
+# CHECK-COUNT-1: CMPrr $r1, $r2
+# CHECK:       bb.2:
+# CHECK:       liveins: $c, $psw, $r1, $r2
+# CHECK:       JMPR_ULE %bb.4, implicit $psw, implicit $c
+...
+---
+name:            reuse_predecessor_immediate_compare
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1
+
+    CMPBRi $r1, 4, 5, %bb.2, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.1:
+    successors: %bb.3, %bb.4
+    liveins: $r1
+
+    CMPBRi $r1, 4, 0, %bb.4, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.3
+
+  bb.2:
+    RETS
+
+  bb.3:
+    RETS
+
+  bb.4:
+    RETS
+
+# CHECK-LABEL: name: reuse_predecessor_immediate_compare
+# CHECK-COUNT-1: CMPri3 $r1, 4
+# CHECK:       bb.1:
+# CHECK:       liveins: $psw, $r1
+# CHECK:       JMPR_EQ %bb.4, implicit $psw
+...
+---
+name:            keep_predecessor_register_mismatch
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r2, $r3
+
+    CMPBR $r1, $r2, 1, %bb.2, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.1:
+    RETS
+
+  bb.2:
+    successors: %bb.3, %bb.4
+    liveins: $r1, $r2, $r3
+
+    CMPBR $r1, $r3, 3, %bb.4, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.3
+
+  bb.3:
+    RETS
+
+  bb.4:
+    RETS
+
+# CHECK-LABEL: name: keep_predecessor_register_mismatch
+# CHECK:       CMPrr $r1, $r2
+# CHECK:       CMPrr $r1, $r3
+...
+---
+name:            keep_predecessor_immediate_mismatch
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1
+
+    CMPBRi $r1, 4, 5, %bb.2, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.1:
+    successors: %bb.3, %bb.4
+    liveins: $r1
+
+    CMPBRi $r1, 3, 0, %bb.4, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.3
+
+  bb.2:
+    RETS
+
+  bb.3:
+    RETS
+
+  bb.4:
+    RETS
+
+# CHECK-LABEL: name: keep_predecessor_immediate_mismatch
+# CHECK:       CMPri3 $r1, 4
+# CHECK:       CMPri3 $r1, 3
+...
+---
+name:            reuse_compare_carry_after_move
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r2
+
+    CMPBR $r1, $r2, 1, %bb.2, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.1:
+    RETS
+
+  bb.2:
+    successors: %bb.3, %bb.4
+    liveins: $r1, $r2
+
+    $r3 = MOVri4 1, implicit-def dead $psw
+    CMPBR $r1, $r2, 3, %bb.4, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.3
+
+  bb.3:
+    RETS
+
+  bb.4:
+    RETS
+
+# CHECK-LABEL: name: reuse_compare_carry_after_move
+# CHECK-COUNT-1: CMPrr $r1, $r2
+# CHECK:       bb.2:
+# CHECK:       liveins: $c, $r1, $r2
+# CHECK:       $r3 = MOVri4 1, implicit-def $psw
+# CHECK-NEXT:  JMPR_ULT %bb.4, implicit $psw, implicit $c
+...
+---
+name:            reuse_immediate_carry_after_move
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1
+
+    CMPBRi $r1, 4, 1, %bb.2, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.1:
+    RETS
+
+  bb.2:
+    successors: %bb.3, %bb.4
+    liveins: $r1
+
+    $r3 = MOVri4 1, implicit-def dead $psw
+    CMPBRi $r1, 4, 3, %bb.4, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.3
+
+  bb.3:
+    RETS
+
+  bb.4:
+    RETS
+
+# CHECK-LABEL: name: reuse_immediate_carry_after_move
+# CHECK-COUNT-1: CMPri3 $r1, 4
+# CHECK:       bb.2:
+# CHECK:       liveins: $c, $r1
+# CHECK:       $r3 = MOVri4 1, implicit-def $psw
+# CHECK-NEXT:  JMPR_ULT %bb.4, implicit $psw, implicit $c
+...
+---
+name:            reuse_ult_carry_after_move
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r2
+
+    CMPBR $r1, $r2, 0, %bb.2, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.1:
+    RETS
+
+  bb.2:
+    successors: %bb.3, %bb.4
+    liveins: $r1, $r2
+
+    $r3 = MOVri4 1, implicit-def dead $psw
+    CMPBR $r1, $r2, 2, %bb.4, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.3
+
+  bb.3:
+    RETS
+
+  bb.4:
+    RETS
+
+# CHECK-LABEL: name: reuse_ult_carry_after_move
+# CHECK-COUNT-1: CMPrr $r1, $r2
+# CHECK:       bb.2:
+# CHECK:       liveins: $c, $r1, $r2
+# CHECK:       $r3 = MOVri4 1, implicit-def $psw
+# CHECK-NEXT:  JMPR_ULT %bb.4, implicit $psw, implicit $c
+...
+---
+name:            keep_ule_compare_on_equal_path
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r2
+
+    CMPBR $r1, $r2, 0, %bb.2, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.1:
+    RETS
+
+  bb.2:
+    successors: %bb.3, %bb.4
+    liveins: $r1, $r2
+
+    $r3 = MOVri4 1, implicit-def dead $psw
+    CMPBR $r1, $r2, 3, %bb.4, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.3
+
+  bb.3:
+    RETS
+
+  bb.4:
+    RETS
+
+# CHECK-LABEL: name: keep_ule_compare_on_equal_path
+# CHECK-COUNT-2: CMPrr $r1, $r2
+...
+---
+name:            keep_compare_after_carry_clobber
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r2, $r3
+
+    CMPBR $r1, $r2, 1, %bb.2, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.1:
+    RETS
+
+  bb.2:
+    successors: %bb.3, %bb.4
+    liveins: $r1, $r2, $r3
+
+    $r3 = ANDri3 $r3, 1, implicit-def dead $psw, implicit-def dead $c
+    CMPBR $r1, $r2, 2, %bb.4, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.3
+
+  bb.3:
+    RETS
+
+  bb.4:
+    RETS
+
+# CHECK-LABEL: name: keep_compare_after_carry_clobber
+# CHECK-COUNT-2: CMPrr $r1, $r2
+...
+---
+name:            keep_compare_after_psw_write
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r2, $r3
+
+    CMPBR $r1, $r2, 1, %bb.2, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.1:
+    RETS
+
+  bb.2:
+    successors: %bb.3, %bb.4
+    liveins: $r1, $r2, $r3
+
+    $psw = MOVsfrg $r3, implicit-def dead $psw
+    CMPBR $r1, $r2, 2, %bb.4, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.3
+
+  bb.3:
+    RETS
+
+  bb.4:
+    RETS
+
+# CHECK-LABEL: name: keep_compare_after_psw_write
+# CHECK-COUNT-2: CMPrr $r1, $r2
+...
+---
+name:            keep_ule_compare_without_distinct_edges
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1
+    liveins: $r1, $r2
+
+    CMPBR $r1, $r2, 1, %bb.1, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.1:
+    successors: %bb.2, %bb.3
+    liveins: $r1, $r2
+
+    $r3 = MOVri4 1, implicit-def dead $psw
+    CMPBR $r1, $r2, 3, %bb.3, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.2
+
+  bb.2:
+    RETS
+
+  bb.3:
+    RETS
+
+# CHECK-LABEL: name: keep_ule_compare_without_distinct_edges
+# CHECK-COUNT-2: CMPrr $r1, $r2
+...
+---
+name:            keep_compare_after_predecessor_flag_clobber
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.2, %bb.3
+    liveins: $r1, $r2
+
+    CMPBR $r1, $r2, 3, %bb.3, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.2
+
+  bb.1:
+    successors: %bb.0, %bb.2
+    liveins: $r1, $r2, $r3
+
+    CMPrr $r1, $r2, implicit-def dead $psw, implicit-def dead $c
+    CMPBRi $r3, 0, 1, %bb.2, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.0
+
+  bb.2:
+    RETS
+
+  bb.3:
+    RETS
+
+# CHECK-LABEL: name: keep_compare_after_predecessor_flag_clobber
+# CHECK-COUNT-2: CMPrr $r1, $r2
+...
+---
+name:            keep_compare_with_multiple_predecessors
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r2
+
+    CMPBR $r1, $r2, 1, %bb.2, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.1:
+    successors: %bb.3
+
+    BR %bb.3
+
+  bb.2:
+    successors: %bb.3
+
+    BR %bb.3
+
+  bb.3:
+    successors: %bb.4, %bb.5
+    liveins: $r1, $r2
+
+    CMPBR $r1, $r2, 3, %bb.5, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.4
+
+  bb.4:
+    RETS
+
+  bb.5:
+    RETS
+
+# CHECK-LABEL: name: keep_compare_with_multiple_predecessors
+# CHECK-COUNT-2: CMPrr $r1, $r2
+...
+---
+name:            keep_signed_compare
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    $r4 = ANDri3 $r4, 1, implicit-def dead $psw, implicit-def dead $c
+    CMPBRi killed $r4, 0, 7, %bb.2, implicit-def dead $psw, implicit-def dead $c
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_signed_compare
+# CHECK:       $r4 = ANDri3
+# CHECK-NEXT:  CMPri3 killed $r4, 0, implicit-def $psw
+# CHECK-NEXT:  JMPR_SLE %bb.2, implicit $psw
+...
+---
+name:            keep_unrelated_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r5, $r6
+
+    $r5 = SUBri3 $r5, 1, implicit-def dead $psw, implicit-def dead $c
+    CMPBRi killed $r6, 0, 1, %bb.2, implicit-def dead $psw, implicit-def dead $c
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_unrelated_flags
+# CHECK:       $r5 = SUBri3
+# CHECK-NEXT:  CMPri3 killed $r6, 0, implicit-def $psw
+# CHECK-NEXT:  JMPR_NE %bb.2, implicit $psw
+...
+---
+name:            keep_carry_zero_compare
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r7, $psw, $c
+
+    $r7 = ADDCri3 $r7, 0, implicit $psw, implicit $c, implicit-def dead $psw, implicit-def dead $c
+    CMPBRi killed $r7, 0, 0, %bb.2, implicit-def dead $psw, implicit-def dead $c
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_carry_zero_compare
+# CHECK:       $r7 = ADDCri3
+# CHECK-NEXT:  CMPri3 killed $r7, 0, implicit-def $psw
+# CHECK-NEXT:  JMPR_EQ %bb.2, implicit $psw
+...

@@ -57,6 +57,10 @@ public:
                                   SmallVectorImpl<MCFixup> &Fixups,
                                   const MCSubtargetInfo &STI) const;
 
+  unsigned getBitBranchTargetOpValue(const MCInst &MI, unsigned OpNo,
+                                     SmallVectorImpl<MCFixup> &Fixups,
+                                     const MCSubtargetInfo &STI) const;
+
   unsigned getSequenceCountOpValue(const MCInst &MI, unsigned OpNo,
                                    SmallVectorImpl<MCFixup> &Fixups,
                                    const MCSubtargetInfo &STI) const;
@@ -144,9 +148,41 @@ C166MCCodeEmitter::getBranchTargetOpValue(const MCInst &MI, unsigned OpNo,
   return 0;
 }
 
+unsigned C166MCCodeEmitter::getBitBranchTargetOpValue(
+    const MCInst &MI, unsigned OpNo, SmallVectorImpl<MCFixup> &Fixups,
+    const MCSubtargetInfo &STI) const {
+  const MCOperand &MO = MI.getOperand(OpNo);
+  if (MO.isImm())
+    return static_cast<unsigned>(MO.getImm());
+  assert(MO.isExpr() && "expected a C166 bit-branch expression");
+  Fixups.push_back(MCFixup::create(
+      2, MO.getExpr(), static_cast<MCFixupKind>(C166::fixup_c166_bit_pc8),
+      true));
+  return 0;
+}
+
 void C166MCCodeEmitter::encodeRelaxableBranch(
     const MCInst &MI, SmallVectorImpl<char> &CB,
     SmallVectorImpl<MCFixup> &Fixups) const {
+  if (MI.getOpcode() == C166::PseudoBitBranchRelax) {
+    unsigned Opcode = MI.getOperand(0).getImm();
+    uint16_t Address = MI.getOperand(1).getImm();
+    const MCOperand &Target = MI.getOperand(2);
+    assert(Target.isExpr() && "expected a C166 relaxable branch expression");
+
+    uint32_t Encoding = Opcode | ((Address >> 4) << 8) |
+                        ((Address & 0xf) << 28);
+    support::endian::write(CB, Encoding, llvm::endianness::little);
+    support::endian::write(CB, static_cast<uint16_t>(0x00cc),
+                           llvm::endianness::little);
+    support::endian::write(CB, static_cast<uint16_t>(0x00cc),
+                           llvm::endianness::little);
+    Fixups.push_back(MCFixup::create(
+        0, Target.getExpr(),
+        static_cast<MCFixupKind>(C166::fixup_c166_pc8_relax), true));
+    return;
+  }
+
   const bool IsUnconditional = MI.getOpcode() == C166::PseudoJMPRRelaxUC;
   const unsigned TargetIndex = IsUnconditional ? 0 : 1;
   const MCOperand &Target = MI.getOperand(TargetIndex);
@@ -226,7 +262,8 @@ void C166MCCodeEmitter::encodeInstruction(const MCInst &MI,
                                           SmallVectorImpl<MCFixup> &Fixups,
                                           const MCSubtargetInfo &STI) const {
   if (MI.getOpcode() == C166::PseudoJMPRRelax ||
-      MI.getOpcode() == C166::PseudoJMPRRelaxUC) {
+      MI.getOpcode() == C166::PseudoJMPRRelaxUC ||
+      MI.getOpcode() == C166::PseudoBitBranchRelax) {
     encodeRelaxableBranch(MI, CB, Fixups);
     return;
   }

@@ -1,0 +1,102 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-ra \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @zero_terminated_increment_loop() { ret void }
+  define void @live_exit_counter() { ret void }
+  define void @counter_used_in_loop_body() { ret void }
+...
+---
+name:            zero_terminated_increment_loop
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1
+    liveins: $r1, $r4
+
+    $r1 = SUBri3 killed $r1, 1, implicit-def dead $psw, implicit-def dead $c
+    $r2 = MOVrr killed $r4, implicit-def dead $psw
+
+  bb.1:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r2
+
+    $r1, dead $c = ADDCarryri3 killed $r1, 1, implicit-def dead $psw
+    $r2 = SHRri4 killed $r2, 1, implicit-def dead $psw, implicit-def dead $c
+    CMPri3 $r1, 1, implicit-def $psw, implicit-def $c
+    JMPR_UGE %bb.1, implicit $psw, implicit $c
+
+  bb.2:
+    liveins: $r2
+    RETS implicit $r2
+
+# CHECK-LABEL: name: zero_terminated_increment_loop
+# CHECK:       bb.0:
+# CHECK-NOT:   SUBri3
+# CHECK:       $r2 = MOVrr killed $r4
+# CHECK:       bb.1:
+# CHECK-NOT:   ADDCarryri3
+# CHECK:       $r2 = SHRri4 killed $r2, 1
+# CHECK-NEXT:  $r1 = CMPI1ri4 killed $r1, 0, implicit-def $psw, implicit-def dead $c
+# CHECK-NEXT:  JMPR_NE %bb.1, implicit $psw
+...
+---
+name:            live_exit_counter
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1
+    liveins: $r1
+
+    $r1 = SUBri3 killed $r1, 1, implicit-def dead $psw, implicit-def dead $c
+
+  bb.1:
+    successors: %bb.1, %bb.2
+    liveins: $r1
+
+    $r1 = ADDri3 killed $r1, 1, implicit-def dead $psw, implicit-def dead $c
+    CMPri3 $r1, 1, implicit-def $psw, implicit-def $c
+    JMPR_UGE %bb.1, implicit $psw, implicit $c
+
+  bb.2:
+    liveins: $r1
+    RETS implicit $r1
+
+# CHECK-LABEL: name: live_exit_counter
+# CHECK:       $r1 = SUBri3 killed $r1, 1
+# CHECK:       $r1 = ADDri3 killed $r1, 1
+# CHECK-NEXT:  CMPri3 $r1, 1
+# CHECK-NEXT:  JMPR_UGE %bb.1
+...
+---
+name:            counter_used_in_loop_body
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1
+    liveins: $r1
+
+    $r1 = SUBri3 killed $r1, 1, implicit-def dead $psw, implicit-def dead $c
+
+  bb.1:
+    successors: %bb.1, %bb.2
+    liveins: $r1
+
+    $r1 = ADDri3 killed $r1, 1, implicit-def dead $psw, implicit-def dead $c
+    $r2 = MOVrr $r1, implicit-def dead $psw
+    CMPri3 $r1, 1, implicit-def $psw, implicit-def $c
+    JMPR_UGE %bb.1, implicit $psw, implicit $c
+
+  bb.2:
+    liveins: $r2
+    RETS implicit $r2
+
+# CHECK-LABEL: name: counter_used_in_loop_body
+# CHECK:       $r1 = SUBri3 killed $r1, 1
+# CHECK:       $r1 = ADDri3 killed $r1, 1
+# CHECK-NEXT:  $r2 = MOVrr $r1
+# CHECK-NEXT:  CMPri3 $r1, 1
+# CHECK-NEXT:  JMPR_UGE %bb.1
+...

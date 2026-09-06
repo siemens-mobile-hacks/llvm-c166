@@ -28,12 +28,16 @@ extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void LLVMInitializeC166Target() {
   initializeC166AsmPrinterPass(PR);
   initializeC166AtomicLoweringPass(PR);
   initializeC166FarPointerLoweringPass(PR);
+  initializeC166F64LoweringPass(PR);
   initializeC166FloatMemoryLoweringPass(PR);
   initializeC166UnsupportedFeaturesPass(PR);
   initializeC166ArgumentLoadSinkingPass(PR);
   initializeC166PostISelPass(PR);
+  initializeC166PostRAPass(PR);
+  initializeC166LongBranchOptPass(PR);
   initializeC166CallFrameExpansionPass(PR);
   initializeC166FrameAddressRematerializationPass(PR);
+  initializeC166PHIEdgeSplittingPass(PR);
   initializeC166DAGToDAGISelLegacyPass(PR);
 }
 
@@ -94,21 +98,49 @@ class C166FloatMemoryEarlyPass
     : public OptionalPassInfoMixin<C166FloatMemoryEarlyPass> {
 public:
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &) {
-    return lowerC166FloatMemory(M) ? PreservedAnalyses::none()
-                                   : PreservedAnalyses::all();
+    return prepareC166FloatMemory(M) ? PreservedAnalyses::none()
+                                     : PreservedAnalyses::all();
+  }
+};
+
+class C166ByValTailForwardingEarlyPass
+    : public OptionalPassInfoMixin<C166ByValTailForwardingEarlyPass> {
+public:
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &) {
+    return forwardC166ByValTailArguments(F) ? PreservedAnalyses::none()
+                                            : PreservedAnalyses::all();
+  }
+};
+
+class C166VAArgEarlyPass : public OptionalPassInfoMixin<C166VAArgEarlyPass> {
+public:
+  PreservedAnalyses run(Module &M, ModuleAnalysisManager &) {
+    return lowerC166VAArgs(M) ? PreservedAnalyses::none()
+                              : PreservedAnalyses::all();
   }
 };
 } // namespace
 
 void C166TargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
   PB.registerPipelineStartEPCallback(
-      [](ModulePassManager &MPM, OptimizationLevel) {
-        // LLVM's DataLayout cannot express the ABI's type-dependent
-        // word order.  Expose the physical integer representation before
-        // SROA can fold a float/word union through ordinary little-endian
-        // bitcast semantics.  The legacy late pass remains a safety net for
-        // floating accesses introduced by later optimization passes and also
-        // encodes global initializers.
+      [](ModulePassManager &MPM, OptimizationLevel Level) {
+        // At optimization levels which run scalar promotion, expose local
+        // va_list cursors early enough for them to remain in SSA.  Escaped and
+        // unoptimized cursors retain the canonical variadic DAG lowering.
+        if (Level != OptimizationLevel::O0)
+          MPM.addPass(C166VAArgEarlyPass());
+
+        if (Level != OptimizationLevel::O0) {
+          FunctionPassManager FPM;
+          FPM.addPass(C166ByValTailForwardingEarlyPass());
+          MPM.addPass(createModuleToFunctionPassAdaptor(std::move(FPM)));
+        }
+
+        // LLVM's DataLayout cannot express the ABI's type-dependent word
+        // order.  Wrap floating accesses before SROA can fold a float/word
+        // union through ordinary little-endian bitcast semantics.  The late
+        // target pass expands the wrappers and handles accesses introduced by
+        // later optimization passes.
         MPM.addPass(C166FloatMemoryEarlyPass());
         FunctionPassManager FPM;
         FPM.addPass(C166FarPointerEarlyPass());
@@ -131,6 +163,7 @@ public:
     // precede float memory lowering: the latter converts the helper temporaries
     // between LLVM's logical float values and MSW-first storage.
     addPass(createC166AtomicLoweringPass());
+    addPass(createC166F64LoweringPass());
     addPass(createC166FloatMemoryLoweringPass());
     // Keep the generic pass as a structural safety net for any future atomic
     // IR operation which the target-local lowering does not recognize.
@@ -156,14 +189,22 @@ public:
   }
 
   void addPreRegAlloc() override {
-    if (getOptLevel() != CodeGenOptLevel::None)
+    if (getOptLevel() != CodeGenOptLevel::None) {
       addPass(createC166FrameAddressRematerializationPass());
+      addPass(createC166PHIEdgeSplittingPass());
+    }
   }
 
   void addPreEmitPass() override {
+    if (getOptLevel() != CodeGenOptLevel::None) {
+      addPass(createC166PostRAPass());
+      addPass(createMachineCopyPropagationPass(/*UseCopyInstr=*/true));
+    }
     addPass(createC166CallFrameExpansionPass());
     addPass(&BranchRelaxationPassID);
   }
+
+  void addPreEmitPass2() override { addPass(createC166LongBranchOptPass()); }
 };
 } // namespace
 

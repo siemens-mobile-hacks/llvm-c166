@@ -37,6 +37,7 @@ private:
   void printImmediate(const MCInst *MI, unsigned OpNo, raw_ostream &OS);
   void printImmediate16(const MCInst *MI, unsigned OpNo, raw_ostream &OS);
   void printBitAddress(const MCInst *MI, unsigned OpNo, raw_ostream &OS);
+  void printBitOffset(const MCInst *MI, unsigned OpNo, raw_ostream &OS);
   void printAddress(const MCInst *MI, unsigned OpNo, raw_ostream &OS);
   void printDPP1Address(const MCInst *MI, unsigned OpNo, raw_ostream &OS);
   void printDPP2Address(const MCInst *MI, unsigned OpNo, raw_ostream &OS);

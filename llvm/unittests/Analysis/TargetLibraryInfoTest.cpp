@@ -59,6 +59,11 @@ protected:
 
 } // end anonymous namespace
 
+TEST(TargetLibraryInfoIntSizeTest, C166) {
+  TargetLibraryInfoImpl TLII(Triple("c166-unknown-none-elf"));
+  EXPECT_EQ(16u, TLII.getIntSize());
+}
+
 // Check that we don't accept egregiously incorrect prototypes.
 TEST_F(TargetLibraryInfoTest, InvalidProto) {
   parseAssembly("%foo = type opaque\n");

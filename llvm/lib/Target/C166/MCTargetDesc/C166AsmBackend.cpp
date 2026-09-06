@@ -34,6 +34,10 @@ static unsigned getJMPREncoding(unsigned Opcode) {
     return 0x2d;
   case C166::JMPR_NE:
     return 0x3d;
+  case C166::JMPR_N:
+    return 0x6d;
+  case C166::JMPR_NN:
+    return 0x7d;
   case C166::JMPR_ULT:
     return 0x8d;
   case C166::JMPR_UGE:
@@ -52,6 +56,17 @@ static unsigned getJMPREncoding(unsigned Opcode) {
     return 0xfd;
   default:
     llvm_unreachable("not a C166 relative branch");
+  }
+}
+
+static unsigned getBitBranchEncoding(unsigned Opcode) {
+  switch (Opcode) {
+  case C166::JB:
+    return 0x8a;
+  case C166::JNB:
+    return 0x9a;
+  default:
+    llvm_unreachable("not a C166 bit branch");
   }
 }
 
@@ -105,6 +120,17 @@ class C166AsmBackend : public MCAsmBackend {
                                  "relative branch is out of range");
       return static_cast<uint8_t>(Words);
     }
+    case C166::fixup_c166_bit_pc8: {
+      int64_t Delta = static_cast<int64_t>(Value) - 2;
+      if (Delta & 1)
+        getContext().reportError(Fixup.getLoc(),
+                                 "relative branch target is not word-aligned");
+      int64_t Words = Delta / 2;
+      if (!isInt<8>(Words))
+        getContext().reportError(Fixup.getLoc(),
+                                 "relative branch is out of range");
+      return static_cast<uint8_t>(Words);
+    }
     case C166::fixup_c166_pc8_relax:
       llvm_unreachable("relaxable C166 branch fixup must remain unresolved");
     case C166::fixup_c166_pc16:
@@ -123,6 +149,8 @@ public:
     case C166::JMPR_UC:
     case C166::JMPR_EQ:
     case C166::JMPR_NE:
+    case C166::JMPR_N:
+    case C166::JMPR_NN:
     case C166::JMPR_ULT:
     case C166::JMPR_UGE:
     case C166::JMPR_SGT:
@@ -131,6 +159,8 @@ public:
     case C166::JMPR_SGE:
     case C166::JMPR_UGT:
     case C166::JMPR_ULE:
+    case C166::JB:
+    case C166::JNB:
       return true;
     default:
       return false;
@@ -140,12 +170,14 @@ public:
   bool fixupNeedsRelaxationAdvanced(const MCFragment &, const MCFixup &Fixup,
                                     const MCValue &, uint64_t Value,
                                     bool Resolved) const override {
-    if (Fixup.getKind() != C166::fixup_c166_pc8)
+    if (Fixup.getKind() != C166::fixup_c166_pc8 &&
+        Fixup.getKind() != C166::fixup_c166_bit_pc8)
       return false;
     if (!Resolved)
       return true;
 
-    int64_t Delta = static_cast<int64_t>(Value) - 1;
+    int64_t Correction = Fixup.getKind() == C166::fixup_c166_pc8 ? 1 : 2;
+    int64_t Delta = static_cast<int64_t>(Value) - Correction;
     if (Delta & 1)
       return false;
     return !isInt<8>(Delta / 2);
@@ -153,7 +185,13 @@ public:
 
   void relaxInstruction(MCInst &Inst, const MCSubtargetInfo &) const override {
     MCInst Relaxed;
-    if (Inst.getOpcode() == C166::JMPR_UC) {
+    if (Inst.getOpcode() == C166::JB || Inst.getOpcode() == C166::JNB) {
+      Relaxed.setOpcode(C166::PseudoBitBranchRelax);
+      Relaxed.addOperand(
+          MCOperand::createImm(getBitBranchEncoding(Inst.getOpcode())));
+      Relaxed.addOperand(Inst.getOperand(0));
+      Relaxed.addOperand(Inst.getOperand(1));
+    } else if (Inst.getOpcode() == C166::JMPR_UC) {
       Relaxed.setOpcode(C166::PseudoJMPRRelaxUC);
       Relaxed.addOperand(Inst.getOperand(0));
     } else {
@@ -191,6 +229,7 @@ public:
     }
 
     const bool IsPCRel = Fixup.getKind() == C166::fixup_c166_pc8 ||
+                         Fixup.getKind() == C166::fixup_c166_bit_pc8 ||
                          Fixup.getKind() == C166::fixup_c166_pc16;
     if (Fixup.getKind() >= FirstTargetFixupKind && !IsPCRel &&
         !Target.isAbsolute())
@@ -220,9 +259,9 @@ public:
         {"fixup_c166_seg8", 0, 8, 0},      {"fixup_c166_seg24", 0, 24, 0},
         {"fixup_c166_sof16", 0, 16, 0},    {"fixup_c166_cof16", 0, 16, 0},
         {"fixup_c166_pag10", 0, 10, 0},    {"fixup_c166_pof14", 0, 14, 0},
-        {"fixup_c166_pc8", 0, 8, 0},       {"fixup_c166_pc8_relax", 8, 8, 0},
-        {"fixup_c166_pc16", 0, 16, 0},     {"fixup_c166_dpp1_16", 0, 16, 0},
-        {"fixup_c166_dpp2_16", 0, 16, 0},
+        {"fixup_c166_pc8", 0, 8, 0},       {"fixup_c166_bit_pc8", 0, 8, 0},
+        {"fixup_c166_pc8_relax", 8, 8, 0}, {"fixup_c166_pc16", 0, 16, 0},
+        {"fixup_c166_dpp1_16", 0, 16, 0},  {"fixup_c166_dpp2_16", 0, 16, 0},
     };
     static_assert(std::size(Infos) == C166::NumTargetFixupKinds);
 

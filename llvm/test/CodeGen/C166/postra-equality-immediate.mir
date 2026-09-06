@@ -1,0 +1,266 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-ra \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @fallthrough_equality() { ret void }
+  define void @taken_equality() { ret void }
+  define void @equality_in_live_pair() { ret void }
+  define void @inequality_edge() { ret void }
+  define void @different_immediate() { ret void }
+  define void @different_register() { ret void }
+  define void @multiple_predecessors() { ret void }
+  define void @live_move_flags() { ret void }
+  define void @extension_window() { ret void }
+...
+---
+name:            fallthrough_equality
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    CMPri16 $r4, 2047, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    successors: %bb.3
+
+    $r4 = MOVri16 2047, implicit-def dead $psw
+    JMPR_UC %bb.3
+
+  bb.2:
+    RETS
+
+  bb.3:
+    liveins: $r4
+    RETS implicit $r4
+
+# CHECK-LABEL: name: fallthrough_equality
+# CHECK:       bb.1:
+# CHECK:       liveins: {{.*}}$r4
+# CHECK-NOT:   MOVri16
+# CHECK:       JMPR_UC %bb.3
+...
+---
+name:            taken_equality
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r3
+
+    CMPri3 $r3, 5, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    successors: %bb.3
+
+    $r3 = MOVri4 5, implicit-def dead $psw
+    JMPR_UC %bb.3
+
+  bb.3:
+    liveins: $r3
+    RETS implicit $r3
+
+# CHECK-LABEL: name: taken_equality
+# CHECK:       CMPri3 $r3, 5
+# CHECK-NEXT:  JMPR_EQ %bb.[[MERGE:[0-9]+]]
+# CHECK-NOT:   MOVri4
+# CHECK:       bb.[[MERGE]]:
+...
+---
+name:            equality_in_live_pair
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r5r4
+
+    $r4 = SHRri4 $r4, 4, implicit-def dead $psw, implicit-def dead $c, implicit killed $r5r4, implicit-def $r5r4
+    CMPri16 $r4, 2047, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+
+    $r4 = MOVri16 2047, implicit-def dead $psw, implicit-def $r5r4
+    $r5 = MOVri4 2, implicit-def dead $psw, implicit killed $r5r4, implicit-def $r5r4
+    RETS implicit $r5r4
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: equality_in_live_pair
+# CHECK:       bb.1:
+# CHECK:       liveins: {{.*}}$r4
+# CHECK-NOT:   $r4 = MOVri16 2047
+# CHECK:       $r5 = MOVri4 2
+...
+---
+name:            inequality_edge
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    CMPri16 $r4, 2047, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    successors: %bb.3
+
+    $r4 = MOVri16 2047, implicit-def dead $psw
+    JMPR_UC %bb.3
+
+  bb.3:
+    liveins: $r4
+    RETS implicit $r4
+
+# CHECK-LABEL: name: inequality_edge
+# CHECK:       bb.2:
+# CHECK:       $r4 = MOVri16 2047
+...
+---
+name:            different_immediate
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    CMPri16 $r4, 2047, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    successors: %bb.2
+
+    $r4 = MOVri16 2046, implicit-def dead $psw
+    JMPR_UC %bb.2
+
+  bb.2:
+    liveins: $r4
+    RETS implicit $r4
+
+# CHECK-LABEL: name: different_immediate
+# CHECK:       bb.1:
+# CHECK:       $r4 = MOVri16 2046
+...
+---
+name:            different_register
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r3, $r4
+
+    CMPri16 $r3, 2047, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    successors: %bb.2
+
+    $r4 = MOVri16 2047, implicit-def dead $psw
+    JMPR_UC %bb.2
+
+  bb.2:
+    liveins: $r4
+    RETS implicit $r4
+
+# CHECK-LABEL: name: different_register
+# CHECK:       bb.1:
+# CHECK:       $r4 = MOVri16 2047
+...
+---
+name:            multiple_predecessors
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    CMPri16 $r4, 2047, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    successors: %bb.2
+    JMPR_UC %bb.2
+
+  bb.2:
+    successors: %bb.3
+
+    $r4 = MOVri16 2047, implicit-def dead $psw
+    JMPR_UC %bb.3
+
+  bb.3:
+    liveins: $r4
+    RETS implicit $r4
+
+# CHECK-LABEL: name: multiple_predecessors
+# CHECK:       bb.2:
+# CHECK:       $r4 = MOVri16 2047
+...
+---
+name:            live_move_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    CMPri16 $r4, 2047, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    successors: %bb.2, %bb.3
+
+    $r4 = MOVri16 2047, implicit-def $psw
+    JMPR_EQ %bb.3, implicit $psw
+
+  bb.2:
+    RETS
+
+  bb.3:
+    RETS
+
+# CHECK-LABEL: name: live_move_flags
+# CHECK:       bb.1:
+# CHECK:       $r4 = MOVri16 2047, implicit-def $psw
+...
+---
+name:            extension_window
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4, $r13
+
+    EXTPr $r13, 2
+    CMPri16 $r4, 2047, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    successors: %bb.2
+
+    $r4 = MOVri16 2047, implicit-def dead $psw
+    JMPR_UC %bb.2
+
+  bb.2:
+    liveins: $r4
+    RETS implicit $r4
+
+# CHECK-LABEL: name: extension_window
+# CHECK:       EXTPr $r13, 2
+# CHECK-NEXT:  CMPri16 $r4, 2047
+# CHECK-NEXT:  JMPR_NE %bb.2
+# CHECK:       bb.1:
+# CHECK:       $r4 = MOVri16 2047
+...

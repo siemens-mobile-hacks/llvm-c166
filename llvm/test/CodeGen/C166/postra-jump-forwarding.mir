@@ -1,0 +1,183 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-ra \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @forward_explicit_jump() { ret void }
+  define void @keep_fallthrough_jump() { ret void }
+  define void @keep_multiple_predecessors() { ret void }
+  define void @keep_nonempty_block() { ret void }
+  define void @keep_address_taken_block() { ret void }
+  define void @keep_extension_window_jump() { ret void }
+...
+---
+name:            forward_explicit_jump
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r2, $r3
+
+    CMPrr killed $r1, killed $r2, implicit-def $psw, implicit-def $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    successors: %bb.3
+    liveins: $r3, $c
+
+    JMPR_UC %bb.3
+
+  bb.3:
+    liveins: $r3, $c
+
+    dead $r3 = ADDCri3 killed $r3, 0, implicit-def dead $psw, implicit-def dead $c, implicit $psw, implicit killed $c
+    RETS
+
+# CHECK-LABEL: name: forward_explicit_jump
+# CHECK:       bb.0:
+# CHECK:       successors: %bb.1{{.*}}, %bb.3
+# CHECK:       JMPR_NE %bb.3, implicit $psw
+# CHECK-NOT:   bb.2:
+# CHECK:       bb.3:
+...
+---
+name:            keep_fallthrough_jump
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r2
+
+    CMPrr killed $r1, killed $r2, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    successors: %bb.3
+
+    JMPR_UC %bb.3
+
+  bb.2:
+    RETS
+
+  bb.3:
+    RETS
+
+# CHECK-LABEL: name: keep_fallthrough_jump
+# CHECK:       bb.1:
+# CHECK:       JMPR_UC %bb.3
+...
+---
+name:            keep_multiple_predecessors
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.2
+
+    JMPR_UC %bb.2
+
+  bb.1:
+    successors: %bb.2
+
+    JMPR_UC %bb.2
+
+  bb.2:
+    successors: %bb.3
+
+    JMPR_UC %bb.3
+
+  bb.3:
+    RETS
+
+# CHECK-LABEL: name: keep_multiple_predecessors
+# CHECK:       bb.2:
+# CHECK:       JMPR_UC %bb.3
+...
+---
+name:            keep_nonempty_block
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r2
+
+    CMPrr killed $r1, killed $r2, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    successors: %bb.3
+    liveins: $r3
+
+    $r4 = MOVrr killed $r3, implicit-def dead $psw
+    JMPR_UC %bb.3
+
+  bb.3:
+    liveins: $r4
+
+    RETS implicit killed $r4
+
+# CHECK-LABEL: name: keep_nonempty_block
+# CHECK:       bb.2:
+# CHECK:       $r4 = MOVrr killed $r3
+# CHECK-NEXT:  JMPR_UC %bb.3
+...
+---
+name:            keep_address_taken_block
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r2
+
+    CMPrr killed $r1, killed $r2, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2 (machine-block-address-taken):
+    successors: %bb.3
+
+    JMPR_UC %bb.3
+
+  bb.3:
+    RETS
+
+# CHECK-LABEL: name: keep_address_taken_block
+# CHECK:       bb.2 (machine-block-address-taken):
+# CHECK:       JMPR_UC %bb.3
+...
+---
+name:            keep_extension_window_jump
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r13, $psw
+
+    EXTPr $r13, 2
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    successors: %bb.3
+
+    JMPR_UC %bb.3
+
+  bb.3:
+    RETS
+
+# CHECK-LABEL: name: keep_extension_window_jump
+# CHECK:       EXTPr $r13, 2
+# CHECK-NEXT:  JMPR_EQ %bb.2, implicit $psw
+# CHECK:       bb.2:
+# CHECK:       JMPR_UC %bb.3
+...

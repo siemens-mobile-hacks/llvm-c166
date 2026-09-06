@@ -41,20 +41,21 @@ u32 data_pointer_roundtrip(u32 address) {
 // IR:       call{{.*}} i32 @llvm.c166.far.to.linear.p2(ptr addrspace(2) {{.*}})
 
 // The optimized data-pointer conversions perform the default
-// far<->huge conversion.  The backend may express it as an equivalent 32-bit
-// shift by two followed by masks for the page and 14-bit offset fields.
+// far<->huge conversion using native constant shifts followed by masks for the
+// page and 14-bit offset fields.
 // ASM-LABEL: _data_pointer_to_long:
-// ASM:       mov r14, #2
-// ASM:       calls seg(___lshrsi3), sof(___lshrsi3)
-// ASM:       mov {{r[0-9]+}}, #16383
-// ASM:       and
+// ASM:       shr {{r[0-9]+}}, #2
+// ASM:       shl {{r[0-9]+}}, #14
+// ASM:       shr {{r[0-9]+}}, #2
+// ASM:       and {{r[0-9]+}}, #16383
 // ASM:       or
 // ASM:       rets
 // ASM-LABEL: _long_to_data_pointer:
-// ASM:       mov r14, #2
-// ASM:       calls seg(___ashlsi3), sof(___ashlsi3)
-// ASM:       mov {{r[0-9]+}}, #16383
-// ASM:       and
+// ASM:       shl {{r[0-9]+}}, #1
+// ASM-NEXT:  addc {{r[0-9]+}}, {{r[0-9]+}}
+// ASM-NEXT:  shl {{r[0-9]+}}, #1
+// ASM-NEXT:  addc {{r[0-9]+}}, {{r[0-9]+}}
+// ASM:       and {{r[0-9]+}}, #16383
 // ASM:       or
 // ASM:       rets
 
@@ -68,6 +69,5 @@ u32 data_pointer_roundtrip(u32 address) {
 // ASM-NEXT:  mov r5, r13
 // ASM-NEXT:  rets
 // ASM-LABEL: _data_pointer_roundtrip:
-// ASM:       mov {{r[0-9]+}}, #16383
-// ASM:       and
+// ASM:       and {{r[0-9]+}}, #16383
 // ASM:       rets

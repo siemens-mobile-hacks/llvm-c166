@@ -1,0 +1,106 @@
+# RUN: llc -mtriple=c166-none-elf -mcp-use-is-copy-instr \
+# RUN:   -run-pass=machine-cp -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @remove_redundant_round_trip() { ret void }
+  define void @remove_redundant_sign_extend_copy() { ret void }
+  define void @keep_live_move_flags() { ret void }
+  define void @keep_extension_block() { ret void }
+  define void @keep_overlapping_pair_copy() { ret void }
+...
+---
+name:            remove_redundant_round_trip
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r13
+
+    $r5 = MOVrr $r13, implicit-def dead $psw
+    $r13 = MOVrr $r5, implicit-def $psw
+    $r13 = ANDri16 killed $r13, 127, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r13
+
+# CHECK-LABEL: name: remove_redundant_round_trip
+# CHECK-NOT:   MOVrr
+# CHECK:       $r13 = ANDri16 killed $r13, 127
+...
+---
+name:            remove_redundant_sign_extend_copy
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2
+
+    $r1 = MOVrr $r2, implicit-def $psw
+    $r2 = MOVrr $r1, implicit-def $psw
+    $r2 = ASHRri4 $r2, 15, implicit-def $psw, implicit-def $c
+    RETS implicit $r2r1
+
+# CHECK-LABEL: name: remove_redundant_sign_extend_copy
+# CHECK:       $r1 = MOVrr $r2
+# CHECK-NOT:   $r2 = MOVrr $r1
+# CHECK:       $r2 = ASHRri4 $r2, 15
+# CHECK-NEXT:  RETS implicit $r2r1
+...
+---
+name:            keep_live_move_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r5
+
+    $r13 = MOVrr $r5, implicit-def $psw
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $r13
+
+    RETS implicit $r13
+
+  bb.2:
+    liveins: $r13
+
+    RETS implicit $r13
+
+# CHECK-LABEL: name: keep_live_move_flags
+# CHECK:       $r13 = MOVrr $r5
+# CHECK-NEXT:  JMPR_NE %bb.2
+...
+---
+name:            keep_extension_block
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r5, $r13
+
+    EXTPr $r13, 3
+    $r4 = MOVrr $r5, implicit-def dead $psw
+    $r5 = MOVrr $r4, implicit-def dead $psw
+    $r5 = ANDri16 killed $r5, 127, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r5
+
+# CHECK-LABEL: name: keep_extension_block
+# CHECK:       EXTPr $r13, 3
+# CHECK-NEXT:  $r4 = MOVrr $r5
+# CHECK-NEXT:  $r5 = MOVrr $r4
+# CHECK-NEXT:  $r5 = ANDri16 killed $r5, 127
+...
+---
+name:            keep_overlapping_pair_copy
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2r1
+
+    $r3 = MOVrr killed $r2, implicit-def dead $psw
+    $r2 = MOVrr killed $r1, implicit-def dead $psw
+    RETS implicit $r3r2
+
+# CHECK-LABEL: name: keep_overlapping_pair_copy
+# CHECK:       $r3 = MOVrr killed $r2
+# CHECK-NEXT:  $r2 = MOVrr killed $r1
+# CHECK-NEXT:  RETS implicit $r3r2
+...

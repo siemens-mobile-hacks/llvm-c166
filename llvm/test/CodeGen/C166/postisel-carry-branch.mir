@@ -1,0 +1,107 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-isel \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @rematerialize_add_carry_branch() { ret void }
+  define void @keep_adjacent_add_carry_branch() { ret void }
+  define void @keep_multiply_used_carry() { ret void }
+...
+---
+name:            rematerialize_add_carry_branch
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr16 }
+  - { id: 1, class: gr16 }
+  - { id: 2, class: carry }
+  - { id: 3, class: gr16 }
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r12, $r13
+
+    %0:gr16 = COPY $r12
+    %1:gr16, %2:carry = ADDCarryri3 %0, 3, implicit-def dead $psw
+    %3:gr16 = ORrr %1, $r13, implicit-def dead $psw, implicit-def dead $c
+    FLAGSBR killed %2, 4, %bb.2, implicit $psw
+    BR %bb.1
+
+  bb.1:
+    $r4 = COPY %3
+    RETS implicit $r4
+
+  bb.2:
+    $r4 = COPY %3
+    RETS implicit $r4
+
+# CHECK-LABEL: name: rematerialize_add_carry_branch
+# CHECK:       %1:gr16, dead %2:carry = ADDCarryri3 %0, 3
+# CHECK:       %3:gr16 = ORrr %1, $r13
+# CHECK-NEXT:  CMPBRi %1, 3, 4, %bb.2
+# CHECK-NEXT:  BR %bb.1
+# CHECK-NOT:   FLAGSBR
+...
+---
+name:            keep_adjacent_add_carry_branch
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr16 }
+  - { id: 1, class: gr16 }
+  - { id: 2, class: carry }
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r12
+
+    %0:gr16 = COPY $r12
+    %1:gr16, %2:carry = ADDCarryri3 %0, 1, implicit-def dead $psw
+    FLAGSBR killed %2, 4, %bb.2, implicit $psw
+    BR %bb.1
+
+  bb.1:
+    $r4 = COPY %1
+    RETS implicit $r4
+
+  bb.2:
+    $r4 = COPY %1
+    RETS implicit $r4
+
+# CHECK-LABEL: name: keep_adjacent_add_carry_branch
+# CHECK:       %1:gr16, %2:carry = ADDCarryri3 %0, 1
+# CHECK-NEXT:  FLAGSBR killed %2, 4, %bb.2
+# CHECK-NOT:   CMPBRi
+...
+---
+name:            keep_multiply_used_carry
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr16 }
+  - { id: 1, class: gr16 }
+  - { id: 2, class: carry }
+  - { id: 3, class: gr16 }
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r12, $r13
+
+    %0:gr16 = COPY $r12
+    %1:gr16, %2:carry = ADDCarryri3 %0, 1, implicit-def dead $psw
+    %3:gr16 = ADDCCarryInrr %1, $r13, %2, implicit-def dead $psw, implicit-def dead $c, implicit $psw
+    FLAGSBR killed %2, 2, %bb.2, implicit $psw
+    BR %bb.1
+
+  bb.1:
+    $r4 = COPY %3
+    RETS implicit $r4
+
+  bb.2:
+    $r4 = COPY %3
+    RETS implicit $r4
+
+# CHECK-LABEL: name: keep_multiply_used_carry
+# CHECK:       %1:gr16, %2:carry = ADDCarryri3 %0, 1
+# CHECK:       %3:gr16 = ADDCCarryInrr %1, $r13, %2
+# CHECK-NEXT:  FLAGSBR killed %2, 2, %bb.2
+# CHECK-NOT:   CMPBRi
+...

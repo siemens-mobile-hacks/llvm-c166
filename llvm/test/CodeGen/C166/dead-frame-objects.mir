@@ -1,0 +1,56 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=prolog-epilog \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @remove_unreferenced_object() { ret void }
+  define void @keep_referenced_object() { ret void }
+  define void @keep_unreferenced_spill_slot() { ret void }
+...
+---
+name:            remove_unreferenced_object
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 8, alignment: 2 }
+body:             |
+  bb.0:
+    RETS
+
+# CHECK-LABEL: name: remove_unreferenced_object
+# CHECK:       stack: []
+# CHECK:       bb.0:
+# CHECK-NEXT:  RETS
+...
+---
+name:            keep_referenced_object
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 8, alignment: 2 }
+body:             |
+  bb.0:
+    $r1 = MOVfi %stack.0, 0, implicit-def dead $psw :: (load (s16) from %stack.0)
+    RETS implicit $r1
+
+# CHECK-LABEL: name: keep_referenced_object
+# CHECK:       stack:
+# CHECK:       $r0 = frame-setup SUBri16 $r0, 8
+# CHECK:       $r1 = MOVrm $r0
+# CHECK:       $r0 = frame-destroy ADDri16 $r0, 8
+# CHECK:       RETS implicit $r1
+...
+---
+name:            keep_unreferenced_spill_slot
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 2, alignment: 2 }
+body:             |
+  bb.0:
+    RETS
+
+# CHECK-LABEL: name: keep_unreferenced_spill_slot
+# CHECK:       stack:
+# CHECK:       $r0 = frame-setup SUBri3 $r0, 2
+# CHECK:       $r0 = frame-destroy ADDri3 $r0, 2
+# CHECK:       RETS
+...

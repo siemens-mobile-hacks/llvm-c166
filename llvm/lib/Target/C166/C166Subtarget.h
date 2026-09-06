@@ -48,7 +48,6 @@ public:
   const SelectionDAGTargetInfo *getSelectionDAGInfo() const override {
     return TSInfo.get();
   }
-
   void initLibcallLoweringInfo(LibcallLoweringInfo &Info) const override;
 };
 

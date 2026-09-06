@@ -1,0 +1,175 @@
+# RUN: llc -mtriple=c166-none-elf \
+# RUN:   -run-pass=c166-frame-address-rematerialization \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  declare void @callee() addrspace(1)
+
+  define void @keep_three_materializations() { ret void }
+  define void @rematerialize_twice() { ret void }
+  define void @rematerialize_cheap_address() { ret void }
+  define void @fold_frame_address_offset() { ret void }
+  define void @keep_frame_address_used_in_loop() { ret void }
+  define void @keep_live_carry_offset() { ret void }
+...
+---
+name:            keep_three_materializations
+tracksRegLiveness: true
+fixedStack:
+  - { id: 0, offset: 16, size: 2, alignment: 2 }
+body:             |
+  bb.0:
+    %0:gr16 = LEAfi %fixed-stack.0, 0, implicit-def dead $psw
+    $r12 = COPY %0
+    CALLS @callee, @callee, csr_c166_callpreserved
+    $r12 = COPY %0
+    CALLS @callee, @callee, csr_c166_callpreserved
+    $r12 = COPY %0
+    RETS
+
+# CHECK-LABEL: name: keep_three_materializations
+# CHECK:       %0:gr16 = LEAfi %fixed-stack.0, 0
+# CHECK-NOT:   = LEAfi
+# CHECK:       $r12 = COPY %0
+# CHECK:       CALLS
+# CHECK-NEXT:  $r12 = COPY %0
+# CHECK:       CALLS
+# CHECK-NEXT:  $r12 = COPY %0
+...
+---
+name:            rematerialize_twice
+tracksRegLiveness: true
+fixedStack:
+  - { id: 0, offset: 16, size: 2, alignment: 2 }
+body:             |
+  bb.0:
+    %0:gr16 = LEAfi %fixed-stack.0, 0, implicit-def dead $psw
+    CALLS @callee, @callee, csr_c166_callpreserved
+    $r12 = COPY %0
+    CALLS @callee, @callee, csr_c166_callpreserved
+    $r12 = COPY %0
+    RETS
+
+# CHECK-LABEL: name: rematerialize_twice
+# CHECK:       %0:gr16 = LEAfi %fixed-stack.0, 0
+# CHECK-NEXT:  CALLS
+# CHECK-NEXT:  %1:gr16 = LEAfi %fixed-stack.0, 0
+# CHECK-NEXT:  $r12 = COPY %1
+# CHECK:       CALLS
+# CHECK-NEXT:  %2:gr16 = LEAfi %fixed-stack.0, 0
+# CHECK-NEXT:  $r12 = COPY %2
+...
+---
+name:            rematerialize_cheap_address
+tracksRegLiveness: true
+stack:
+  - { id: 0, size: 2, alignment: 2 }
+body:             |
+  bb.0:
+    %0:gr16 = LEAfi %stack.0, 0, implicit-def dead $psw
+    $r12 = COPY %0
+    CALLS @callee, @callee, csr_c166_callpreserved
+    $r12 = COPY %0
+    CALLS @callee, @callee, csr_c166_callpreserved
+    $r12 = COPY %0
+    RETS
+
+# CHECK-LABEL: name: rematerialize_cheap_address
+# CHECK:       %0:gr16 = LEAfi %stack.0, 0
+# CHECK:       CALLS
+# CHECK-NEXT:  %1:gr16 = LEAfi %stack.0, 0
+# CHECK-NEXT:  $r12 = COPY %1
+# CHECK:       CALLS
+# CHECK-NEXT:  %2:gr16 = LEAfi %stack.0, 0
+# CHECK-NEXT:  $r12 = COPY %2
+...
+---
+name:            fold_frame_address_offset
+tracksRegLiveness: true
+stack:
+  - { id: 0, size: 16, alignment: 2 }
+body:             |
+  bb.0:
+    successors: %bb.1(0x80000000)
+
+    %0:gr16 = LEAfi %stack.0, 2, implicit-def dead $psw
+    %1:gr16 = ADDri3 %0, 6, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.1:
+    successors: %bb.1(0x40000000), %bb.2(0x40000000)
+
+    %2:gr16 = PHI %0, %bb.0, %3, %bb.1
+    %3:gr16 = ADDri3 %2, 2, implicit-def dead $psw, implicit-def dead $c
+    CMPBRi %3, 8, 0, %bb.2, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.2:
+    $r12 = COPY %1
+    RETS
+
+# CHECK-LABEL: name: fold_frame_address_offset
+# CHECK:       %0:gr16 = LEAfi %stack.0, 2
+# CHECK-NEXT:  %1:gr16 = LEAfi %stack.0, 8
+...
+---
+name:            keep_frame_address_used_in_loop
+tracksRegLiveness: true
+stack:
+  - { id: 0, size: 16, alignment: 2 }
+body:             |
+  bb.0:
+    successors: %bb.1(0x80000000)
+
+    %0:gr16 = LEAfi %stack.0, 2, implicit-def dead $psw
+    %1:gr16 = ADDri3 %0, 6, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.1:
+    successors: %bb.1(0x40000000), %bb.2(0x40000000)
+
+    %2:gr16 = PHI %0, %bb.0, %3, %bb.1
+    %3:gr16 = ADDri3 %2, 2, implicit-def dead $psw, implicit-def dead $c
+    $r12 = COPY %1
+    CMPBRi %3, 8, 0, %bb.2, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_frame_address_used_in_loop
+# CHECK:       %1:gr16 = ADDri3 %0, 6
+...
+---
+name:            keep_live_carry_offset
+tracksRegLiveness: true
+stack:
+  - { id: 0, size: 16, alignment: 2 }
+body:             |
+  bb.0:
+    successors: %bb.1(0x80000000)
+
+    %0:gr16 = LEAfi %stack.0, 2, implicit-def dead $psw
+    %1:gr16 = ADDri3 %0, 6, implicit-def dead $psw, implicit-def $c
+    %2:gr16 = MOVri4 0, implicit-def dead $psw
+    %3:gr16 = ADDCri3 %2, 0, implicit-def dead $psw, implicit-def dead $c, implicit $psw, implicit $c
+    BR %bb.1
+
+  bb.1:
+    successors: %bb.1(0x40000000), %bb.2(0x40000000)
+
+    %4:gr16 = PHI %0, %bb.0, %5, %bb.1
+    %5:gr16 = ADDri3 %4, 2, implicit-def dead $psw, implicit-def dead $c
+    CMPBRi %5, 8, 0, %bb.2, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.2:
+    $r12 = COPY %1
+    $r13 = COPY %3
+    RETS
+
+# CHECK-LABEL: name: keep_live_carry_offset
+# CHECK:       %1:gr16 = ADDri3 %0, 6
+...

@@ -1,0 +1,853 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-ra \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @decrement_by_two_loop_compare() { ret void }
+  define void @decrement_by_one_full_compare() { ret void }
+  define void @increment_by_one_loop_compare() { ret void }
+  define void @increment_by_two_full_compare() { ret void }
+  define void @loop_compare_intervening_copy() { ret void }
+  define void @loop_compare_intervening_value_use() { ret void }
+  define void @loop_compare_intervening_flag_use() { ret void }
+  define void @loop_compare_live_carry() { ret void }
+  define void @loop_relational_compare() { ret void }
+  define void @dead_negative_equality_compare() { ret void }
+  define void @dead_negative_inequality_compare() { ret void }
+  define void @live_value_compare() { ret void }
+  define void @live_carry_compare() { ret void }
+  define void @relational_compare() { ret void }
+  define void @large_negative_compare() { ret void }
+  define void @negative_add_dead_carry() { ret void }
+  define void @negative_add_ult_branch() { ret void }
+  define void @negative_add_uge_branch() { ret void }
+  define void @negative_add_live_carry() { ret void }
+  define void @large_negative_add() { ret void }
+  define void @masked_carry_shift() { ret void }
+  define void @live_masked_shift_result() { ret void }
+  define void @greater_than_negative_one() { ret void }
+  define void @less_equal_negative_one() { ret void }
+  define void @negative_one_branch_live_flags() { ret void }
+  define void @zero_and_discards_reaching_copy() { ret void }
+  define void @zero_and_intervening_use() { ret void }
+  define void @zero_and_live_flags() { ret void }
+  define void @copied_one_bit_compare_branch() { ret void }
+  define void @copied_one_bit_direct_branch() { ret void }
+  define void @copied_one_bit_live_value() { ret void }
+  define void @copied_one_bit_source_clobber() { ret void }
+  define void @copied_one_bit_source_read() { ret void }
+  define void @copied_one_bit_live_flags() { ret void }
+  define void @copied_multi_bit_compare_branch() { ret void }
+  define void @copied_one_bit_extension() { ret void }
+...
+---
+name:            decrement_by_two_loop_compare
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1
+
+    $r1 = SUBri3 killed $r1, 2, implicit-def dead $psw, implicit-def dead $c
+    CMPri16 $r1, -2, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    liveins: $r1
+    RETS implicit $r1
+
+# CHECK-LABEL: name: decrement_by_two_loop_compare
+# CHECK:       $r1 = CMPD2ri4 killed $r1, 0, implicit-def $psw, implicit-def dead $c
+# CHECK-NEXT:  JMPR_NE %bb.2, implicit $psw
+...
+---
+name:            decrement_by_one_full_compare
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r2
+
+    $r2 = SUBri3 killed $r2, 1, implicit-def dead $psw, implicit-def dead $c
+    CMPri16 killed $r2, 4660, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: decrement_by_one_full_compare
+# CHECK:       dead $r2 = CMPD1ri16 killed $r2, 4661, implicit-def $psw, implicit-def dead $c
+# CHECK-NEXT:  JMPR_EQ %bb.2, implicit $psw
+...
+---
+name:            increment_by_one_loop_compare
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r3
+
+    $r3 = ADDri3 killed $r3, 1, implicit-def dead $psw, implicit-def dead $c
+    CMPri3 killed $r3, 1, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: increment_by_one_loop_compare
+# CHECK:       dead $r3 = CMPI1ri4 killed $r3, 0, implicit-def $psw, implicit-def dead $c
+# CHECK-NEXT:  JMPR_NE %bb.2, implicit $psw
+...
+---
+name:            increment_by_two_full_compare
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    $r4 = ADDri3 killed $r4, 2, implicit-def dead $psw, implicit-def dead $c
+    CMPri3 killed $r4, 0, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: increment_by_two_full_compare
+# CHECK:       dead $r4 = CMPI2ri16 killed $r4, 65534, implicit-def $psw, implicit-def dead $c
+# CHECK-NEXT:  JMPR_EQ %bb.2, implicit $psw
+...
+---
+name:            loop_compare_intervening_copy
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r5
+
+    $r1 = ADDri3 killed $r1, 2, implicit-def dead $psw, implicit-def dead $c
+    $r2 = MOVrr killed $r5, implicit-def dead $psw
+    CMPri16 killed $r1, 8, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $r2
+    RETS implicit $r2
+
+  bb.2:
+    liveins: $r2
+    RETS implicit $r2
+
+# CHECK-LABEL: name: loop_compare_intervening_copy
+# CHECK:       $r2 = MOVrr killed $r5, implicit-def dead $psw
+# CHECK-NEXT:  dead $r1 = CMPI2ri4 killed $r1, 6, implicit-def $psw, implicit-def dead $c
+# CHECK-NEXT:  JMPR_NE %bb.2, implicit $psw
+...
+---
+name:            loop_compare_intervening_value_use
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1
+
+    $r1 = ADDri3 killed $r1, 2, implicit-def dead $psw, implicit-def dead $c
+    $r2 = MOVrr $r1, implicit-def dead $psw
+    CMPri16 killed $r1, 8, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $r2
+    RETS implicit $r2
+
+  bb.2:
+    liveins: $r2
+    RETS implicit $r2
+
+# CHECK-LABEL: name: loop_compare_intervening_value_use
+# CHECK:       $r1 = ADDri3 killed $r1, 2
+# CHECK-NEXT:  $r2 = MOVrr $r1
+# CHECK-NEXT:  CMPri16 killed $r1, 8
+# CHECK-NEXT:  JMPR_NE %bb.2
+...
+name:            loop_compare_intervening_flag_use
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r6, $r7
+
+    $r1 = ADDri3 killed $r1, 2, implicit-def $psw, implicit-def $c
+    $r6 = ADDCrr killed $r6, killed $r7, implicit-def dead $psw, implicit-def dead $c, implicit $psw, implicit killed $c
+    CMPri16 killed $r1, 8, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $r6
+    RETS implicit $r6
+
+  bb.2:
+    liveins: $r6
+    RETS implicit $r6
+
+# CHECK-LABEL: name: loop_compare_intervening_flag_use
+# CHECK:       $r1 = ADDri3 killed $r1, 2
+# CHECK-NEXT:  $r6 = ADDCrr killed $r6, killed $r7
+# CHECK-NEXT:  CMPri16 killed $r1, 8
+# CHECK-NEXT:  JMPR_NE %bb.2
+...
+---
+name:            loop_compare_live_carry
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r5
+
+    $r5 = SUBri3 killed $r5, 2, implicit-def dead $psw, implicit-def dead $c
+    CMPri16 killed $r5, -2, implicit-def $psw, implicit-def $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $c
+    RETS implicit $c
+
+  bb.2:
+    liveins: $c
+    RETS implicit $c
+
+# CHECK-LABEL: name: loop_compare_live_carry
+# CHECK:       $r5 = SUBri3 killed $r5, 2
+# CHECK-NEXT:  CMPri16 killed $r5, -2
+# CHECK-NEXT:  JMPR_NE %bb.2
+...
+---
+name:            loop_relational_compare
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r6
+
+    $r6 = SUBri3 killed $r6, 2, implicit-def dead $psw, implicit-def dead $c
+    CMPri16 killed $r6, -2, implicit-def $psw, implicit-def $c
+    JMPR_ULT %bb.2, implicit $psw, implicit $c
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: loop_relational_compare
+# CHECK:       $r6 = SUBri3 killed $r6, 2
+# CHECK-NEXT:  CMPri16 killed $r6, -2
+# CHECK-NEXT:  JMPR_ULT %bb.2
+...
+---
+name:            dead_negative_equality_compare
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    CMPri16 killed $r4, -1, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: dead_negative_equality_compare
+# CHECK:       $r4 = ADDri3 killed $r4, 1, implicit-def $psw, implicit-def dead $c
+# CHECK-NEXT:  JMPR_EQ %bb.2, implicit $psw
+...
+---
+name:            dead_negative_inequality_compare
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r5
+
+    CMPri16 killed $r5, -7, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: dead_negative_inequality_compare
+# CHECK:       $r5 = ADDri3 killed $r5, 7, implicit-def $psw, implicit-def dead $c
+# CHECK-NEXT:  JMPR_NE %bb.2, implicit $psw
+...
+---
+name:            live_value_compare
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    CMPri16 $r4, -1, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $r4
+    RETS implicit $r4
+
+  bb.2:
+    liveins: $r4
+    RETS implicit $r4
+
+# CHECK-LABEL: name: live_value_compare
+# CHECK:       CMPri16 $r4, -1
+# CHECK-NEXT:  JMPR_EQ %bb.2
+...
+---
+name:            live_carry_compare
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    CMPri16 killed $r4, -1, implicit-def $psw, implicit-def $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $c
+    RETS implicit $c
+
+  bb.2:
+    liveins: $c
+    RETS implicit $c
+
+# CHECK-LABEL: name: live_carry_compare
+# CHECK:       CMPri16 killed $r4, -1
+# CHECK-NEXT:  JMPR_EQ %bb.2
+...
+---
+name:            relational_compare
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    CMPri16 killed $r4, -1, implicit-def $psw, implicit-def $c
+    JMPR_ULT %bb.2, implicit $psw, implicit $c
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: relational_compare
+# CHECK:       CMPri16 killed $r4, -1
+# CHECK-NEXT:  JMPR_ULT %bb.2
+...
+---
+name:            large_negative_compare
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    CMPri16 killed $r4, -8, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: large_negative_compare
+# CHECK:       CMPri16 killed $r4, -8
+# CHECK-NEXT:  JMPR_EQ %bb.2
+...
+---
+name:            negative_add_dead_carry
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    $r4 = ADDri16 killed $r4, 65529, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $r4
+    RETS implicit $r4
+
+  bb.2:
+    liveins: $r4
+    RETS implicit $r4
+
+# CHECK-LABEL: name: negative_add_dead_carry
+# CHECK:       $r4 = SUBri3 killed $r4, 7, implicit-def $psw, implicit-def dead $c
+# CHECK-NEXT:  JMPR_EQ %bb.2, implicit $psw
+...
+---
+name:            negative_add_ult_branch
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r5
+
+    $r5 = ADDri16 killed $r5, 65535, implicit-def $psw, implicit-def $c
+    JMPR_ULT %bb.2, implicit $psw, implicit $c
+
+  bb.1:
+    liveins: $r5
+    RETS implicit $r5
+
+  bb.2:
+    liveins: $r5
+    RETS implicit $r5
+
+# CHECK-LABEL: name: negative_add_ult_branch
+# CHECK:       $r5 = SUBri3 killed $r5, 1, implicit-def $psw, implicit-def $c
+# CHECK-NEXT:  JMPR_UGE %bb.2, implicit $psw, implicit $c
+...
+---
+name:            negative_add_uge_branch
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r6
+
+    $r6 = ADDri16 killed $r6, 65534, implicit-def $psw, implicit-def $c
+    JMPR_UGE %bb.2, implicit $psw, implicit $c
+
+  bb.1:
+    liveins: $r6
+    RETS implicit $r6
+
+  bb.2:
+    liveins: $r6
+    RETS implicit $r6
+
+# CHECK-LABEL: name: negative_add_uge_branch
+# CHECK:       $r6 = SUBri3 killed $r6, 2, implicit-def $psw, implicit-def $c
+# CHECK-NEXT:  JMPR_ULT %bb.2, implicit $psw, implicit $c
+...
+---
+name:            negative_add_live_carry
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r7
+
+    $r7 = ADDri16 killed $r7, 65535, implicit-def dead $psw, implicit-def $c
+    RETS implicit $r7, implicit $c
+
+# CHECK-LABEL: name: negative_add_live_carry
+# CHECK:       $r7 = ADDri16 killed $r7, 65535
+# CHECK-NEXT:  RETS implicit $r7, implicit $c
+...
+---
+name:            large_negative_add
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r8
+
+    $r8 = ADDri16 killed $r8, 65528, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r8
+
+# CHECK-LABEL: name: large_negative_add
+# CHECK:       $r8 = ADDri16 killed $r8, 65528
+# CHECK-NEXT:  RETS implicit $r8
+...
+---
+name:            masked_carry_shift
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r9, $r10, $r11
+
+    $r9 = ANDri3 killed $r9, 1, implicit-def dead $psw, implicit-def dead $c
+    dead $r9 = SHRri4 killed $r9, 1, implicit-def $psw, implicit-def $c
+    $r10 = SUBCrr killed $r10, killed $r11, implicit-def dead $psw, implicit-def dead $c, implicit $psw, implicit killed $c
+    RETS implicit $r10
+
+# CHECK-LABEL: name: masked_carry_shift
+# CHECK:       dead $r9 = SHRri4 killed $r9, 1, implicit-def $psw, implicit-def $c
+# CHECK-NEXT:  $r10 = SUBCrr killed $r10, killed $r11
+# CHECK-NEXT:  RETS implicit $r10
+...
+---
+name:            live_masked_shift_result
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r12
+
+    $r12 = ANDri3 killed $r12, 1, implicit-def dead $psw, implicit-def dead $c
+    $r12 = SHRri4 killed $r12, 1, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r12
+
+# CHECK-LABEL: name: live_masked_shift_result
+# CHECK:       $r12 = ANDri3 killed $r12, 1
+# CHECK-NEXT:  $r12 = SHRri4 killed $r12, 1
+# CHECK-NEXT:  RETS implicit $r12
+...
+---
+name:            greater_than_negative_one
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r13
+
+    CMPri16 $r13, 65535, implicit-def $psw, implicit-def dead $c
+    JMPR_SGT %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $r13
+    RETS implicit $r13
+
+  bb.2:
+    liveins: $r13
+    RETS implicit $r13
+
+# CHECK-LABEL: name: greater_than_negative_one
+# CHECK:       JNBreg $r13, 15, %bb.2
+# CHECK:       bb.1:
+...
+---
+name:            less_equal_negative_one
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r14
+
+    CMPri16 $r14, -1, implicit-def $psw, implicit-def dead $c
+    JMPR_SLE %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $r14
+    RETS implicit $r14
+
+  bb.2:
+    liveins: $r14
+    RETS implicit $r14
+
+# CHECK-LABEL: name: less_equal_negative_one
+# CHECK:       JBreg $r14, 15, %bb.2
+# CHECK:       bb.1:
+...
+---
+name:            negative_one_branch_live_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r15
+
+    CMPri16 $r15, -1, implicit-def $psw, implicit-def $c
+    JMPR_SLE %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $psw, $c
+    RETS implicit $psw, implicit $c
+
+  bb.2:
+    liveins: $psw, $c
+    RETS implicit $psw, implicit $c
+
+# CHECK-LABEL: name: negative_one_branch_live_flags
+# CHECK:       CMPri16 $r15, -1
+# CHECK-NEXT:  JMPR_SLE %bb.2
+...
+---
+name:            zero_and_discards_reaching_copy
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r5, $r6
+
+    $r4 = MOVrr killed $r5, implicit-def $psw
+    $r6 = ADDri3 killed $r6, 1, implicit-def dead $psw, implicit-def dead $c
+    $r4 = ANDri16 killed $r4, 0, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r4, implicit $r6
+
+# CHECK-LABEL: name: zero_and_discards_reaching_copy
+# CHECK-NOT:   $r4 = MOVrr
+# CHECK:       $r6 = ADDri3 killed $r6, 1
+# CHECK-NEXT:  $r4 = MOVri4 0, implicit-def dead $psw
+# CHECK-NEXT:  RETS implicit $r4, implicit $r6
+...
+---
+name:            zero_and_intervening_use
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r5
+
+    $r4 = MOVrr killed $r5, implicit-def dead $psw
+    $r6 = MOVrr $r4, implicit-def dead $psw
+    $r4 = ANDri3 killed $r4, 0, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r4, implicit $r6
+
+# CHECK-LABEL: name: zero_and_intervening_use
+# CHECK:       $r4 = MOVrr killed $r5
+# CHECK-NEXT:  $r6 = MOVrr $r4
+# CHECK-NEXT:  $r4 = MOVri4 0, implicit-def dead $psw
+# CHECK-NEXT:  RETS implicit $r4, implicit $r6
+...
+---
+name:            zero_and_live_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r5
+
+    $r4 = MOVrr killed $r5, implicit-def dead $psw
+    $r4 = ANDri3 killed $r4, 0, implicit-def $psw, implicit-def $c
+    RETS implicit $r4, implicit $psw, implicit $c
+
+# CHECK-LABEL: name: zero_and_live_flags
+# CHECK:       $r4 = MOVrr killed $r5
+# CHECK-NEXT:  $r4 = ANDri3 killed $r4, 0
+# CHECK-NEXT:  RETS implicit $r4, implicit $psw, implicit $c
+...
+---
+name:            copied_one_bit_compare_branch
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    $r1 = MOVrr $r4, implicit-def $psw
+    $r1 = ANDri3 killed $r1, 4, implicit-def dead $psw, implicit-def dead $c
+    $r3 = MOVri16 48, implicit-def dead $psw
+    CMPri3 killed $r1, 0, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $r3, $r4
+    RETS implicit $r3, implicit $r4
+
+  bb.2:
+    liveins: $r3, $r4
+    RETS implicit $r3, implicit $r4
+
+# CHECK-LABEL: name: copied_one_bit_compare_branch
+# CHECK-NOT:   $r1 = MOVrr
+# CHECK-NOT:   ANDri3
+# CHECK:       $r3 = MOVri16 48
+# CHECK-NEXT:  JBreg $r4, 2, %bb.2
+...
+---
+name:            copied_one_bit_direct_branch
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r5
+
+    $r2 = MOVrr $r5, implicit-def dead $psw
+    $r2 = ANDri3 killed $r2, 1, implicit-def $psw, implicit-def dead $c
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $r5
+    RETS implicit $r5
+
+  bb.2:
+    liveins: $r5
+    RETS implicit $r5
+
+# CHECK-LABEL: name: copied_one_bit_direct_branch
+# CHECK-NOT:   $r2 = MOVrr
+# CHECK-NOT:   ANDri3
+# CHECK:       JNBreg $r5, 0, %bb.2
+...
+---
+name:            copied_one_bit_live_value
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    $r1 = MOVrr $r4, implicit-def dead $psw
+    $r1 = ANDri3 killed $r1, 4, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $r1
+    RETS implicit $r1
+
+  bb.2:
+    liveins: $r1
+    RETS implicit $r1
+
+# CHECK-LABEL: name: copied_one_bit_live_value
+# CHECK:       $r1 = MOVrr $r4
+# CHECK-NEXT:  $r1 = ANDri3 killed $r1, 4
+# CHECK-NEXT:  JMPR_NE %bb.2
+...
+name:            copied_one_bit_source_clobber
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    $r1 = MOVrr killed $r4, implicit-def dead $psw
+    $r1 = ANDri3 killed $r1, 4, implicit-def dead $psw, implicit-def dead $c
+    $r4 = MOVri4 0, implicit-def dead $psw
+    CMPri3 killed $r1, 0, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $r4
+    RETS implicit $r4
+
+  bb.2:
+    liveins: $r4
+    RETS implicit $r4
+
+# CHECK-LABEL: name: copied_one_bit_source_clobber
+# CHECK-NOT:   JBreg
+# CHECK-NOT:   JNBreg
+# CHECK:       $r1 = MOVrr killed $r4
+# CHECK-NEXT:  $r4 = MOVri4 0
+# CHECK-NEXT:  dead $r1 = ANDri3 killed $r1, 4
+# CHECK-NEXT:  JMPR_NE %bb.2
+...
+---
+name:            copied_one_bit_source_read
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    $r1 = MOVrr $r4, implicit-def dead $psw
+    $r1 = ANDri3 killed $r1, 4, implicit-def dead $psw, implicit-def dead $c
+    $r3 = MOVrr killed $r4, implicit-def dead $psw
+    CMPri3 killed $r1, 0, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $r3
+    RETS implicit $r3
+
+  bb.2:
+    liveins: $r3
+    RETS implicit $r3
+
+# CHECK-LABEL: name: copied_one_bit_source_read
+# CHECK-NOT:   JBreg
+# CHECK-NOT:   JNBreg
+# CHECK:       $r1 = MOVrr $r4
+# CHECK-NEXT:  $r3 = MOVrr killed $r4
+# CHECK-NEXT:  dead $r1 = ANDri3 killed $r1, 4
+# CHECK-NEXT:  JMPR_NE %bb.2
+...
+---
+name:            copied_one_bit_live_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    $r1 = MOVrr $r4, implicit-def dead $psw
+    $r1 = ANDri3 killed $r1, 4, implicit-def dead $psw, implicit-def dead $c
+    CMPri3 killed $r1, 0, implicit-def $psw, implicit-def $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    liveins: $psw, $c
+    RETS implicit $psw, implicit $c
+
+  bb.2:
+    liveins: $psw, $c
+    RETS implicit $psw, implicit $c
+
+# CHECK-LABEL: name: copied_one_bit_live_flags
+# CHECK:       $r1 = MOVrr $r4
+# CHECK-NEXT:  $r1 = ANDri3 killed $r1, 4
+# CHECK-NEXT:  CMPri3 killed $r1, 0
+# CHECK-NEXT:  JMPR_NE %bb.2
+...
+---
+name:            copied_multi_bit_compare_branch
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    $r1 = MOVrr $r4, implicit-def dead $psw
+    $r1 = ANDri3 killed $r1, 3, implicit-def dead $psw, implicit-def dead $c
+    CMPri3 killed $r1, 0, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: copied_multi_bit_compare_branch
+# CHECK:       $r1 = MOVrr $r4
+# CHECK-NEXT:  dead $r1 = ANDri3 killed $r1, 3
+# CHECK-NEXT:  JMPR_NE %bb.2
+...
+---
+name:            copied_one_bit_extension
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4, $r13
+
+    EXTPr $r13, 2
+    $r1 = MOVrr $r4, implicit-def dead $psw
+    $r1 = ANDri3 killed $r1, 4, implicit-def $psw, implicit-def dead $c
+    JMPR_NE %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: copied_one_bit_extension
+# CHECK:       EXTPr $r13, 2
+# CHECK-NEXT:  $r1 = MOVrr $r4
+# CHECK-NEXT:  $r1 = ANDri3 killed $r1, 4
+# CHECK-NEXT:  JMPR_NE %bb.2
+...

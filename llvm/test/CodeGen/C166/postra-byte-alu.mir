@@ -1,0 +1,426 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-ra \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @fold_unsigned_compare() { ret void }
+  define void @keep_compare_flags() { ret void }
+  define void @fold_unsigned_immediate_compare() { ret void }
+  define void @fold_unsigned_large_immediate_compare() { ret void }
+  define void @keep_immediate_compare_flags() { ret void }
+  define void @keep_large_immediate_compare_flags() { ret void }
+  define void @fold_byte_add() { ret void }
+  define void @fold_byte_subtract() { ret void }
+  define void @fold_byte_logic() { ret void }
+  define void @fold_byte_large_immediate_alu() { ret void }
+  define void @fold_byte_negate() { ret void }
+  define void @fold_byte_complement() { ret void }
+  define void @fold_byte_register_alu() { ret void }
+  define void @keep_live_register_operand() { ret void }
+  define void @keep_unaddressable_register_operand() { ret void }
+  define void @keep_live_word() { ret void }
+  define void @fold_wrapped_byte_immediate() { ret void }
+  define void @keep_extension_without_alu() { ret void }
+  define void @keep_live_flags() { ret void }
+  define void @keep_extended_byte_alu() { ret void }
+...
+---
+name:            fold_unsigned_compare
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r2
+
+    $r1 = MOVBZrr $rl1, implicit-def $psw
+    $r2 = MOVBZrr $rl2, implicit-def $psw
+    CMPrr killed $r2, killed $r1, implicit-def $psw, implicit-def $c
+    $r4 = MOVri4 0, implicit-def $psw
+    $r4 = ADDCri3 killed $r4, 0, implicit-def dead $psw, implicit-def dead $c, implicit $psw, implicit killed $c
+    RETS implicit $r4
+
+# CHECK-LABEL: name: fold_unsigned_compare
+# CHECK:       CMPBrr killed $rl2, killed $rl1, implicit-def dead $psw, implicit-def $c
+# CHECK-NEXT:  $r4 = MOVri4 0
+...
+---
+name:            keep_compare_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r2
+
+    $r1 = MOVBZrr $rl1, implicit-def $psw
+    $r2 = MOVBZrr $rl2, implicit-def $psw
+    CMPrr killed $r2, killed $r1, implicit-def $psw, implicit-def dead $c
+    JMPR_SLT %bb.2, implicit killed $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_compare_flags
+# CHECK:       $r1 = MOVBZrr $rl1
+# CHECK-NEXT:  $r2 = MOVBZrr $rl2
+# CHECK-NEXT:  CMPrr killed $r2, killed $r1
+...
+---
+name:            fold_unsigned_immediate_compare
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1
+
+    $r1 = MOVBZrr $rl1, implicit-def $psw
+    CMPri3 killed $r1, 3, implicit-def $psw, implicit-def $c
+    $r4 = MOVri4 0, implicit-def $psw
+    $r4 = ADDCri3 killed $r4, 0, implicit-def dead $psw, implicit-def dead $c, implicit $psw, implicit killed $c
+    RETS implicit $r4
+
+# CHECK-LABEL: name: fold_unsigned_immediate_compare
+# CHECK:       CMPBri3 killed $rl1, 3, implicit-def dead $psw, implicit-def $c
+# CHECK-NEXT:  $r4 = MOVri4 0
+...
+---
+name:            fold_unsigned_large_immediate_compare
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1
+
+    $r1 = MOVBZrr $rl1, implicit-def $psw
+    CMPri16 killed $r1, 200, implicit-def $psw, implicit-def $c
+    $r4 = MOVri4 0, implicit-def $psw
+    $r4 = ADDCri3 killed $r4, 0, implicit-def dead $psw, implicit-def dead $c, implicit $psw, implicit killed $c
+    RETS implicit $r4
+
+# CHECK-LABEL: name: fold_unsigned_large_immediate_compare
+# CHECK:       CMPBri8 killed $rl1, 200, implicit-def dead $psw, implicit-def $c
+# CHECK-NEXT:  $r4 = MOVri4 0
+...
+---
+name:            keep_immediate_compare_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1
+
+    $r1 = MOVBZrr $rl1, implicit-def $psw
+    CMPri3 killed $r1, 3, implicit-def $psw, implicit-def dead $c
+    JMPR_SLT %bb.2, implicit killed $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_immediate_compare_flags
+# CHECK:       $r1 = MOVBZrr $rl1
+# CHECK-NEXT:  CMPri3 killed $r1, 3
+...
+---
+name:            keep_large_immediate_compare_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1
+
+    $r1 = MOVBZrr $rl1, implicit-def $psw
+    CMPri16 killed $r1, 200, implicit-def $psw, implicit-def dead $c
+    JMPR_SLT %bb.2, implicit killed $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_large_immediate_compare_flags
+# CHECK:       $r1 = MOVBZrr $rl1
+# CHECK-NEXT:  CMPri16 killed $r1, 200
+...
+---
+name:            fold_byte_add
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r12
+
+    $r1 = MOVBZrr $rl1, implicit-def $psw
+    $r1 = ADDri3 killed $r1, 1, implicit-def dead $psw, implicit-def dead $c
+    MOVBmr killed $r12, $rl1, implicit-def dead $psw :: (store (s8))
+    RETS
+
+# CHECK-LABEL: name: fold_byte_add
+# CHECK:       $rl1 = ADDBri3 killed $rl1, 1, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  MOVBmr killed $r12, $rl1
+...
+---
+name:            fold_byte_subtract
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r12
+
+    $r1 = MOVBZrr $rl1, implicit-def $psw
+    $r1 = SUBri3 killed $r1, 7, implicit-def dead $psw, implicit-def dead $c
+    MOVBmr killed $r12, $rl1, implicit-def dead $psw :: (store (s8))
+    RETS
+
+# CHECK-LABEL: name: fold_byte_subtract
+# CHECK:       $rl1 = SUBBri3 killed $rl1, 7, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  MOVBmr killed $r12, $rl1
+...
+---
+name:            fold_byte_logic
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3, $r12, $r13, $r14
+
+    $r1 = MOVBZrr $rl1, implicit-def $psw
+    $r1 = XORri3 killed $r1, 1, implicit-def dead $psw, implicit-def dead $c
+    MOVBmr $r12, $rl1, implicit-def dead $psw :: (store (s8))
+    $r2 = MOVBZrr $rl2, implicit-def $psw
+    $r2 = ANDri3 killed $r2, 6, implicit-def dead $psw, implicit-def dead $c
+    MOVBmr $r13, $rl2, implicit-def dead $psw :: (store (s8))
+    $r3 = MOVBZrr $rl3, implicit-def $psw
+    $r3 = ORri3 killed $r3, 7, implicit-def dead $psw, implicit-def dead $c
+    MOVBmr killed $r14, $rl3, implicit-def dead $psw :: (store (s8))
+    RETS
+
+# CHECK-LABEL: name: fold_byte_logic
+# CHECK:       $rl1 = XORBri3 killed $rl1, 1, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  MOVBmr $r12, $rl1
+# CHECK-NEXT:  $rl2 = ANDBri3 killed $rl2, 6, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  MOVBmr $r13, $rl2
+# CHECK-NEXT:  $rl3 = ORBri3 killed $rl3, 7, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  MOVBmr killed $r14, $rl3
+...
+---
+name:            fold_byte_large_immediate_alu
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3, $r4, $r5, $r12, $r13, $r14, $r15
+
+    $r1 = MOVBZrr $rl1, implicit-def dead $psw
+    $r1 = ADDri16 killed $r1, 200, implicit-def dead $psw, implicit-def dead $c
+    MOVBmr $r12, $rl1, implicit-def dead $psw :: (store (s8))
+    $r2 = MOVBZrr $rl2, implicit-def dead $psw
+    $r2 = SUBri16 killed $r2, 129, implicit-def dead $psw, implicit-def dead $c
+    MOVBmr $r13, $rl2, implicit-def dead $psw :: (store (s8))
+    $r3 = MOVBZrr $rl3, implicit-def dead $psw
+    $r3 = XORri16 killed $r3, 195, implicit-def dead $psw, implicit-def dead $c
+    MOVBmr $r14, $rl3, implicit-def dead $psw :: (store (s8))
+    $r4 = MOVBZrr $rl4, implicit-def dead $psw
+    $r4 = ANDri16 killed $r4, 240, implicit-def dead $psw, implicit-def dead $c
+    MOVBmr $r15, $rl4, implicit-def dead $psw :: (store (s8))
+    $r5 = MOVBZrr $rl5, implicit-def dead $psw
+    $r5 = ORri16 killed $r5, 128, implicit-def dead $psw, implicit-def dead $c
+    MOVBmr killed $r12, $rl5, implicit-def dead $psw :: (store (s8))
+    RETS
+
+# CHECK-LABEL: name: fold_byte_large_immediate_alu
+# CHECK-NOT:   MOVBZrr
+# CHECK:       $rl1 = ADDBri8 killed $rl1, 200
+# CHECK:       $rl2 = SUBBri8 killed $rl2, 129
+# CHECK:       $rl3 = XORBri8 killed $rl3, 195
+# CHECK:       $rl4 = ANDBri8 killed $rl4, 240
+# CHECK:       $rl5 = ORBri8 killed $rl5, 128
+...
+---
+name:            fold_byte_negate
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r12
+
+    $r1 = MOVBZrr $rl1, implicit-def $psw
+    $r1 = NEG killed $r1, implicit-def dead $psw, implicit-def dead $c
+    MOVBmr killed $r12, $rl1, implicit-def dead $psw :: (store (s8))
+    RETS
+
+# CHECK-LABEL: name: fold_byte_negate
+# CHECK:       $rl1 = NEGB killed $rl1, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  MOVBmr killed $r12, $rl1
+...
+---
+name:            fold_byte_complement
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r12
+
+    $r1 = MOVBZrr $rl1, implicit-def $psw
+    $r1 = CPL killed $r1, implicit-def dead $psw, implicit-def dead $c
+    MOVBmr killed $r12, $rl1, implicit-def dead $psw :: (store (s8))
+    RETS
+
+# CHECK-LABEL: name: fold_byte_complement
+# CHECK:       $rl1 = CPLB killed $rl1, implicit-def dead $psw, implicit-def dead $c
+# CHECK-NEXT:  MOVBmr killed $r12, $rl1
+...
+---
+name:            fold_byte_register_alu
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r4, $r12
+
+    $r1 = MOVBZrr $rl1, implicit-def dead $psw
+    dead $r3 = MOVrr killed $r4, implicit-def dead $psw
+    $r2 = MOVBZrr $rl2, implicit-def dead $psw
+    $r2 = ADDrr killed $r2, $r1, implicit-def dead $psw, implicit-def dead $c
+    MOVBmr $r12, $rl2, implicit-def dead $psw :: (store (s8))
+    $r1 = MOVBZrr $rl1, implicit-def dead $psw
+    $r2 = MOVBZrr $rl2, implicit-def dead $psw
+    $r2 = SUBrr killed $r2, $r1, implicit-def dead $psw, implicit-def dead $c
+    MOVBmr $r12, $rl2, implicit-def dead $psw :: (store (s8))
+    $r1 = MOVBZrr $rl1, implicit-def dead $psw
+    $r2 = MOVBZrr $rl2, implicit-def dead $psw
+    $r2 = XORrr killed $r2, $r1, implicit-def dead $psw, implicit-def dead $c
+    MOVBmr $r12, $rl2, implicit-def dead $psw :: (store (s8))
+    $r1 = MOVBZrr $rl1, implicit-def dead $psw
+    $r2 = MOVBZrr $rl2, implicit-def dead $psw
+    $r2 = ANDrr killed $r2, $r1, implicit-def dead $psw, implicit-def dead $c
+    MOVBmr $r12, $rl2, implicit-def dead $psw :: (store (s8))
+    $r1 = MOVBZrr $rl1, implicit-def dead $psw
+    $r2 = MOVBZrr $rl2, implicit-def dead $psw
+    $r2 = ORrr killed $r2, killed $r1, implicit-def dead $psw, implicit-def dead $c
+    MOVBmr killed $r12, $rl2, implicit-def dead $psw :: (store (s8))
+    RETS
+
+# CHECK-LABEL: name: fold_byte_register_alu
+# CHECK-NOT:   MOVBZrr
+# CHECK:       $rl2 = ADDBrr killed $rl2, $rl1
+# CHECK:       $rl2 = SUBBrr killed $rl2, $rl1
+# CHECK:       $rl2 = XORBrr killed $rl2, $rl1
+# CHECK:       $rl2 = ANDBrr killed $rl2, $rl1
+# CHECK:       $rl2 = ORBrr killed $rl2, killed $rl1
+...
+---
+name:            keep_live_register_operand
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r12
+
+    $r1 = MOVBZrr $rl1, implicit-def dead $psw
+    $r2 = MOVBZrr $rl2, implicit-def dead $psw
+    $r2 = ADDrr killed $r2, $r1, implicit-def dead $psw, implicit-def dead $c
+    MOVBmr killed $r12, $rl2, implicit-def dead $psw :: (store (s8))
+    RETS implicit $r1
+
+# CHECK-LABEL: name: keep_live_register_operand
+# CHECK:       $r1 = MOVBZrr $rl1
+# CHECK-NOT:   $r2 = MOVBZrr
+# CHECK:       $rl2 = ADDBrr killed $rl2, $rl1
+# CHECK:       RETS implicit $r1
+...
+---
+name:            keep_unaddressable_register_operand
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2, $r8, $r12
+
+    $r2 = MOVBZrr $rl2, implicit-def dead $psw
+    $r2 = ADDrr killed $r2, killed $r8, implicit-def dead $psw, implicit-def dead $c
+    MOVBmr killed $r12, $rl2, implicit-def dead $psw :: (store (s8))
+    RETS
+
+# CHECK-LABEL: name: keep_unaddressable_register_operand
+# CHECK:       $r2 = MOVBZrr $rl2
+# CHECK-NEXT:  $r2 = ADDrr killed $r2, killed $r8
+...
+---
+name:            keep_live_word
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1
+
+    $r1 = MOVBZrr $rl1, implicit-def $psw
+    $r1 = ADDri3 killed $r1, 1, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r1
+
+# CHECK-LABEL: name: keep_live_word
+# CHECK:       $r1 = MOVBZrr $rl1
+# CHECK-NEXT:  $r1 = ADDri3 killed $r1, 1
+...
+---
+name:            fold_wrapped_byte_immediate
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r12
+
+    $r1 = MOVBZrr $rl1, implicit-def dead $psw
+    $r1 = ADDri16 killed $r1, 65480, implicit-def dead $psw, implicit-def dead $c
+    MOVBmr killed $r12, $rl1, implicit-def dead $psw :: (store (s8))
+    RETS
+
+# CHECK-LABEL: name: fold_wrapped_byte_immediate
+# CHECK-NOT:   MOVBZrr
+# CHECK:       $rl1 = ADDBri8 killed $rl1, 200
+...
+---
+name:            keep_extension_without_alu
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1
+
+    $r1 = MOVBZrr $rl1, implicit-def dead $psw
+    RETS implicit $r1
+
+# CHECK-LABEL: name: keep_extension_without_alu
+# CHECK:       $r1 = MOVBZrr $rl1
+# CHECK-NEXT:  RETS implicit $r1
+...
+---
+name:            keep_live_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1
+
+    $r1 = MOVBZrr $rl1, implicit-def $psw
+    $r1 = ADDri3 killed $r1, 1, implicit-def $psw, implicit-def dead $c
+    JMPR_SLT %bb.2, implicit killed $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_live_flags
+# CHECK:       $r1 = MOVBZrr $rl1
+# CHECK-NEXT:  $r1 = ADDri3 killed $r1, 1
+...
+---
+name:            keep_extended_byte_alu
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r1, $r13
+
+    EXTPr $r13, 3
+    $r1 = MOVBZrr $rl1, implicit-def $psw
+    $r1 = ADDri3 killed $r1, 1, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $rl1
+
+# CHECK-LABEL: name: keep_extended_byte_alu
+# CHECK:       EXTPr $r13, 3
+# CHECK-NEXT:  $r1 = MOVBZrr $rl1
+# CHECK-NEXT:  $r1 = ADDri3 killed $r1, 1
+...

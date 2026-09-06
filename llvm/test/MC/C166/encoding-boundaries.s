@@ -18,6 +18,38 @@ andb rl0, rh7
 orb rh7, rl0
 ; CHECK: orb rh7, rl0{{.*}}encoding: [0x71,0xf0]
 
+; Compact byte immediates and unary byte operations.
+addb rl0, #0
+; CHECK: addb rl0, #0{{.*}}encoding: [0x09,0x00]
+addb rh7, #7
+; CHECK: addb rh7, #7{{.*}}encoding: [0x09,0xf7]
+subb rl0, #0
+; CHECK: subb rl0, #0{{.*}}encoding: [0x29,0x00]
+subb rh7, #7
+; CHECK: subb rh7, #7{{.*}}encoding: [0x29,0xf7]
+cmpb rl0, #0
+; CHECK: cmpb rl0, #0{{.*}}encoding: [0x49,0x00]
+cmpb rh7, #7
+; CHECK: cmpb rh7, #7{{.*}}encoding: [0x49,0xf7]
+xorb rh7, #7
+; CHECK: xorb rh7, #7{{.*}}encoding: [0x59,0xf7]
+andb rh7, #7
+; CHECK: andb rh7, #7{{.*}}encoding: [0x69,0xf7]
+orb rh7, #7
+; CHECK: orb rh7, #7{{.*}}encoding: [0x79,0xf7]
+addb rl0, #8
+; CHECK: addb rl0, #8{{.*}}encoding: [0x07,0xf0,0x08,0x00]
+orb rh7, #255
+; CHECK: orb rh7, #255{{.*}}encoding: [0x77,0xff,0xff,0x00]
+negb rl0
+; CHECK: negb rl0{{.*}}encoding: [0xa1,0x00]
+negb rh7
+; CHECK: negb rh7{{.*}}encoding: [0xa1,0xf0]
+cplb rl0
+; CHECK: cplb rl0{{.*}}encoding: [0xb1,0x00]
+cplb rh7
+; CHECK: cplb rh7{{.*}}encoding: [0xb1,0xf0]
+
 ; Short immediate minima/maxima.
 add r0, #0
 ; CHECK: add r0, #0{{.*}}encoding: [0x08,0x00]

@@ -43,40 +43,38 @@ _start:
 ; RELOC-NEXT: }
 
 ; NEAR-LABEL: <_start>:
-; NEAR-NEXT:  10000: 2d 21{{.*}}jmpr cc_eq, 33
+; NEAR-NEXT:  10000: 2d 20{{.*}}jmpr cc_eq, 32
 ; NEAR-NEXT:  10002: cc 00{{.*}}nop
 ; NEAR-NEXT:  10004: cc 00{{.*}}nop
-; NEAR-NEXT:  10006: 3d 1e{{.*}}jmpr cc_ne, 30
-; NEAR:       1003c: 0d 03{{.*}}jmpr cc_uc, 3
+; NEAR-NEXT:  10006: 3d 1d{{.*}}jmpr cc_ne, 29
+; NEAR:       1003c: 0d 02{{.*}}jmpr cc_uc, 2
 ; NEAR-NEXT:  1003e: cc 00{{.*}}nop
 ; NEAR-NEXT:  10040: cc 00{{.*}}nop
-; NEAR-NEXT:  10042: cc 00{{.*}}nop
 ; NEAR-LABEL: <target>:
-; NEAR-NEXT:  10044: db 00{{.*}}rets
+; NEAR-NEXT:  10042: db 00{{.*}}rets
 
 ; FAR-LABEL: <_start>:
 ; FAR-NEXT:  10000: 3d 02{{.*}}jmpr cc_ne, 2
-; FAR-NEXT:  10002: fa 01 44 02{{.*}}jmps 1, 580
+; FAR-NEXT:  10002: fa 01 42 02{{.*}}jmps 1, 578
 ; FAR-NEXT:  10006: 2d 02{{.*}}jmpr cc_eq, 2
-; FAR-NEXT:  10008: fa 01 44 02{{.*}}jmps 1, 580
+; FAR-NEXT:  10008: fa 01 42 02{{.*}}jmps 1, 578
 ; FAR-NEXT:  1000c: 9d 02{{.*}}jmpr cc_uge, 2
-; FAR-NEXT:  1000e: fa 01 44 02{{.*}}jmps 1, 580
+; FAR-NEXT:  1000e: fa 01 42 02{{.*}}jmps 1, 578
 ; FAR-NEXT:  10012: 8d 02{{.*}}jmpr cc_ult, 2
-; FAR-NEXT:  10014: fa 01 44 02{{.*}}jmps 1, 580
+; FAR-NEXT:  10014: fa 01 42 02{{.*}}jmps 1, 578
 ; FAR-NEXT:  10018: bd 02{{.*}}jmpr cc_sle, 2
-; FAR-NEXT:  1001a: fa 01 44 02{{.*}}jmps 1, 580
+; FAR-NEXT:  1001a: fa 01 42 02{{.*}}jmps 1, 578
 ; FAR-NEXT:  1001e: ad 02{{.*}}jmpr cc_sgt, 2
-; FAR-NEXT:  10020: fa 01 44 02{{.*}}jmps 1, 580
+; FAR-NEXT:  10020: fa 01 42 02{{.*}}jmps 1, 578
 ; FAR-NEXT:  10024: dd 02{{.*}}jmpr cc_sge, 2
-; FAR-NEXT:  10026: fa 01 44 02{{.*}}jmps 1, 580
+; FAR-NEXT:  10026: fa 01 42 02{{.*}}jmps 1, 578
 ; FAR-NEXT:  1002a: cd 02{{.*}}jmpr cc_slt, 2
-; FAR-NEXT:  1002c: fa 01 44 02{{.*}}jmps 1, 580
+; FAR-NEXT:  1002c: fa 01 42 02{{.*}}jmps 1, 578
 ; FAR-NEXT:  10030: fd 02{{.*}}jmpr cc_ule, 2
-; FAR-NEXT:  10032: fa 01 44 02{{.*}}jmps 1, 580
+; FAR-NEXT:  10032: fa 01 42 02{{.*}}jmps 1, 578
 ; FAR-NEXT:  10036: ed 02{{.*}}jmpr cc_ugt, 2
-; FAR-NEXT:  10038: fa 01 44 02{{.*}}jmps 1, 580
-; FAR-NEXT:  1003c: fa 01 44 02{{.*}}jmps 1, 580
+; FAR-NEXT:  10038: fa 01 42 02{{.*}}jmps 1, 578
+; FAR-NEXT:  1003c: fa 01 42 02{{.*}}jmps 1, 578
 ; FAR-NEXT:  10040: cc 00{{.*}}nop
-; FAR-NEXT:  10042: cc 00{{.*}}nop
 ; FAR-LABEL: <target>:
-; FAR-NEXT:  10244: db 00{{.*}}rets
+; FAR-NEXT:  10242: db 00{{.*}}rets

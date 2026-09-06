@@ -12,6 +12,9 @@
 #include "C166InstrInfo.h"
 #include "C166MachineFunctionInfo.h"
 #include "C166Subtarget.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallBitVector.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -19,7 +22,9 @@
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/Target/TargetMachine.h"
 #include "llvm/TargetParser/C166TargetParser.h"
+#include <optional>
 
 using namespace llvm;
 
@@ -30,6 +35,755 @@ static bool isInterruptHandler(const MachineFunction &MF) {
 static bool hasNamedRegisterBank(const MachineFunction &MF) {
   return isInterruptHandler(MF) &&
          MF.getFunction().hasFnAttribute("c166-register-bank");
+}
+
+void C166FrameLowering::orderFrameObjects(
+    const MachineFunction &MF, SmallVectorImpl<int> &ObjectsToAllocate) const {
+  if (ObjectsToAllocate.size() < 2)
+    return;
+
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
+  DenseMap<int, uint64_t> ZeroOffsetUses;
+  for (int FI : ObjectsToAllocate)
+    ZeroOffsetUses[FI] = 0;
+
+  for (const MachineBasicBlock &MBB : MF)
+    for (const MachineInstr &MI : MBB) {
+      if (MI.isMetaInstruction())
+        continue;
+      for (unsigned I = 0; I != MI.getNumOperands(); ++I) {
+        const MachineOperand &MO = MI.getOperand(I);
+        if (MO.isFI()) {
+          auto Use = ZeroOffsetUses.find(MO.getIndex());
+          if (Use != ZeroOffsetUses.end() &&
+              (I + 1 == MI.getNumOperands() || !MI.getOperand(I + 1).isImm() ||
+               MI.getOperand(I + 1).getImm() == 0))
+            ++Use->second;
+        }
+      }
+    }
+
+  // R0-relative accesses use a two-byte instruction only at displacement
+  // zero.  For every other displacement they need the four-byte form.  As the
+  // stack grows down, the object at the end of this list receives offset zero.
+  // Put the object with the most accesses to its own offset zero there; an
+  // access to another offset within the object cannot use the short form.
+  llvm::stable_sort(ObjectsToAllocate, [&](int A, int B) {
+    if (ZeroOffsetUses.lookup(A) != ZeroOffsetUses.lookup(B))
+      return ZeroOffsetUses.lookup(A) < ZeroOffsetUses.lookup(B);
+    return MFI.getObjectAlign(A) < MFI.getObjectAlign(B);
+  });
+}
+
+static void markPSWDefDead(MachineInstr &MI) {
+  for (MachineOperand &Operand : MI.operands())
+    if (Operand.isReg() && Operand.isDef() && Operand.getReg() == C166::PSW)
+      Operand.setIsDead(true);
+}
+
+static std::optional<uint64_t> getEntryStackAllocation(const MachineInstr &MI) {
+  if (!MI.getFlag(MachineInstr::FrameSetup))
+    return std::nullopt;
+  if (MI.getOpcode() == C166::MOVmrPreDec && MI.getOperand(0).isReg() &&
+      MI.getOperand(0).getReg() == C166::R0)
+    return 2;
+  if ((MI.getOpcode() == C166::SUBri3 || MI.getOpcode() == C166::SUBri16) &&
+      MI.getOperand(0).isReg() && MI.getOperand(0).getReg() == C166::R0 &&
+      MI.getOperand(1).isReg() && MI.getOperand(1).getReg() == C166::R0 &&
+      MI.getOperand(2).isImm() && MI.getOperand(2).getImm() >= 0)
+    return MI.getOperand(2).getImm();
+  return std::nullopt;
+}
+
+static void hoistEntryFixedStackLoad(MachineFunction &MF,
+                                     const TargetRegisterInfo &TRI) {
+  static constexpr unsigned MaxInstructions = 32;
+
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  if (MF.needsFrameMoves() || isInterruptHandler(MF) || !MFI.getStackSize())
+    return;
+
+  MachineBasicBlock &MBB = MF.front();
+  auto Insert = MBB.begin();
+  while (Insert != MBB.end() && Insert->isMetaInstruction())
+    ++Insert;
+
+  uint64_t Allocated = 0;
+  unsigned Scanned = 0;
+  for (auto I = Insert; I != MBB.end() && Scanned != MaxInstructions; ++I) {
+    MachineInstr &MI = *I;
+    if (MI.isMetaInstruction())
+      continue;
+    ++Scanned;
+
+    if (MI.getOpcode() == C166::MOVfi && MI.getOperand(0).isReg() &&
+        MI.getOperand(0).getReg().isPhysical() && MI.getOperand(1).isFI() &&
+        MI.getOperand(2).isImm() && !MI.hasOrderedMemoryRef()) {
+      int FI = MI.getOperand(1).getIndex();
+      Register Destination = MI.getOperand(0).getReg();
+      int64_t ObjectOffset =
+          MFI.getObjectOffset(FI) + MI.getOperand(2).getImm();
+      const MachineOperand *PSWDef = MI.findRegisterDefOperand(C166::PSW, &TRI);
+      if (!MFI.isFixedObjectIndex(FI) || !MFI.isImmutableObjectIndex(FI) ||
+          ObjectOffset != 0 || Allocated != MFI.getStackSize() || !PSWDef ||
+          !PSWDef->isDead())
+        return;
+
+      for (auto Before = Insert; Before != I; ++Before) {
+        if (Before->isMetaInstruction())
+          continue;
+        if (Before->readsRegister(Destination, &TRI) ||
+            Before->modifiesRegister(Destination, &TRI))
+          return;
+
+        if (getEntryStackAllocation(*Before))
+          continue;
+        if (Before->mayLoadOrStore() || Before->isCall() ||
+            Before->isInlineAsm() || Before->isTerminator() ||
+            Before->hasUnmodeledSideEffects() ||
+            Before->readsRegister(C166::PSW, &TRI) ||
+            Before->readsRegister(C166::R0, &TRI) ||
+            Before->modifiesRegister(C166::R0, &TRI))
+          return;
+      }
+
+      MI.getOperand(2).setImm(MI.getOperand(2).getImm() - MFI.getStackSize());
+      MBB.splice(Insert, &MBB, I);
+      return;
+    }
+
+    if (std::optional<uint64_t> Amount = getEntryStackAllocation(MI)) {
+      Allocated += *Amount;
+      continue;
+    }
+    if (MI.mayLoadOrStore() || MI.isCall() || MI.isInlineAsm() ||
+        MI.isTerminator() || MI.hasUnmodeledSideEffects() ||
+        MI.readsRegister(C166::R0, &TRI) || MI.modifiesRegister(C166::R0, &TRI))
+      return;
+  }
+}
+
+static bool hasLivePSWDef(const MachineInstr &MI) {
+  return llvm::any_of(MI.operands(), [](const MachineOperand &Operand) {
+    return Operand.isReg() && Operand.isDef() &&
+           Operand.getReg() == C166::PSW && !Operand.isDead();
+  });
+}
+
+// A callee-saved scratch register could make the prologue larger than an
+// access chain saves.
+static constexpr MCPhysReg FrameAccessScratchCandidates[] = {
+    C166::R1,  C166::R2,  C166::R3,  C166::R4,  C166::R5, C166::R10,
+    C166::R11, C166::R12, C166::R13, C166::R14, C166::R15};
+
+static Register findFrameAccessScratch(MachineBasicBlock &MBB,
+                                       MachineBasicBlock::iterator InsertBefore,
+                                       ArrayRef<MachineInstr *> Accesses,
+                                       const TargetRegisterInfo &TRI) {
+  for (MCRegister Candidate : FrameAccessScratchCandidates) {
+    bool UsedBySequence =
+        llvm::any_of(Accesses, [&](const MachineInstr *Access) {
+          return llvm::any_of(
+              Access->operands(), [&](const MachineOperand &Operand) {
+                return Operand.isReg() && Operand.getReg() &&
+                       TRI.regsOverlap(Candidate, Operand.getReg());
+              });
+        });
+    if (UsedBySequence)
+      continue;
+    if (MBB.computeRegisterLiveness(
+            &TRI, Candidate, MachineBasicBlock::const_iterator(InsertBefore)) ==
+        MachineBasicBlock::LQR_Dead)
+      return Candidate;
+  }
+  return Register();
+}
+
+static Register findFrameAccessScratchAcross(MachineBasicBlock &MBB,
+                                             MachineBasicBlock::iterator First,
+                                             MachineBasicBlock::iterator Last,
+                                             const TargetRegisterInfo &TRI) {
+  for (MCRegister Candidate : FrameAccessScratchCandidates) {
+    if (MBB.computeRegisterLiveness(&TRI, Candidate,
+                                    MachineBasicBlock::const_iterator(First)) !=
+        MachineBasicBlock::LQR_Dead)
+      continue;
+
+    bool Used = false;
+    for (auto I = First;; ++I) {
+      Used |= llvm::any_of(I->operands(), [&](const MachineOperand &Operand) {
+        return Operand.isReg() && Operand.getReg() &&
+               TRI.regsOverlap(Candidate, Operand.getReg());
+      });
+      if (I == Last)
+        break;
+    }
+    if (!Used)
+      return Candidate;
+  }
+  return Register();
+}
+
+static int64_t getFrameAccessOffset(const MachineFunction &MF,
+                                    const MachineInstr &MI,
+                                    unsigned FrameOperand,
+                                    unsigned DisplacementOperand,
+                                    bool HasFinalLayout) {
+  int64_t Offset = MI.getOperand(DisplacementOperand).getImm();
+  if (HasFinalLayout) {
+    const MachineFrameInfo &MFI = MF.getFrameInfo();
+    Offset += MFI.getObjectOffset(MI.getOperand(FrameOperand).getIndex()) +
+              MFI.getStackSize();
+  }
+  return Offset;
+}
+
+static void removeUnreferencedFrameObjects(MachineFunction &MF) {
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  const int ObjectCount = MFI.getObjectIndexEnd();
+  SmallBitVector Referenced(ObjectCount);
+
+  for (const MachineBasicBlock &MBB : MF)
+    for (const MachineInstr &MI : MBB)
+      for (const MachineOperand &Operand : MI.operands())
+        if (Operand.isFI() && Operand.getIndex() >= 0)
+          Referenced.set(Operand.getIndex());
+
+  for (int FrameIndex = 0; FrameIndex != ObjectCount; ++FrameIndex) {
+    if (Referenced.test(FrameIndex) || MFI.isDeadObjectIndex(FrameIndex) ||
+        MFI.isVariableSizedObjectIndex(FrameIndex) ||
+        MFI.isSpillSlotObjectIndex(FrameIndex) ||
+        MFI.isStatepointSpillSlotObjectIndex(FrameIndex) ||
+        MFI.isCalleeSavedObjectIndex(FrameIndex) ||
+        MFI.isObjectPreAllocated(FrameIndex) ||
+        MFI.getStackID(FrameIndex) != TargetStackID::Default ||
+        MFI.getObjectSSPLayout(FrameIndex) != MachineFrameInfo::SSPLK_None ||
+        (MFI.hasStackProtectorIndex() &&
+         MFI.getStackProtectorIndex() == FrameIndex) ||
+        (MFI.hasFunctionContextIndex() &&
+         MFI.getFunctionContextIndex() == FrameIndex))
+      continue;
+    MFI.RemoveStackObject(FrameIndex);
+  }
+}
+
+static void splitDeadFrameWordPairs(MachineFunction &MF,
+                                    const C166InstrInfo &TII,
+                                    const TargetRegisterInfo &TRI) {
+  for (MachineBasicBlock &MBB : MF) {
+    for (auto I = MBB.begin(); I != MBB.end();) {
+      MachineInstr &MI = *I++;
+      const bool IsLoad = MI.getOpcode() == C166::FRAMELOAD32;
+      const bool IsStore = MI.getOpcode() == C166::FRAMESTORE32;
+      if (!IsLoad && !IsStore)
+        continue;
+      const bool DeadPSW = !hasLivePSWDef(MI) ||
+                           TII.isRegisterOverwrittenBeforeUse(MI, C166::PSW);
+      if (!DeadPSW ||
+          llvm::any_of(MI.memoperands(), [](const MachineMemOperand *MMO) {
+            return MMO->isVolatile() || MMO->isAtomic();
+          }))
+        continue;
+
+      const unsigned FrameOperand = IsLoad ? 1 : 0;
+      const unsigned DisplacementOperand = IsLoad ? 2 : 1;
+      const unsigned RegisterOperand = IsLoad ? 0 : 2;
+      Register Pair = MI.getOperand(RegisterOperand).getReg();
+      int64_t Displacement = MI.getOperand(DisplacementOperand).getImm();
+      if (!Pair.isPhysical() || !isUInt<16>(Displacement + 2))
+        continue;
+
+      auto EmitWord = [&](Register Word, int64_t WordDisplacement) {
+        MachineInstrBuilder MIB;
+        if (IsLoad) {
+          MIB = BuildMI(MBB, MI, MI.getDebugLoc(), TII.get(C166::MOVfi), Word)
+                    .add(MI.getOperand(FrameOperand))
+                    .addImm(WordDisplacement);
+        } else {
+          MIB = BuildMI(MBB, MI, MI.getDebugLoc(), TII.get(C166::MOVfiStore))
+                    .add(MI.getOperand(FrameOperand))
+                    .addImm(WordDisplacement)
+                    .addReg(Word);
+        }
+        MIB.cloneMemRefs(MI).setMIFlags(MI.getFlags());
+        markPSWDefDead(*MIB);
+      };
+
+      EmitWord(TRI.getSubReg(Pair, sub_lo16), Displacement);
+      EmitWord(TRI.getSubReg(Pair, sub_hi16), Displacement + 2);
+      MI.eraseFromParent();
+    }
+  }
+}
+
+static bool getFrameWordAccess(const MachineInstr &MI, bool &IsLoad,
+                               int &FrameIndex, int64_t &Displacement) {
+  IsLoad = MI.getOpcode() == C166::MOVfi;
+  const bool IsStore = MI.getOpcode() == C166::MOVfiStore;
+  if (!IsLoad && !IsStore)
+    return false;
+
+  const unsigned FrameOperand = IsLoad ? 1 : 0;
+  const unsigned DisplacementOperand = IsLoad ? 2 : 1;
+  if (!MI.getOperand(FrameOperand).isFI() ||
+      !MI.getOperand(DisplacementOperand).isImm())
+    return false;
+  FrameIndex = MI.getOperand(FrameOperand).getIndex();
+  Displacement = MI.getOperand(DisplacementOperand).getImm();
+  return true;
+}
+
+static void compactDeadSpillWords(MachineFunction &MF,
+                                  const C166InstrInfo &TII) {
+  if (!MF.getFunction().hasOptSize())
+    return;
+
+  const TargetRegisterInfo &TRI = TII.getRegisterInfo();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+
+  for (MachineBasicBlock &MBB : MF) {
+    for (auto I = MBB.begin(); I != MBB.end();) {
+      MachineInstr &Load = *I++;
+      bool IsLoad;
+      int FrameIndex;
+      int64_t Displacement;
+      if (!getFrameWordAccess(Load, IsLoad, FrameIndex, Displacement) ||
+          !IsLoad || !MFI.isSpillSlotObjectIndex(FrameIndex) ||
+          (!Load.memoperands_empty() && Load.hasOrderedMemoryRef()) ||
+          !Load.getOperand(0).isReg() ||
+          !Load.getOperand(0).getReg().isPhysical() ||
+          Load.getOperand(0).getSubReg())
+        continue;
+
+      Register Value = Load.getOperand(0).getReg();
+      const MachineOperand *PSWDef =
+          Load.findRegisterDefOperand(C166::PSW, &TRI);
+      if (!TII.isRegisterOverwrittenBeforeUse(Load, Value) ||
+          (PSWDef && !PSWDef->isDead() &&
+           !TII.isRegisterOverwrittenBeforeUse(Load, C166::PSW)))
+        continue;
+      Load.eraseFromParent();
+    }
+  }
+
+  for (MachineBasicBlock &MBB : MF) {
+    for (auto I = MBB.begin(); I != MBB.end();) {
+      MachineInstr &Store = *I++;
+      bool IsLoad;
+      int FrameIndex;
+      int64_t Displacement;
+      if (!getFrameWordAccess(Store, IsLoad, FrameIndex, Displacement) ||
+          IsLoad || !MFI.isSpillSlotObjectIndex(FrameIndex) ||
+          (!Store.memoperands_empty() && Store.hasOrderedMemoryRef()))
+        continue;
+
+      const MachineOperand *PSWDef =
+          Store.findRegisterDefOperand(C166::PSW, &TRI);
+      if (PSWDef && !PSWDef->isDead() &&
+          !TII.isRegisterOverwrittenBeforeUse(Store, C166::PSW))
+        continue;
+
+      bool Read = false;
+      bool UnknownAccess = false;
+      for (const MachineBasicBlock &OtherMBB : MF) {
+        for (const MachineInstr &Access : OtherMBB) {
+          if (&Access == &Store)
+            continue;
+          bool OtherIsLoad;
+          int OtherFrameIndex;
+          int64_t OtherDisplacement;
+          if (getFrameWordAccess(Access, OtherIsLoad, OtherFrameIndex,
+                                 OtherDisplacement)) {
+            if (OtherFrameIndex == FrameIndex && OtherIsLoad &&
+                OtherDisplacement == Displacement)
+              Read = true;
+            continue;
+          }
+          if (llvm::any_of(Access.operands(), [&](const MachineOperand &MO) {
+                return MO.isFI() && MO.getIndex() == FrameIndex;
+              }))
+            UnknownAccess = true;
+        }
+      }
+      if (!Read && !UnknownAccess)
+        Store.eraseFromParent();
+    }
+  }
+
+  for (int FrameIndex = 0; FrameIndex != MFI.getObjectIndexEnd();
+       ++FrameIndex) {
+    if (MFI.isDeadObjectIndex(FrameIndex) ||
+        !MFI.isSpillSlotObjectIndex(FrameIndex))
+      continue;
+
+    int64_t UsedSize = 0;
+    bool UnknownAccess = false;
+    for (const MachineBasicBlock &MBB : MF) {
+      for (const MachineInstr &MI : MBB) {
+        bool IsLoad;
+        int AccessFrameIndex;
+        int64_t Displacement;
+        if (getFrameWordAccess(MI, IsLoad, AccessFrameIndex, Displacement)) {
+          if (AccessFrameIndex == FrameIndex) {
+            if (Displacement < 0) {
+              UnknownAccess = true;
+              continue;
+            }
+            UsedSize = std::max(UsedSize, Displacement + 2);
+          }
+          continue;
+        }
+        if (llvm::any_of(MI.operands(), [&](const MachineOperand &MO) {
+              return MO.isFI() && MO.getIndex() == FrameIndex;
+            }))
+          UnknownAccess = true;
+      }
+    }
+    if (!UnknownAccess && UsedSize && UsedSize < MFI.getObjectSize(FrameIndex))
+      MFI.setObjectSize(FrameIndex, UsedSize);
+  }
+}
+
+static void formFrameAccessChains(MachineFunction &MF, const C166InstrInfo &TII,
+                                  const TargetRegisterInfo &TRI,
+                                  bool HasFinalLayout) {
+  // Three word accesses are enough to cover address materialization without
+  // growing the code. Earlier MOV flag definitions are overwritten by the
+  // next access; the final definition must be dead before reordering.
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
+  for (MachineBasicBlock &MBB : MF) {
+    for (auto I = MBB.begin(); I != MBB.end();) {
+      const bool IsLoad = I->getOpcode() == C166::MOVfi;
+      const bool IsStore = I->getOpcode() == C166::MOVfiStore;
+      if (!IsLoad && !IsStore) {
+        ++I;
+        continue;
+      }
+
+      const unsigned FrameOperand = IsLoad ? 1 : 0;
+      const unsigned DisplacementOperand = IsLoad ? 2 : 1;
+      const unsigned RegisterOperand = IsLoad ? 0 : 2;
+      if (!I->getOperand(RegisterOperand).getReg().isPhysical() ||
+          !I->getOperand(FrameOperand).isFI() ||
+          !I->getOperand(DisplacementOperand).isImm()) {
+        ++I;
+        continue;
+      }
+
+      const int FrameIndex = I->getOperand(FrameOperand).getIndex();
+      if (IsStore && !HasFinalLayout &&
+          (!MF.getFunction().hasOptSize() ||
+           MFI.isSpillSlotObjectIndex(FrameIndex))) {
+        ++I;
+        continue;
+      }
+      // Non-size builds retain allocator spill stores until the late target
+      // pass can account for every resolved stack access.
+      if (IsStore && HasFinalLayout && !MF.getFunction().hasOptSize() &&
+          MFI.isSpillSlotObjectIndex(FrameIndex)) {
+        ++I;
+        continue;
+      }
+      SmallVector<MachineInstr *, 4> Accesses;
+      auto End = I;
+      while (
+          End != MBB.end() && End->getOpcode() == I->getOpcode() &&
+          End->getOperand(RegisterOperand).getReg().isPhysical() &&
+          End->getOperand(FrameOperand).isFI() &&
+          (HasFinalLayout ||
+           End->getOperand(FrameOperand).getIndex() == FrameIndex) &&
+          End->getOperand(DisplacementOperand).isImm() &&
+          llvm::none_of(End->memoperands(), [](const MachineMemOperand *MMO) {
+            return MMO->isVolatile() || MMO->isAtomic();
+          })) {
+        Accesses.push_back(&*End++);
+      }
+
+      if (Accesses.empty()) {
+        ++I;
+        continue;
+      }
+      if (Accesses.size() < 3) {
+        I = End;
+        continue;
+      }
+      if (hasLivePSWDef(*Accesses.back())) {
+        I = End;
+        continue;
+      }
+
+      bool IndependentLoads = true;
+      if (IsLoad)
+        for (unsigned Left = 0; Left != Accesses.size(); ++Left)
+          for (unsigned Right = Left + 1; Right != Accesses.size(); ++Right)
+            IndependentLoads &= !TRI.regsOverlap(
+                Accesses[Left]->getOperand(RegisterOperand).getReg(),
+                Accesses[Right]->getOperand(RegisterOperand).getReg());
+      if (!IndependentLoads) {
+        I = End;
+        continue;
+      }
+
+      llvm::sort(
+          Accesses, [&](const MachineInstr *Left, const MachineInstr *Right) {
+            return getFrameAccessOffset(MF, *Left, FrameOperand,
+                                        DisplacementOperand, HasFinalLayout) <
+                   getFrameAccessOffset(MF, *Right, FrameOperand,
+                                        DisplacementOperand, HasFinalLayout);
+          });
+      bool Contiguous =
+          getFrameAccessOffset(MF, *Accesses.front(), FrameOperand,
+                               DisplacementOperand, HasFinalLayout) >= 0;
+      for (unsigned Index = 1; Index != Accesses.size(); ++Index)
+        Contiguous &=
+            getFrameAccessOffset(MF, *Accesses[Index], FrameOperand,
+                                 DisplacementOperand, HasFinalLayout) ==
+            getFrameAccessOffset(MF, *Accesses[Index - 1], FrameOperand,
+                                 DisplacementOperand, HasFinalLayout) +
+                2;
+      MachineInstr *AddressAccess = Accesses[IsLoad ? 0 : Accesses.size() - 1];
+      const int64_t AddressOffset =
+          AddressAccess->getOperand(DisplacementOperand).getImm() +
+          (IsStore ? 2 : 0);
+      const int64_t FinalAddress =
+          getFrameAccessOffset(MF, *AddressAccess, FrameOperand,
+                               DisplacementOperand, HasFinalLayout) +
+          (IsStore ? 2 : 0);
+      Contiguous &= isUInt<16>(AddressOffset) &&
+                    (!HasFinalLayout || isUInt<14>(FinalAddress));
+      const bool AddressClobbersCarry = !HasFinalLayout || FinalAddress != 0;
+      const bool CarryIsDead =
+          !AddressClobbersCarry ||
+          MBB.computeRegisterLiveness(&TRI, C166::C,
+                                      MachineBasicBlock::const_iterator(I)) ==
+              MachineBasicBlock::LQR_Dead;
+      Register Scratch = Contiguous && CarryIsDead
+                             ? findFrameAccessScratch(MBB, I, Accesses, TRI)
+                             : Register();
+      if (!Scratch) {
+        I = End;
+        continue;
+      }
+
+      MachineInstr &InsertBefore = *I;
+      MachineInstrBuilder Address =
+          BuildMI(MBB, InsertBefore, InsertBefore.getDebugLoc(),
+                  TII.get(C166::LEAfi), Scratch)
+              .addFrameIndex(AddressAccess->getOperand(FrameOperand).getIndex())
+              .addImm(AddressOffset);
+      markPSWDefDead(*Address);
+
+      if (IsLoad) {
+        for (auto [Index, Load] : llvm::enumerate(Accesses)) {
+          Register Destination = Load->getOperand(RegisterOperand).getReg();
+          MachineInstrBuilder MIB;
+          if (Index + 1 == Accesses.size()) {
+            MIB = BuildMI(MBB, InsertBefore, Load->getDebugLoc(),
+                          TII.get(C166::MOVrm), Destination)
+                      .addReg(Scratch, RegState::Kill);
+          } else {
+            MIB = BuildMI(MBB, InsertBefore, Load->getDebugLoc(),
+                          TII.get(C166::MOVrmPostInc), Destination)
+                      .addDef(Scratch)
+                      .addReg(Scratch, RegState::Kill);
+          }
+          MIB.cloneMemRefs(*Load).setMIFlags(Load->getFlags());
+          markPSWDefDead(*MIB);
+        }
+      } else {
+        for (auto Store = Accesses.rbegin(); Store != Accesses.rend();
+             ++Store) {
+          MachineOperand Source = (*Store)->getOperand(RegisterOperand);
+          Source.setIsKill(false);
+          MachineInstrBuilder MIB =
+              BuildMI(MBB, InsertBefore, (*Store)->getDebugLoc(),
+                      TII.get(C166::MOVmrPreDec), Scratch)
+                  .addReg(Scratch, RegState::Kill)
+                  .add(Source);
+          MIB.cloneMemRefs(**Store).setMIFlags((*Store)->getFlags());
+          markPSWDefDead(*MIB);
+          if (std::next(Store) == Accesses.rend())
+            MIB->getOperand(0).setIsDead(true);
+        }
+      }
+
+      for (MachineInstr *Access : Accesses)
+        Access->eraseFromParent();
+      I = End;
+    }
+  }
+}
+
+static unsigned frameAddressMaterializationSize(int64_t Offset) {
+  if (!Offset)
+    return 2;
+  if (Offset <= 15)
+    return 4;
+  return 6;
+}
+
+static void formSpacedFrameAccessChains(MachineFunction &MF,
+                                        const C166InstrInfo &TII,
+                                        const TargetRegisterInfo &TRI) {
+  // Keep a post-increment load or pre-decrement store cursor through a short
+  // straight-line region. The accesses stay in place, so intervening data and
+  // flag dependencies are unchanged.
+  static constexpr unsigned MaxSpanInstructions = 32;
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
+
+  for (MachineBasicBlock &MBB : MF) {
+    for (auto I = MBB.begin(); I != MBB.end();) {
+      const bool IsLoad = I->getOpcode() == C166::MOVfi;
+      const bool IsStore = I->getOpcode() == C166::MOVfiStore;
+      if (!IsLoad && !IsStore) {
+        ++I;
+        continue;
+      }
+
+      const unsigned FrameOperand = IsLoad ? 1 : 0;
+      const unsigned DisplacementOperand = IsLoad ? 2 : 1;
+      const unsigned RegisterOperand = IsLoad ? 0 : 2;
+      auto IsEligibleAccess = [&](const MachineInstr &MI) {
+        return MI.getOpcode() == I->getOpcode() &&
+               MI.getOperand(RegisterOperand).getReg().isPhysical() &&
+               MI.getOperand(FrameOperand).isFI() &&
+               (!IsStore || !MFI.isSpillSlotObjectIndex(
+                                MI.getOperand(FrameOperand).getIndex())) &&
+               MI.getOperand(DisplacementOperand).isImm() &&
+               llvm::none_of(MI.memoperands(),
+                             [](const MachineMemOperand *MMO) {
+                               return MMO->isVolatile() || MMO->isAtomic();
+                             });
+      };
+      if (!IsEligibleAccess(*I)) {
+        ++I;
+        continue;
+      }
+
+      SmallVector<MachineInstr *, 4> Accesses{&*I};
+      int64_t ExpectedOffset = getFrameAccessOffset(MF, *I, FrameOperand,
+                                                    DisplacementOperand, true) +
+                               (IsLoad ? 2 : -2);
+      auto Last = I;
+      unsigned Span = 0;
+      for (auto Scan = std::next(I);
+           Scan != MBB.end() && Span != MaxSpanInstructions; ++Scan) {
+        if (Scan->isMetaInstruction())
+          continue;
+        ++Span;
+        if (Scan->isCall() || Scan->isInlineAsm() || Scan->isTerminator() ||
+            Scan->hasUnmodeledSideEffects() ||
+            Scan->modifiesRegister(C166::R0, &TRI))
+          break;
+        if (Scan->getOpcode() != I->getOpcode())
+          continue;
+        if (!IsEligibleAccess(*Scan))
+          break;
+
+        int64_t Offset = getFrameAccessOffset(MF, *Scan, FrameOperand,
+                                              DisplacementOperand, true);
+        if (Offset != ExpectedOffset)
+          break;
+        Accesses.push_back(&*Scan);
+        Last = Scan;
+        ExpectedOffset += IsLoad ? 2 : -2;
+      }
+
+      const int64_t FirstOffset = getFrameAccessOffset(
+          MF, *Accesses.front(), FrameOperand, DisplacementOperand, true);
+      const int64_t AddressOffset =
+          Accesses.front()->getOperand(DisplacementOperand).getImm() +
+          (IsStore ? 2 : 0);
+      const int64_t FinalAddress = FirstOffset + (IsStore ? 2 : 0);
+      unsigned OriginalSize = 0;
+      for (const MachineInstr *Access : Accesses)
+        OriginalSize += getFrameAccessOffset(MF, *Access, FrameOperand,
+                                             DisplacementOperand, true)
+                            ? 4
+                            : 2;
+      const unsigned ReplacementSize =
+          frameAddressMaterializationSize(FinalAddress) + 2 * Accesses.size();
+      if (ReplacementSize >= OriginalSize || !isUInt<16>(AddressOffset) ||
+          !isUInt<14>(FinalAddress) ||
+          (FinalAddress != 0 &&
+           MBB.computeRegisterLiveness(&TRI, C166::C,
+                                       MachineBasicBlock::const_iterator(I)) !=
+               MachineBasicBlock::LQR_Dead)) {
+        ++I;
+        continue;
+      }
+
+      Register Scratch = findFrameAccessScratchAcross(MBB, I, Last, TRI);
+      if (!Scratch) {
+        ++I;
+        continue;
+      }
+
+      MachineInstrBuilder Address =
+          BuildMI(MBB, I, I->getDebugLoc(), TII.get(C166::LEAfi), Scratch)
+              .addFrameIndex(
+                  Accesses.front()->getOperand(FrameOperand).getIndex())
+              .addImm(AddressOffset);
+      markPSWDefDead(*Address);
+
+      for (auto [Index, Access] : llvm::enumerate(Accesses)) {
+        MachineInstrBuilder MIB;
+        if (IsLoad) {
+          Register Destination = Access->getOperand(RegisterOperand).getReg();
+          if (Index + 1 == Accesses.size()) {
+            MIB = BuildMI(MBB, *Access, Access->getDebugLoc(),
+                          TII.get(C166::MOVrm), Destination)
+                      .addReg(Scratch, RegState::Kill);
+          } else {
+            MIB = BuildMI(MBB, *Access, Access->getDebugLoc(),
+                          TII.get(C166::MOVrmPostInc), Destination)
+                      .addDef(Scratch)
+                      .addReg(Scratch, RegState::Kill);
+          }
+        } else {
+          MIB = BuildMI(MBB, *Access, Access->getDebugLoc(),
+                        TII.get(C166::MOVmrPreDec), Scratch)
+                    .addReg(Scratch, RegState::Kill)
+                    .add(Access->getOperand(RegisterOperand));
+          if (Index + 1 == Accesses.size())
+            MIB->getOperand(0).setIsDead(true);
+        }
+        MIB.cloneMemRefs(*Access).setMIFlags(Access->getFlags());
+        if (!hasLivePSWDef(*Access))
+          markPSWDefDead(*MIB);
+      }
+
+      auto Resume = std::next(Last);
+      for (MachineInstr *Access : Accesses)
+        Access->eraseFromParent();
+      I = Resume;
+    }
+  }
+}
+
+void C166FrameLowering::processFunctionBeforeFrameFinalized(
+    MachineFunction &MF, RegScavenger *RS) const {
+  if (MF.getTarget().getOptLevel() == CodeGenOptLevel::None)
+    return;
+  const auto &Subtarget = MF.getSubtarget<C166Subtarget>();
+  removeUnreferencedFrameObjects(MF);
+  splitDeadFrameWordPairs(MF, *Subtarget.getInstrInfo(),
+                          *Subtarget.getRegisterInfo());
+  compactDeadSpillWords(MF, *Subtarget.getInstrInfo());
+  formFrameAccessChains(MF, *Subtarget.getInstrInfo(),
+                        *Subtarget.getRegisterInfo(), false);
+}
+
+void C166FrameLowering::processFunctionBeforeFrameIndicesReplaced(
+    MachineFunction &MF, RegScavenger *RS) const {
+  if (MF.getTarget().getOptLevel() == CodeGenOptLevel::None)
+    return;
+  const auto &Subtarget = MF.getSubtarget<C166Subtarget>();
+  hoistEntryFixedStackLoad(MF, *Subtarget.getRegisterInfo());
+  formFrameAccessChains(MF, *Subtarget.getInstrInfo(),
+                        *Subtarget.getRegisterInfo(), true);
+  formSpacedFrameAccessChains(MF, *Subtarget.getInstrInfo(),
+                              *Subtarget.getRegisterInfo());
 }
 
 bool C166FrameLowering::needsFrameIndexResolution(

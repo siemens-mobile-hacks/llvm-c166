@@ -7,11 +7,27 @@
 //===----------------------------------------------------------------------===//
 
 #include "C166.h"
+#include "clang/Basic/Builtins.h"
 #include "clang/Basic/MacroBuilder.h"
+#include "clang/Basic/TargetBuiltins.h"
 #include "llvm/TargetParser/C166TargetParser.h"
 
 using namespace clang;
 using namespace clang::targets;
+
+static constexpr int NumBuiltins =
+    C166::LastTSBuiltin - Builtin::FirstTSBuiltin;
+
+static constexpr llvm::StringTable BuiltinStrings =
+    CLANG_BUILTIN_STR_TABLE_START
+#define BUILTIN CLANG_BUILTIN_STR_TABLE
+#include "clang/Basic/BuiltinsC166.def"
+    ;
+
+static constexpr auto BuiltinInfos = Builtin::MakeInfos<NumBuiltins>({
+#define BUILTIN CLANG_BUILTIN_ENTRY
+#include "clang/Basic/BuiltinsC166.def"
+});
 
 C166TargetInfo::C166TargetInfo(const llvm::Triple &Triple,
                                const TargetOptions &Opts)
@@ -76,6 +92,11 @@ void C166TargetInfo::getTargetDefines(const LangOptions &Opts,
   Builder.defineMacro("__C166_MEMORY_MODEL__", IsMediumModel  ? "2"
                                                : IsSmallModel ? "3"
                                                               : "1");
+}
+
+llvm::SmallVector<Builtin::InfosShard>
+C166TargetInfo::getTargetBuiltins() const {
+  return {{&BuiltinStrings, BuiltinInfos}};
 }
 
 ArrayRef<const char *> C166TargetInfo::getGCCRegNames() const {

@@ -51,10 +51,11 @@ float call_external_float(unsigned int head, float value,
 // both operands arrive by value on the user stack.  The LLVM C166 runtime
 // helper receives their softened i32 values and returns the result in R4:R5.
 // CHECK-LABEL: <_add_float>:
-// CHECK-NEXT:  mov r13, [r0]
-// CHECK-NEXT:  mov r12, [r0 + #2]
-// CHECK-NEXT:  mov r15, [r0 + #4]
-// CHECK-NEXT:  mov r14, [r0 + #6]
+// CHECK-NEXT:  mov [[ARG_BASE:r[0-9]+]], r0
+// CHECK-NEXT:  mov r13, {{\[}}[[ARG_BASE]]+]
+// CHECK-NEXT:  mov r12, {{\[}}[[ARG_BASE]]+]
+// CHECK-NEXT:  mov r15, {{\[}}[[ARG_BASE]]+]
+// CHECK-NEXT:  mov r14, {{\[}}[[ARG_BASE]]]
 // CHECK:       calls
 // CHECK:       R_C166_SEG24 ___addsf3
 // CHECK:       mov r1, r5
@@ -67,8 +68,11 @@ float call_external_float(unsigned int head, float value,
 // result block; only ordinary definitions, direct calls and runtime helpers
 // change to the near class.
 // MEDIUM-LABEL: <_add_float>:
-// MEDIUM-NEXT:  mov r13, [r0]
-// MEDIUM-NEXT:  mov r12, [r0 + #2]
+// MEDIUM-NEXT:  mov [[ARG_BASE:r[0-9]+]], r0
+// MEDIUM-NEXT:  mov r13, {{\[}}[[ARG_BASE]]+]
+// MEDIUM-NEXT:  mov r12, {{\[}}[[ARG_BASE]]+]
+// MEDIUM-NEXT:  mov r15, {{\[}}[[ARG_BASE]]+]
+// MEDIUM-NEXT:  mov r14, {{\[}}[[ARG_BASE]]]
 // MEDIUM:       calla
 // MEDIUM:       R_C166_COF16 ___addsf3
 // MEDIUM:       ret
@@ -76,13 +80,11 @@ float call_external_float(unsigned int head, float value,
 // MEDIUM:       mov r10, r4
 // MEDIUM:       ret
 // MEDIUM-LABEL: <_call_identity_double>:
-// MEDIUM:       calla
-// MEDIUM:       R_C166_COF16 _identity_double
-// MEDIUM:       mov {{r[0-9]+}}, [r4]
-// MEDIUM:       ret
+// MEDIUM-NEXT:  jmpa
+// MEDIUM-NEXT:  R_C166_COF16 _identity_double
 // MEDIUM-LABEL: <_add_double>:
 // MEDIUM:       calla
-// MEDIUM:       R_C166_COF16 ___adddf3
+// MEDIUM:       R_C166_COF16 ___c166_adddf3
 // MEDIUM:       ret
 // CHECK-LABEL: <_sub_float>:
 // CHECK:       calls
@@ -98,34 +100,30 @@ float call_external_float(unsigned int head, float value,
 // CHECK:       rets
 
 // CHECK-LABEL: <_identity_double>:
-// CHECK:       mov r10, #8
-// CHECK-NEXT:  add r10, r0
+// CHECK:       mov [[RESULT_ADDRESS:r[0-9]+]], #8
+// CHECK-NEXT:  add [[RESULT_ADDRESS]], r0
 // CHECK:       mov [r0 + #8],
 // CHECK:       mov r10, r4
 // CHECK:       rets
 
-// A double call reserves one complete sixteen-byte outgoing frame for the
-// eight-byte result block and eight-byte argument.  The frame stays live until
-// the returned address in R4 has been read.
+// A forwarding double call reuses the incoming argument and result slots when
+// their complete ABI layout is identical to the callee's.
 // CHECK-LABEL: <_call_identity_double>:
-// CHECK:       calls
-// CHECK:       R_C166_SEG24 _identity_double
-// CHECK:       mov r1, [r4]
-// CHECK:       add r0, #16
-// CHECK:       rets
+// CHECK-NEXT:  jmps
+// CHECK-NEXT:  R_C166_SEG24 _identity_double
 
-// Softened binary64 libcalls preserve the public C166 representation:
-// both operands are stack-only/MSW-first and the result uses the ordinary
-// caller-reserved eight-byte block returned through R4.
+// Compiler-generated binary64 arithmetic passes near pointers to the result
+// block and both operands.  The containing C functions retain the public
+// stack-only arguments and caller-reserved result block.
 // CHECK-LABEL: <_add_double>:
 // CHECK:       calls
-// CHECK:       R_C166_SEG24 ___adddf3
+// CHECK:       R_C166_SEG24 ___c166_adddf3
 // CHECK-LABEL: <_sub_double>:
-// CHECK:       R_C166_SEG24 ___subdf3
+// CHECK:       R_C166_SEG24 ___c166_subdf3
 // CHECK-LABEL: <_mul_double>:
-// CHECK:       R_C166_SEG24 ___muldf3
+// CHECK:       R_C166_SEG24 ___c166_muldf3
 // CHECK-LABEL: <_div_double>:
-// CHECK:       R_C166_SEG24 ___divdf3
+// CHECK:       R_C166_SEG24 ___c166_divdf3
 
 // Ordinary object loads/stores use the same type-dependent representation as
 // public arguments; their values still cross the caller-reserved double return

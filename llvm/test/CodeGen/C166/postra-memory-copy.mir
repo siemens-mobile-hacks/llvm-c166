@@ -1,0 +1,281 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-ra \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @fold_indirect_copy() { ret void }
+  define void @fold_indirect_byte_copy() { ret void }
+  define void @fold_extended_byte_copy() { ret void }
+  define void @fold_postincrement_source() { ret void }
+  define void @fold_byte_postincrement_source() { ret void }
+  define void @fold_byte_source_increment() { ret void }
+  define void @fold_byte_destination_increment() { ret void }
+  define void @fold_word_source_increment() { ret void }
+  define void @keep_increment_with_live_carry() { ret void }
+  define void @fold_live_zero_flag() { ret void }
+  define void @keep_live_value() { ret void }
+  define void @keep_volatile_copy() { ret void }
+  define void @keep_extended_copy() { ret void }
+  define void @fold_overlapping_source_base() { ret void }
+  define void @keep_overlapping_destination_base() { ret void }
+  define void @keep_live_extended_byte() { ret void }
+...
+---
+name:            fold_indirect_copy
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2, $r3
+
+    $r11 = MOVrm $r2, implicit-def dead $psw :: (load (s16))
+    MOVmr killed $r3, killed $r11, implicit-def dead $psw :: (store (s16))
+    RETS
+
+# CHECK-LABEL: name: fold_indirect_copy
+# CHECK:       MOVmm killed $r3, $r2, implicit-def dead $psw :: (load (s16)), (store (s16))
+# CHECK-NEXT:  RETS
+...
+---
+name:            fold_indirect_byte_copy
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r3, $r4
+
+    $rl2 = MOVBrm $r4, implicit-def dead $psw :: (load (s8))
+    MOVBmr killed $r3, killed $rl2, implicit-def dead $psw :: (store (s8))
+    RETS
+
+# CHECK-LABEL: name: fold_indirect_byte_copy
+# CHECK:       MOVBmm killed $r3, $r4, implicit-def dead $psw :: (load (s8)), (store (s8))
+# CHECK-NEXT:  RETS
+...
+---
+name:            fold_extended_byte_copy
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r3, $r4
+
+    $rl2 = MOVBrm $r4, implicit-def dead $psw :: (load (s8))
+    $r2 = MOVBZrr $rl2, implicit-def dead $psw
+    MOVBmr killed $r3, killed $rl2, implicit-def dead $psw :: (store (s8))
+    RETS
+
+# CHECK-LABEL: name: fold_extended_byte_copy
+# CHECK:       MOVBmm killed $r3, $r4, implicit-def dead $psw :: (load (s8)), (store (s8))
+# CHECK-NEXT:  RETS
+...
+---
+name:            fold_postincrement_source
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2, $r3
+
+    $r11, $r2 = MOVrmPostInc killed $r2, implicit-def dead $psw :: (load (s16))
+    MOVmr killed $r3, killed $r11, implicit-def dead $psw :: (store (s16))
+    RETS implicit $r2
+
+# CHECK-LABEL: name: fold_postincrement_source
+# CHECK:       $r2 = MOVmmSrcPostInc killed $r3, killed $r2, implicit-def dead $psw :: (load (s16)), (store (s16))
+# CHECK-NEXT:  RETS implicit $r2
+...
+---
+name:            fold_byte_postincrement_source
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r3, $r4
+
+    $rl2, $r4 = MOVBrmPostInc killed $r4, implicit-def dead $psw :: (load (s8))
+    MOVBmr killed $r3, killed $rl2, implicit-def dead $psw :: (store (s8))
+    RETS implicit $r4
+
+# CHECK-LABEL: name: fold_byte_postincrement_source
+# CHECK:       $r4 = MOVBmmSrcPostInc killed $r3, killed $r4, implicit-def dead $psw :: (load (s8)), (store (s8))
+# CHECK-NEXT:  RETS implicit $r4
+...
+---
+name:            fold_byte_source_increment
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r3, $r4
+
+    $rl2 = MOVBrm $r4, implicit-def dead $psw :: (load (s8))
+    MOVBmr killed $r3, killed $rl2, implicit-def dead $psw :: (store (s8))
+    $r4 = ADDri3 killed $r4, 1, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r4
+
+# CHECK-LABEL: name: fold_byte_source_increment
+# CHECK:       $r4 = MOVBmmSrcPostInc killed $r3, killed $r4, implicit-def dead $psw :: (load (s8)), (store (s8))
+# CHECK-NEXT:  RETS implicit $r4
+...
+---
+name:            fold_byte_destination_increment
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r3, $r4
+
+    $rl2 = MOVBrm killed $r4, implicit-def dead $psw :: (load (s8))
+    MOVBmr $r3, killed $rl2, implicit-def dead $psw :: (store (s8))
+    $r3 = ADDri3 killed $r3, 1, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r3
+
+# CHECK-LABEL: name: fold_byte_destination_increment
+# CHECK:       $r3 = MOVBmmDstPostInc killed $r3, killed $r4, implicit-def dead $psw :: (load (s8)), (store (s8))
+# CHECK-NEXT:  RETS implicit $r3
+...
+---
+name:            fold_word_source_increment
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r3, $r4
+
+    $r2 = MOVrm $r4, implicit-def dead $psw :: (load (s16))
+    MOVmr killed $r3, killed $r2, implicit-def dead $psw :: (store (s16))
+    $r4 = ADDri3 killed $r4, 2, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r4
+
+# CHECK-LABEL: name: fold_word_source_increment
+# CHECK:       $r4 = MOVmmSrcPostInc killed $r3, killed $r4, implicit-def dead $psw :: (load (s16)), (store (s16))
+# CHECK-NEXT:  RETS implicit $r4
+...
+---
+name:            keep_increment_with_live_carry
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r3, $r4
+
+    $rl2 = MOVBrm $r4, implicit-def dead $psw :: (load (s8))
+    MOVBmr killed $r3, killed $rl2, implicit-def dead $psw :: (store (s8))
+    $r4 = ADDri3 killed $r4, 1, implicit-def dead $psw, implicit-def $c
+    RETS implicit $r4, implicit $c
+
+# CHECK-LABEL: name: keep_increment_with_live_carry
+# CHECK:       MOVBmm killed $r3, $r4, implicit-def dead $psw
+# CHECK-NEXT:  $r4 = ADDri3 killed $r4, 1
+# CHECK-NEXT:  RETS implicit $r4, implicit $c
+...
+---
+name:            fold_live_zero_flag
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.2, %bb.1
+    liveins: $r2, $r3
+
+    $r11 = MOVrm $r2, implicit-def dead $psw :: (load (s16))
+    MOVmr killed $r3, killed $r11, implicit-def $psw :: (store (s16))
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: fold_live_zero_flag
+# CHECK:       MOVmm killed $r3, $r2, implicit-def $psw
+# CHECK-NEXT:  JMPR_EQ %bb.2, implicit $psw
+...
+---
+name:            keep_live_value
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2, $r3
+
+    $r11 = MOVrm $r2, implicit-def dead $psw :: (load (s16))
+    MOVmr killed $r3, $r11, implicit-def dead $psw :: (store (s16))
+    RETS implicit $r11
+
+# CHECK-LABEL: name: keep_live_value
+# CHECK:       $r11 = MOVrm $r2
+# CHECK-NEXT:  MOVmr killed $r3, $r11
+# CHECK-NEXT:  RETS implicit $r11
+...
+---
+name:            keep_volatile_copy
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2, $r3
+
+    $r11 = MOVrm $r2, implicit-def dead $psw :: (volatile load (s16))
+    MOVmr killed $r3, killed $r11, implicit-def dead $psw :: (volatile store (s16))
+    RETS
+
+# CHECK-LABEL: name: keep_volatile_copy
+# CHECK:       $r11 = MOVrm $r2
+# CHECK-NEXT:  MOVmr killed $r3, killed $r11
+...
+---
+name:            keep_extended_copy
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2, $r3, $r13
+
+    EXTPr $r13, 2
+    $r11 = MOVrm $r2, implicit-def dead $psw :: (load (s16))
+    MOVmr killed $r3, killed $r11, implicit-def dead $psw :: (store (s16))
+    RETS
+
+# CHECK-LABEL: name: keep_extended_copy
+# CHECK:       EXTPr $r13, 2
+# CHECK-NEXT:  $r11 = MOVrm $r2
+# CHECK-NEXT:  MOVmr killed $r3, killed $r11
+...
+---
+name:            fold_overlapping_source_base
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2, $r3
+
+    $r2 = MOVrm killed $r2, implicit-def dead $psw :: (load (s16))
+    MOVmr killed $r3, killed $r2, implicit-def dead $psw :: (store (s16))
+    RETS
+
+# CHECK-LABEL: name: fold_overlapping_source_base
+# CHECK:       MOVmm killed $r3, killed $r2, implicit-def dead $psw
+...
+---
+name:            keep_overlapping_destination_base
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2, $r3
+
+    $rl3 = MOVBrm killed $r2, implicit-def dead $psw :: (load (s8))
+    MOVBmr $r3, $rl3, implicit-def dead $psw :: (store (s8))
+    RETS
+
+# CHECK-LABEL: name: keep_overlapping_destination_base
+# CHECK:       $rl3 = MOVBrm killed $r2
+# CHECK-NEXT:  MOVBmr $r3, $rl3
+...
+---
+name:            keep_live_extended_byte
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r3, $r4
+
+    $rl2 = MOVBrm $r4, implicit-def dead $psw :: (load (s8))
+    $r2 = MOVBZrr $rl2, implicit-def dead $psw
+    MOVBmr killed $r3, $rl2, implicit-def dead $psw :: (store (s8))
+    RETS implicit $r2
+
+# CHECK-LABEL: name: keep_live_extended_byte
+# CHECK:       $rl2 = MOVBrm $r4
+# CHECK-NEXT:  $r2 = MOVBZrr $rl2
+# CHECK-NEXT:  MOVBmr killed $r3, $rl2
+# CHECK-NEXT:  RETS implicit $r2
+...

@@ -1,0 +1,93 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-isel \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @fold_offset_sign_branch() { ret void }
+  define void @keep_wrapping_offset() { ret void }
+  define void @keep_unrelated_threshold() { ret void }
+...
+---
+name:            fold_offset_sign_branch
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr16 }
+  - { id: 1, class: gr16 }
+  - { id: 2, class: gr16 }
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    %0:gr16 = COPY $r4
+    %1:gr16 = nsw ADDri16 %0, 1074, implicit-def dead $psw, implicit-def dead $c
+    CMPBRi %0, -1075, 9, %bb.1, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.2
+
+  bb.1:
+    RETS implicit %1
+
+  bb.2:
+    %2:gr16 = nsw ADDri16 %0, 1075, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit %2
+
+# CHECK-LABEL: name: fold_offset_sign_branch
+# CHECK:       %1:gr16 = nsw ADDri16 %0, 1074
+# CHECK-NEXT:  BITBR %1, 15, 0, %bb.1
+# CHECK-NEXT:  BR %bb.2
+# CHECK:       bb.2:
+# CHECK-NEXT:  %2:gr16 = ADDri3 %1, 1
+...
+---
+name:            keep_wrapping_offset
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr16 }
+  - { id: 1, class: gr16 }
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    %0:gr16 = COPY $r4
+    %1:gr16 = ADDri16 %0, 1074, implicit-def dead $psw, implicit-def dead $c
+    CMPBRi %0, -1075, 9, %bb.1, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.2
+
+  bb.1:
+    RETS implicit %1
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_wrapping_offset
+# CHECK:       %1:gr16 = ADDri16 %0, 1074
+# CHECK-NEXT:  CMPBRi %0, -1075, 9, %bb.1
+...
+---
+name:            keep_unrelated_threshold
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr16 }
+  - { id: 1, class: gr16 }
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+
+    %0:gr16 = COPY $r4
+    %1:gr16 = nsw ADDri16 %0, 1074, implicit-def dead $psw, implicit-def dead $c
+    CMPBRi %0, -1074, 9, %bb.1, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.2
+
+  bb.1:
+    RETS implicit %1
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_unrelated_threshold
+# CHECK:       %1:gr16 = nsw ADDri16 %0, 1074
+# CHECK-NEXT:  CMPBRi %0, -1074, 9, %bb.1
+...

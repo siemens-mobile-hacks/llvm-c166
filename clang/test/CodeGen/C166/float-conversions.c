@@ -59,10 +59,10 @@ int double_unordered(double lhs, double rhs) {
 // CHECK: R_C166_SEG24 ___gesf2
 // CHECK: R_C166_SEG24 ___unordsf2
 
-// Binary64 conversions and comparisons use the standard compiler-rt names.
-// Their double operands remain stack-only/MSW-first at the call
-// boundary.  In particular, scalar-result calls retain their R4:R5 dependency
-// through caller cleanup instead of allowing the cleanup to be deleted.
+// Binary64-to-integer conversions use the standard compiler-rt names.  Their
+// double operands remain stack-only/MSW-first at the call boundary.  In
+// particular, scalar-result calls retain their R4:R5 dependency through
+// caller cleanup instead of allowing the cleanup to be deleted.
 // CHECK-LABEL: <_double_to_int>:
 // CHECK:       calls
 // CHECK:       R_C166_SEG24 ___fixdfsi
@@ -75,36 +75,50 @@ int double_unordered(double lhs, double rhs) {
 // CHECK-LABEL: <_double_to_ulong>:
 // CHECK:       R_C166_SEG24 ___fixunsdfsi
 
-// A binary64 return uses the caller-owned eight-byte block addressed through
-// R4.  Read the block before releasing it, then copy into the public sret slot.
+// Integer-to-binary64 conversions write directly to the caller-owned result
+// block instead of constructing the public stack-only return boundary.
 // CHECK-LABEL: <_int_to_double>:
-// CHECK:       R_C166_SEG24 ___floatsidf
-// CHECK:       mov {{r[0-9]+}}, [r4]
-// CHECK:       add r0, #8
+// CHECK-NOT:   sub r0
+// CHECK:       R_C166_SEG24 ___c166_floatsidf
+// CHECK-NOT:   R_C166_SEG24 ___floatsidf
 // CHECK:       rets
 // CHECK-LABEL: <_uint_to_double>:
-// CHECK:       R_C166_SEG24 ___floatunsidf
+// CHECK-NOT:   sub r0
+// CHECK:       R_C166_SEG24 ___c166_floatunsidf
+// CHECK-NOT:   R_C166_SEG24 ___floatunsidf
+// CHECK:       rets
 // CHECK-LABEL: <_long_to_double>:
-// CHECK:       R_C166_SEG24 ___floatsidf
+// CHECK-NOT:   sub r0
+// CHECK:       R_C166_SEG24 ___c166_floatsidf
+// CHECK-NOT:   R_C166_SEG24 ___floatsidf
+// CHECK:       rets
 // CHECK-LABEL: <_ulong_to_double>:
-// CHECK:       R_C166_SEG24 ___floatunsidf
+// CHECK-NOT:   sub r0
+// CHECK:       R_C166_SEG24 ___c166_floatunsidf
+// CHECK-NOT:   R_C166_SEG24 ___floatunsidf
+// CHECK:       rets
 
-// Comparison libcalls consume a sixteen-byte stack frame.  The scalar result
-// remains available in R4:R5 after cleanup for the predicate materialization.
+// Binary64 comparisons pass direct pointers to the existing stack operands.
+// The relation mask returned in R4 materializes every ordered or unordered
+// predicate without an outgoing argument copy.
 // CHECK-LABEL: <_double_equal>:
-// CHECK:       R_C166_SEG24 ___eqdf2
-// CHECK:       add r0, #16
-// CHECK:       or {{r[0-9]+}}, {{r[0-9]+}}
-// CHECK-NEXT:  jmpr cc_eq
+// CHECK:       R_C166_SEG24 ___c166_cmpdf2
+// CHECK:       and {{r[0-9]+}}, #2
 // CHECK-LABEL: <_double_not_equal>:
-// CHECK:       R_C166_SEG24 ___nedf2
+// CHECK:       R_C166_SEG24 ___c166_cmpdf2
+// CHECK:       and {{r[0-9]+}}, #13
 // CHECK-LABEL: <_double_less>:
-// CHECK:       R_C166_SEG24 ___ltdf2
+// CHECK:       R_C166_SEG24 ___c166_cmpdf2
+// CHECK:       and {{r[0-9]+}}, #1
 // CHECK-LABEL: <_double_less_equal>:
-// CHECK:       R_C166_SEG24 ___ledf2
+// CHECK:       R_C166_SEG24 ___c166_cmpdf2
+// CHECK:       and {{r[0-9]+}}, #3
 // CHECK-LABEL: <_double_greater>:
-// CHECK:       R_C166_SEG24 ___gtdf2
+// CHECK:       R_C166_SEG24 ___c166_cmpdf2
+// CHECK:       and {{r[0-9]+}}, #4
 // CHECK-LABEL: <_double_greater_equal>:
-// CHECK:       R_C166_SEG24 ___gedf2
+// CHECK:       R_C166_SEG24 ___c166_cmpdf2
+// CHECK:       and {{r[0-9]+}}, #6
 // CHECK-LABEL: <_double_unordered>:
-// CHECK:       R_C166_SEG24 ___unorddf2
+// CHECK:       R_C166_SEG24 ___c166_cmpdf2
+// CHECK:       and {{r[0-9]+}}, #8

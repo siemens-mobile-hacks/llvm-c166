@@ -14,6 +14,8 @@ extern unsigned int pressure_barrier(void);
 extern void pressure_observe4(char *, char *, char *, char *);
 extern void pressure_void_barrier(void);
 extern unsigned int pressure_consume4(char *, char *, char *, char *);
+extern void pressure_observe(char *);
+extern unsigned int pressure_consume(char *, unsigned int);
 
 unsigned int pressure_words(unsigned int a0, unsigned int a1,
                             unsigned int a2, unsigned int a3,
@@ -70,6 +72,17 @@ unsigned int pressure_frame_addresses(void) {
   return pressure_consume4(a, b, c, d);
 }
 
+unsigned int pressure_frame_phi(unsigned int choose, char *fallback,
+                                unsigned int value) {
+  char buffer[8];
+  if (choose) {
+    pressure_observe(buffer);
+    pressure_void_barrier();
+    fallback = buffer;
+  }
+  return pressure_consume(fallback, value);
+}
+
 // Large frames use one full-immediate adjustment. Matching adjustments in the
 // epilogue protect the user-stack delta on every return path.
 // CHECK-LABEL: <_pressure_words>:
@@ -96,6 +109,18 @@ unsigned int pressure_frame_addresses(void) {
 // SMALL:       mov r12, r0
 // SMALL:       calls
 // SMALL-NOT:   mov [-r0]
+// SMALL:       rets
+
+// A frame address feeding a successor PHI is rematerialized after the final
+// call as well. It must not consume another callee-saved register across both
+// calls merely to become the selected PHI value.
+// SMALL-LABEL: <_pressure_frame_phi>:
+// SMALL:       mov [-r0], r6
+// SMALL-NOT:   mov [-r0], r{{[7-9]}}
+// SMALL:       calls
+// SMALL-NEXT:  calls
+// SMALL-NEXT:  mov [[PHI_ADDRESS:r[0-9]+]], r0
+// SMALL-NEXT:  mov r12, [[PHI_ADDRESS]]
 // SMALL:       rets
 
 // CHECK-LABEL: <_pressure_longs>:

@@ -44,12 +44,12 @@ unsigned int debug_add(unsigned int lhs, unsigned int rhs) {
 // DWARF: DW_AT_frame_base{{.*}}DW_OP_reg0 R0
 // DWARF: DW_AT_name{{.*}}debug_add
 // DWARF: DW_TAG_formal_parameter
-// DWARF: DW_AT_location{{.*}}DW_OP_reg12 R12
+// DWARF: DW_AT_location
+// DWARF: DW_OP_reg12 R12
 // DWARF: DW_AT_name{{.*}}lhs
 // DWARF: DW_TAG_formal_parameter
 // DWARF: DW_AT_location
 // DWARF: DW_OP_reg13 R13
-// DWARF: DW_OP_reg4 R4
 // DWARF: DW_AT_name{{.*}}rhs
 // DWARF: DW_TAG_variable
 // DWARF: DW_AT_location

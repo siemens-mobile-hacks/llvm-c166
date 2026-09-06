@@ -42,6 +42,16 @@ unsigned int call_take_two(unsigned int low, unsigned int high) {
   return take_two(value);
 }
 
+extern unsigned long consume_modified_pair(struct two_words, unsigned int,
+                                           unsigned int, unsigned int);
+
+unsigned long forward_modified_pair(struct two_words value, unsigned int a,
+                                    unsigned int b, unsigned int c) {
+  value.low += a;
+  value.high ^= b;
+  return consume_modified_pair(value, a, b, c);
+}
+
 __attribute__((noinline))
 struct two_words return_two(unsigned int low, unsigned int high) {
   struct two_words value;
@@ -101,23 +111,31 @@ unsigned int consume_return_four_with_stack_tail(
 // C166 passes every aggregate by value on the user stack. Encountering
 // one also activates the normal stop rule for every following argument.
 // CHECK-LABEL: <_take_two>:
-// CHECK:       mov {{r[0-9]+}}, [r0]
 // CHECK:       mov r4, [r0 + #2]
+// CHECK-NEXT:  add r4, [r0]
 // CHECK:       rets
 // CHECK-LABEL: <_mixed_aggregate>:
-// CHECK:       mov r4, [r0 + #4]
-// CHECK:       add r4, r12
+// CHECK:       mov {{r[0-9]+}}, [r0 + #4]
+// CHECK:       add {{r[0-9]+}}, r12
 // CHECK:       mov {{r[0-9]+}}, [r0]
 // CHECK:       mov {{r[0-9]+}}, [r0 + #2]
 // CHECK:       rets
 // CHECK-LABEL: <_call_take_two>:
-// CHECK:       sub r0, #4
-// CHECK:       mov [r0], {{r[0-9]+}}
-// CHECK:       mov [r0 + #2], {{r[0-9]+}}
-// CHECK-COUNT-2: mov [-r0], {{r[0-9]+}}
+// CHECK-COUNT-4: mov [-r0], {{r[0-9]+}}
 // CHECK:       calls
 // CHECK:       add r0, #8
 // CHECK:       rets
+// Values just stored into a byval object remain available for an outgoing
+// byval copy.  Forward them to the argument pushes instead of reloading the
+// same stack words through enlarged post-push offsets.
+// CHECK-LABEL: <_forward_modified_pair>:
+// CHECK:       add [[LOW:r[0-9]+]], {{r[0-9]+}}
+// CHECK-NEXT:  mov [r0], [[LOW]]
+// CHECK:       xor [[HIGH:r[0-9]+]], {{r[0-9]+}}
+// CHECK-NEXT:  mov [r0 + #2], [[HIGH]]
+// CHECK:       mov [-r0], [[HIGH]]
+// CHECK-NEXT:  mov [-r0], [[LOW]]
+// CHECK-NEXT:  calls
 // CHECK-LABEL: <_return_two>:
 // CHECK:       mov r4, r0
 // CHECK:       mov [r0], r12
@@ -125,8 +143,8 @@ unsigned int consume_return_four_with_stack_tail(
 // CHECK:       rets
 // CHECK-LABEL: <_consume_return_two>:
 // CHECK:       calls
+// CHECK:       mov {{r[0-9]+}}, [r4+]
 // CHECK:       mov {{r[0-9]+}}, [r4]
-// CHECK:       mov {{r[0-9]+}}, [r4 + #2]
 // CHECK:       add r0, #4
 // CHECK:       rets
 // CHECK-LABEL: <_return_one_with_stack>:
@@ -149,10 +167,11 @@ unsigned int consume_return_four_with_stack_tail(
 // reserved first and the four ordinary stack arguments are then pushed in
 // reverse order.
 // CHECK-LABEL: <_return_four_with_stack_tail>:
-// CHECK-DAG:   mov {{r[0-9]+}}, [r0]
-// CHECK-DAG:   mov {{r[0-9]+}}, [r0 + #2]
-// CHECK-DAG:   mov {{r[0-9]+}}, [r0 + #4]
-// CHECK-DAG:   mov {{r[0-9]+}}, [r0 + #6]
+// CHECK:       mov [[STACK_TAIL:r[0-9]+]], r0
+// CHECK-DAG:   mov {{r[0-9]+}}, [[[STACK_TAIL]]+]
+// CHECK-DAG:   mov {{r[0-9]+}}, [[[STACK_TAIL]]+]
+// CHECK-DAG:   mov {{r[0-9]+}}, [[[STACK_TAIL]]+]
+// CHECK-DAG:   mov {{r[0-9]+}}, [[[STACK_TAIL]]]
 // CHECK-DAG:   mov [r0 + #8], {{r[0-9]+}}
 // CHECK-DAG:   mov [r0 + #10], {{r[0-9]+}}
 // CHECK-DAG:   mov [r0 + #12], {{r[0-9]+}}
@@ -163,9 +182,7 @@ unsigned int consume_return_four_with_stack_tail(
 // CHECK-NEXT:  sub r0, #8
 // CHECK-COUNT-4: mov [-r0], {{r[0-9]+}}
 // CHECK:       calls
-// CHECK:       mov {{r[0-9]+}}, [r4]
-// CHECK:       mov {{r[0-9]+}}, [r4 + #2]
-// CHECK:       mov {{r[0-9]+}}, [r4 + #4]
-// CHECK:       mov r4, [r4 + #6]
+// CHECK-COUNT-3: mov {{r[0-9]+}}, [r4+]
+// CHECK:       mov r4, [r4]
 // CHECK:       add r0, #16
 // CHECK:       rets

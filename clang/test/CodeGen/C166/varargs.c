@@ -5,6 +5,7 @@
 // RUN: llvm-objdump -d %t.o | FileCheck %s
 // RUN: %clang --target=c166-none-elf -mcmodel=large -O0 -fno-inline -mllvm -verify-machineinstrs -c %s -o %t-o0.o
 // RUN: %clang --target=c166-none-elf -mcmodel=large -O0 -S -emit-llvm %s -o - | FileCheck %s --check-prefix=IR
+// RUN: %clang --target=c166-none-elf -mcmodel=large -O1 -S -emit-llvm %s -o - | FileCheck %s --check-prefix=OPT
 // C166-ABI: varargs.unnamed_words_on_stack
 // C166-ABI: varargs.va_list_stack_pointer
 // C166-ABI: varargs.long_word_order
@@ -24,6 +25,38 @@ unsigned int sum_words(unsigned int count, ...) {
   va_end(args);
   return result;
 }
+
+__attribute__((noinline)) unsigned int consume_one(va_list *args) {
+  return va_arg(*args, unsigned int);
+}
+
+__attribute__((noinline)) unsigned int escaped_varargs(unsigned int tag, ...) {
+  va_list args;
+  va_start(args, tag);
+  unsigned int first = consume_one(&args);
+  unsigned int second = va_arg(args, unsigned int);
+  va_end(args);
+  return first + second;
+}
+
+__attribute__((noinline, optnone))
+unsigned int unoptimized_varargs(unsigned int tag, ...) {
+  va_list args;
+  va_start(args, tag);
+  unsigned int result = va_arg(args, unsigned int);
+  va_end(args);
+  return result;
+}
+
+// Keep the va_list cursor in SSA so repeated va_arg operations do not spill it
+// to a local stack slot.
+// OPT-LABEL: define{{.*}} i16 @sum_words(
+// OPT-NOT:   alloca
+// OPT:       call addrspace(1) ptr addrspace(2) @llvm.c166.va.start.p2()
+// OPT:       phi ptr addrspace(2)
+// OPT:       load i16, ptr addrspace(2)
+// OPT-NOT:   @llvm.va_start
+// OPT:       ret i16
 
 __attribute__((noinline))
 unsigned long take_long(unsigned int tag, ...) {
@@ -138,51 +171,49 @@ unsigned int take_aggregate_varargs(unsigned int tag, ...) {
 // IR-NEXT:  store ptr addrspace(2) %[[PACKED_NEXT]], ptr addrspace(2) {{[^,]+}}, align 2
 // IR:       call addrspace(1) void @llvm.memcpy.p2.p2.i16({{.*}}ptr addrspace(2) align 2 %[[PACKED_CUR]], i16 3, i1 false)
 
-// Named arguments use R12-R15, but every unnamed
-// argument is stack-only.  va_start constructs a far pointer from the 14-bit
-// user-stack offset and DPP1; va_arg advances only its low word.
+// Named arguments use R12-R15, but every unnamed argument is stack-only.
+// va_start constructs a far pointer from the 14-bit user-stack offset and
+// DPP1.  A dynamic va_arg cursor uses that pointer, while fixed accesses
+// proven to remain in the current frame use the shorter direct stack path.
 // CHECK-LABEL: <_sum_words>:
 // CHECK:       and
 // CHECK:       mov {{r[0-9]+}}, dpp1
 // CHECK:       extp {{r[0-9]+}}, #1
 // CHECK:       rets
 // CHECK-LABEL: <_take_long>:
-// CHECK:       mov {{r[0-9]+}}, dpp1
-// CHECK:       extp {{r[0-9]+}}, #2
-// CHECK:       mov r4, [{{r[0-9]+}}]
-// CHECK:       mov r5, [{{r[0-9]+}} + #2]
+// CHECK-NOT:   extp
+// CHECK:       mov r4, [r0]
+// CHECK:       mov r5, [r0 + #2]
 // CHECK:       rets
 // CHECK-LABEL: <_take_long_long>:
-// CHECK:       mov {{r[0-9]+}}, dpp1
-// CHECK:       extp {{r[0-9]+}}, #2
-// CHECK:       mov r4, [{{r[0-9]+}}]
-// CHECK:       mov r5, [{{r[0-9]+}} + #2]
+// CHECK-NOT:   extp
+// CHECK:       mov r4, [r0]
+// CHECK:       mov r5, [r0 + #2]
 // CHECK:       rets
 // CHECK-LABEL: <_take_pointer>:
-// CHECK:       mov {{r[0-9]+}}, dpp1
-// CHECK:       extp {{r[0-9]+}}, #2
-// CHECK:       mov r4, [{{r[0-9]+}}]
-// CHECK:       mov r5, [{{r[0-9]+}} + #2]
+// CHECK-NOT:   extp
+// CHECK:       mov r4, [r0]
+// CHECK:       mov r5, [r0 + #2]
 // CHECK:       rets
 // CHECK-LABEL: <_fixed_stack_then_vararg>:
-// CHECK:       mov {{r[0-9]+}}, dpp1
-// CHECK:       mov {{r[0-9]+}}, [r0 + #{{[0-9]+}}]
-// CHECK:       extp {{r[0-9]+}}, #1
+// CHECK:       mov {{r[0-9]+}}, [r0]
+// CHECK-NOT:   extp
+// CHECK:       mov r4, [r0 + #2]
 // CHECK:       rets
 // CHECK-LABEL: <_take_promoted_float>:
-// CHECK:       add {{r[0-9]+}}, #8
-// CHECK:       extp {{r[0-9]+}}, #2
-// CHECK:       mov {{r[0-9]+}}, [{{r[0-9]+}}]
-// CHECK:       extp {{r[0-9]+}}, #2
-// CHECK:       mov {{r[0-9]+}}, [{{r[0-9]+}}]
+// CHECK-NOT:   extp
+// CHECK:       mov {{r[0-9]+}}, [r0 + #4]
+// CHECK:       mov {{r[0-9]+}}, [r0 + #6]
 // CHECK:       calls
 // CHECK:       rets
 // CHECK-LABEL: <_take_double_words>:
-// CHECK:       add {{r[0-9]+}}, #8
-// CHECK:       extp {{r[0-9]+}}, #2
-// CHECK:       mov {{r[0-9]+}}, [{{r[0-9]+}}]
-// CHECK:       extp {{r[0-9]+}}, #2
-// CHECK:       mov {{r[0-9]+}}, [{{r[0-9]+}}]
+// CHECK-NOT:   extp
+// CHECK:       mov {{r[0-9]+}}, r0
+// CHECK:       mov [[DOUBLE_CURSOR:r[0-9]+]], r0
+// CHECK-NEXT:  mov {{r[0-9]+}}, [[[DOUBLE_CURSOR]]+]
+// CHECK-NEXT:  mov {{r[0-9]+}}, [[[DOUBLE_CURSOR]]+]
+// CHECK-NEXT:  mov {{r[0-9]+}}, [[[DOUBLE_CURSOR]]+]
+// CHECK-NEXT:  mov {{r[0-9]+}}, [[[DOUBLE_CURSOR]]]
 // CHECK:       rets
 // CHECK-LABEL: <_call_sum_words>:
 // CHECK-COUNT-3: mov [-r0], {{r[0-9]+}}

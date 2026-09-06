@@ -1,0 +1,187 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-ra \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @remove_unread_word() #0 { ret void }
+  define void @remove_overwritten_flags() #0 { ret void }
+  define void @keep_read_word() #0 { ret void }
+  define void @keep_read_word_after_stack_adjustment() #0 { ret void }
+  define void @keep_unknown_access() #0 { ret void }
+  define void @keep_live_flags() #0 { ret void }
+  define void @keep_without_size_attribute() { ret void }
+  define void @keep_successor_read() #0 { ret void }
+  define void @remove_unread_with_other_unknown() #0 { ret void }
+
+  attributes #0 = { optsize }
+...
+---
+name:            remove_unread_word
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 4, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r0, $r1, $r2
+
+    MOVmr16 $r0, 8, $r1, implicit-def dead $psw :: (store (s16) into %stack.0)
+    MOVmr16 $r0, 10, $r2, implicit-def dead $psw :: (store (s16) into %stack.0 + 2)
+    $r3 = MOVrm16 $r0, 8, implicit-def dead $psw :: (load (s16) from %stack.0)
+    RETS implicit $r3
+
+# CHECK-LABEL: name: remove_unread_word
+# CHECK:       MOVmr16 $r0, 8, $r1
+# CHECK-NOT:   MOVmr16 $r0, 10, $r2
+# CHECK:       $r3 = MOVrr killed $r1
+...
+---
+name:            remove_overwritten_flags
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 2, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r0, $r1
+
+    MOVmr $r0, $r1, implicit-def $psw :: (store (s16) into %stack.0)
+    $r2 = MOVri4 0, implicit-def dead $psw
+    RETS implicit $r2
+
+# CHECK-LABEL: name: remove_overwritten_flags
+# CHECK-NOT:   MOVmr
+# CHECK:       $r2 = MOVri4 0
+...
+---
+name:            keep_read_word
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 4, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r0, $r1
+
+    MOVmr16 $r0, 10, $r1, implicit-def dead $psw :: (store (s16) into %stack.0)
+    $r2 = MOVrm16 $r0, 10, implicit-def dead $psw :: (load (s16) from %stack.0)
+    RETS implicit $r2
+
+# CHECK-LABEL: name: keep_read_word
+# CHECK:       MOVmr16 $r0, 10, $r1
+# CHECK:       $r2 = MOVrr killed $r1
+...
+---
+name:            keep_read_word_after_stack_adjustment
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 2, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r0, $r1
+
+    MOVmr16 $r0, 8, $r1, implicit-def dead $psw :: (store (s16) into %stack.0)
+    $r0 = SUBri16 $r0, 4, implicit-def dead $psw, implicit-def dead $c
+    $r2 = MOVrm16 $r0, 12, implicit-def dead $psw :: (load (s16) from %stack.0)
+    $r0 = ADDri16 $r0, 4, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r2
+
+# CHECK-LABEL: name: keep_read_word_after_stack_adjustment
+# CHECK:       MOVmr16 $r0, 8, $r1
+# CHECK:       $r0 = SUB{{ri16|ri3}} $r0, 4
+# CHECK:       $r2 = MOVrm16 $r0, 12
+# CHECK:       $r0 = ADD{{ri16|ri3}} $r0, 4
+...
+---
+name:            keep_unknown_access
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 4, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r0, $r1, $r2
+
+    MOVmr16 $r0, 10, $r1, implicit-def dead $psw :: (store (s16) into %stack.0)
+    MOVmr $r2, $r1, implicit-def dead $psw :: (store (s16) into %stack.0)
+    RETS
+
+# CHECK-LABEL: name: keep_unknown_access
+# CHECK:       MOVmr16 $r0, 10, $r1
+...
+---
+name:            keep_live_flags
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 2, alignment: 2 }
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r0, $r1
+
+    MOVmr $r0, $r1, implicit-def $psw :: (store (s16) into %stack.0)
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_live_flags
+# CHECK:       MOVmr $r0, $r1, implicit-def $psw
+# CHECK-NEXT:  JMPR_EQ
+...
+---
+name:            keep_without_size_attribute
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 2, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r0, $r1
+
+    MOVmr $r0, $r1, implicit-def dead $psw :: (store (s16) into %stack.0)
+    RETS
+
+# CHECK-LABEL: name: keep_without_size_attribute
+# CHECK:       MOVmr $r0, $r1
+...
+---
+name:            keep_successor_read
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 2, alignment: 2 }
+body:             |
+  bb.0:
+    successors: %bb.1
+    liveins: $r0, $r1
+
+    MOVmr16 $r0, 8, $r1, implicit-def dead $psw :: (store (s16) into %stack.0)
+    $r1 = MOVri16 77, implicit-def dead $psw
+
+  bb.1:
+    liveins: $r0, $r1
+
+    $r2 = MOVrm16 $r0, 8, implicit-def dead $psw :: (load (s16) from %stack.0)
+    RETS implicit $r2, implicit $r1
+
+# CHECK-LABEL: name: keep_successor_read
+# CHECK:       MOVmr16 $r0, 8, $r1
+# CHECK:       $r2 = MOVrm16 $r0, 8
+...
+---
+name:            remove_unread_with_other_unknown
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 2, alignment: 2 }
+  - { id: 1, type: spill-slot, size: 2, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r0, $r1, $r2
+
+    MOVmr16 $r0, 8, $r1, implicit-def dead $psw :: (store (s16) into %stack.0)
+    MOVmr $r2, $r1, implicit-def dead $psw :: (store (s16) into %stack.1)
+    RETS
+
+# CHECK-LABEL: name: remove_unread_with_other_unknown
+# CHECK-NOT:   MOVmr16
+# CHECK:       MOVmr $r2, $r1
+...

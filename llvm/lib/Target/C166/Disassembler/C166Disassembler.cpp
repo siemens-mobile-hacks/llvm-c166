@@ -50,6 +50,14 @@ static DecodeStatus DecodeGR16RegisterClass(MCInst &MI, uint64_t RegNo,
   return MCDisassembler::Success;
 }
 
+static DecodeStatus
+DecodeGR16IndirectRegisterClass(MCInst &MI, uint64_t RegNo, uint64_t Address,
+                                const MCDisassembler *Decoder) {
+  if (RegNo > 3)
+    return MCDisassembler::Fail;
+  return DecodeGR16RegisterClass(MI, RegNo, Address, Decoder);
+}
+
 static DecodeStatus DecodeGR8RegisterClass(MCInst &MI, uint64_t RegNo,
                                            uint64_t Address,
                                            const MCDisassembler *Decoder) {
@@ -60,6 +68,36 @@ static DecodeStatus DecodeGR8RegisterClass(MCInst &MI, uint64_t RegNo,
   if (RegNo >= std::size(Registers))
     return MCDisassembler::Fail;
   MI.addOperand(MCOperand::createReg(Registers[RegNo]));
+  return MCDisassembler::Success;
+}
+
+static DecodeStatus decodeByteImmediateRegister(MCInst &MI, uint64_t Insn,
+                                                uint64_t Address,
+                                                const MCDisassembler *Decoder) {
+  unsigned DirectRegister = (Insn >> 8) & 0xff;
+  if ((DirectRegister & 0xf0) != 0xf0 || (Insn >> 24) != 0)
+    return MCDisassembler::Fail;
+  return DecodeGR8RegisterClass(MI, DirectRegister & 0xf, Address, Decoder);
+}
+
+static DecodeStatus decodeByteALUri8(MCInst &MI, uint64_t Insn,
+                                     uint64_t Address,
+                                     const MCDisassembler *Decoder) {
+  if (decodeByteImmediateRegister(MI, Insn, Address, Decoder) ==
+      MCDisassembler::Fail)
+    return MCDisassembler::Fail;
+  MI.addOperand(MI.getOperand(0));
+  MI.addOperand(MCOperand::createImm((Insn >> 16) & 0xff));
+  return MCDisassembler::Success;
+}
+
+static DecodeStatus decodeByteCompareri8(MCInst &MI, uint64_t Insn,
+                                         uint64_t Address,
+                                         const MCDisassembler *Decoder) {
+  if (decodeByteImmediateRegister(MI, Insn, Address, Decoder) ==
+      MCDisassembler::Fail)
+    return MCDisassembler::Fail;
+  MI.addOperand(MCOperand::createImm((Insn >> 16) & 0xff));
   return MCDisassembler::Success;
 }
 
@@ -209,6 +247,42 @@ static DecodeStatus decodeMOVgsfr(MCInst &MI, uint64_t Insn, uint64_t Address,
   if (!Reg)
     return MCDisassembler::Fail;
   MI.addOperand(MCOperand::createReg(Reg));
+  return MCDisassembler::Success;
+}
+
+static DecodeStatus decodeALUgsfr(MCInst &MI, uint64_t Insn, uint64_t Address,
+                                  const MCDisassembler *Decoder) {
+  if (DecodeGR16RegisterClass(MI, (Insn >> 8) & 0xf, Address, Decoder) ==
+      MCDisassembler::Fail)
+    return MCDisassembler::Fail;
+  MI.addOperand(MI.getOperand(0));
+  MCRegister Source = decodeSFRDirectAddress(Insn >> 16);
+  if (!Source)
+    return MCDisassembler::Fail;
+  MI.addOperand(MCOperand::createReg(Source));
+  return MCDisassembler::Success;
+}
+
+static DecodeStatus decodeCMPgsfr(MCInst &MI, uint64_t Insn, uint64_t Address,
+                                  const MCDisassembler *Decoder) {
+  if (DecodeGR16RegisterClass(MI, (Insn >> 8) & 0xf, Address, Decoder) ==
+      MCDisassembler::Fail)
+    return MCDisassembler::Fail;
+  MCRegister Source = decodeSFRDirectAddress(Insn >> 16);
+  if (!Source)
+    return MCDisassembler::Fail;
+  MI.addOperand(MCOperand::createReg(Source));
+  return MCDisassembler::Success;
+}
+
+static DecodeStatus decodeMOVsfrsfr(MCInst &MI, uint64_t Insn, uint64_t Address,
+                                    const MCDisassembler *Decoder) {
+  MCRegister Destination = decodeSFRShortAddress((Insn >> 8) & 0xff);
+  MCRegister Source = decodeSFRDirectAddress(Insn >> 16);
+  if (!Destination || !Source)
+    return MCDisassembler::Fail;
+  MI.addOperand(MCOperand::createReg(Destination));
+  MI.addOperand(MCOperand::createReg(Source));
   return MCDisassembler::Success;
 }
 

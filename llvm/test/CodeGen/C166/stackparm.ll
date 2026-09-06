@@ -8,12 +8,13 @@
 
 define cc 128 i16 @stackparm_callee(i16 %a, i32 %b, i16 %c) {
 ; CHECK-LABEL: _stackparm_callee:
-; CHECK-DAG:   mov r4, [r0]
-; CHECK-DAG:   mov [[TMP:r[0-9]+]], [r0 + #2]
-; CHECK:       add r4, [[TMP]]
-; CHECK-NEXT:  mov [[TMP]], [r0 + #4]
-; CHECK-NEXT:  add r4, [[TMP]]
-; CHECK-NEXT:  mov [[TMP]], [r0 + #6]
+; CHECK:       mov [[CUR:r[0-9]+]], r0
+; CHECK-NEXT:  add [[CUR]], #2
+; CHECK-NEXT:  mov [[SUM:r[0-9]+]], [r0]
+; CHECK-NEXT:  add [[SUM]], {{\[}}[[CUR]]{{\+\]}}
+; CHECK-NEXT:  mov [[TMP:r[0-9]+]], {{\[}}[[CUR]]{{\+\]}}
+; CHECK-NEXT:  add [[TMP]], [[SUM]]
+; CHECK-NEXT:  mov r4, {{\[}}[[CUR]]{{\]}}
 ; CHECK-NEXT:  add r4, [[TMP]]
 ; HUGE-NEXT:   rets
 ; NEAR-NEXT:   ret

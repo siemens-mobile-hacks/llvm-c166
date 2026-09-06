@@ -36,22 +36,20 @@ extern u16 tuple_reload_selector(u16);
 DEFINE_TUPLE_RELOAD(tuple_reload_low, )
 DEFINE_TUPLE_RELOAD(tuple_reload_high, >> 16)
 
-// Generic RA requests whole GR32 reloads (SubReg=0).  Under constrained
-// allocation the pair is therefore stored and loaded as two adjacent words;
-// the selected low or high word is consumed only after the reload.
+// Generic RA requests whole GR32 reloads (SubReg=0). Post-RA cleanup removes
+// the unused high half when only the low result is needed. Computing the high
+// result still reloads both words because the low-word addition produces its
+// carry. Frame setup may represent spill allocation with pre-decrement stores.
 // CHECK-LABEL: <_tuple_reload_low>:
-// CHECK:       sub r0
-// CHECK:       mov [r0], r14
-// CHECK-NEXT:  mov [r0 + #2], r15
+// CHECK-COUNT-4: mov [-r0], {{r[0-9]+}}
 // CHECK:       calls
-// CHECK:       mov r2, [r0 + #{{[0-9]+}}]
-// CHECK-NEXT:  mov r3, [r0 + #{{[0-9]+}}]
+// CHECK-NOT:   mov r4, [r0 + #{{[0-9]+}}]
+// CHECK:       mov r3, [r0 + #{{[0-9]+}}]
+// CHECK-NOT:   mov r4, [r0 + #{{[0-9]+}}]
 // CHECK:       rets
 
 // CHECK-LABEL: <_tuple_reload_high>:
-// CHECK:       sub r0
-// CHECK:       mov [r0], r14
-// CHECK-NEXT:  mov [r0 + #2], r15
+// CHECK-COUNT-4: mov [-r0], {{r[0-9]+}}
 // CHECK:       calls
 // CHECK:       mov r3, [r0 + #{{[0-9]+}}]
 // CHECK-NEXT:  mov r4, [r0 + #{{[0-9]+}}]

@@ -1,0 +1,55 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-ra \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @fold_sfr_operands() { ret void }
+  define void @keep_live_temporary() { ret void }
+...
+---
+name:            fold_sfr_operands
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2, $r3, $r4, $r5, $r6, $r7, $mdh, $mdl
+
+    $r1 = MOVgsfr $mdl, implicit-def dead $psw
+    $r2 = ADDrr killed $r2, killed $r1, implicit-def dead $psw, implicit-def dead $c
+    $r1 = MOVgsfr $mdh, implicit-def dead $psw
+    $r3 = SUBrr killed $r3, killed $r1, implicit-def dead $psw, implicit-def dead $c
+    $r1 = MOVgsfr $mdl, implicit-def dead $psw
+    CMPrr killed $r4, killed $r1, implicit-def dead $psw, implicit-def dead $c
+    $r1 = MOVgsfr $mdh, implicit-def dead $psw
+    $r5 = XORrr killed $r5, killed $r1, implicit-def dead $psw, implicit-def dead $c
+    $r1 = MOVgsfr $mdl, implicit-def dead $psw
+    $r6 = ANDrr killed $r6, killed $r1, implicit-def dead $psw, implicit-def dead $c
+    $r1 = MOVgsfr $mdh, implicit-def dead $psw
+    $r7 = ORrr killed $r7, killed $r1, implicit-def dead $psw, implicit-def dead $c
+    RETS
+
+# CHECK-LABEL: name: fold_sfr_operands
+# CHECK-NOT:   MOVgsfr
+# CHECK:       $r2 = ADDgsfr killed $r2, $mdl
+# CHECK:       $r3 = SUBgsfr killed $r3, $mdh
+# CHECK:       CMPgsfr killed $r4, $mdl
+# CHECK:       $r5 = XORgsfr killed $r5, $mdh
+# CHECK:       $r6 = ANDgsfr killed $r6, $mdl
+# CHECK:       $r7 = ORgsfr killed $r7, $mdh
+...
+---
+name:            keep_live_temporary
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2, $mdl
+
+    $r1 = MOVgsfr $mdl, implicit-def dead $psw
+    $r2 = ADDrr killed $r2, $r1, implicit-def dead $psw, implicit-def dead $c
+    $r3 = MOVrr killed $r1, implicit-def dead $psw
+    RETS implicit $r3
+
+# CHECK-LABEL: name: keep_live_temporary
+# CHECK:       $r1 = MOVgsfr $mdl
+# CHECK-NEXT:  $r2 = ADDrr killed $r2, $r1
+...

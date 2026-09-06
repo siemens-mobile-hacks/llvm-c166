@@ -104,9 +104,11 @@ u16 matrix_promote_enum(enum matrix_enum value) {
 // A two-word scalar is packed into R13:R14 after a byte in R12.  It does not
 // require an even register pair, so the final byte still occupies R15.
 // CHECK-LABEL: <_matrix_packed_u8_u32>:
-// CHECK:       mov r4, r13
-// CHECK-NEXT:  mov r5, r14
-// CHECK:       and r15, #255
+// CHECK:       mov [[LAST:r[0-9]+]], r15
+// CHECK:       movbz [[FIRST:r[0-9]+]], r{{[lh][0-7]}}
+// CHECK:       add [[FIRST]], r13
+// CHECK:       movbz [[RESULT:r[0-9]+]], r{{[lh][0-7]}}
+// CHECK:       add [[RESULT]], [[FIRST]]
 // CHECK-NOT:   [r0]
 // CHECK:       rets
 
@@ -119,16 +121,17 @@ u16 matrix_promote_enum(enum matrix_enum value) {
 
 // This enum uses one int-sized slot.
 // CHECK-LABEL: <_matrix_five_enum>:
-// CHECK-DAG:   {{(mov|add)}} r4, r13
-// CHECK-DAG:   add r4, r14
-// CHECK-DAG:   add r4, r15
-// CHECK:       mov {{r[0-9]+}}, [r0]
+// CHECK:       add r12, r13
+// CHECK:       add r12, r14
+// CHECK:       add r12, r15
+// CHECK:       mov r4, [r0]
+// CHECK:       add r4, r12
 // CHECK:       rets
 
 // Every aggregate is stack-passed, and the following scalar remains on the
 // stack.  The observed sizes are union=4, padded struct=4, bit-field struct=2.
 // CHECK-LABEL: <_matrix_union_then_word>:
-// CHECK-DAG:   mov r4, [r0]
+// CHECK-DAG:   mov {{r[0-9]+}}, [r0]
 // CHECK-DAG:   mov {{r[0-9]+}}, [r0 + #2]
 // CHECK-DAG:   mov {{r[0-9]+}}, [r0 + #4]
 // CHECK:       rets
@@ -152,8 +155,8 @@ u16 matrix_promote_enum(enum matrix_enum value) {
 // CHECK:       add r0, #2
 // CHECK:       rets
 // CHECK-LABEL: <_matrix_promote_u8>:
-// CHECK:       and r12, #255
-// CHECK:       mov [-r0], {{r[0-9]+}}
+// CHECK:       movbz [[PROMOTED:r[0-9]+]], r{{[lh][0-7]}}
+// CHECK:       mov [-r0], [[PROMOTED]]
 // CHECK:       calls
 // CHECK:       add r0, #2
 // CHECK:       rets

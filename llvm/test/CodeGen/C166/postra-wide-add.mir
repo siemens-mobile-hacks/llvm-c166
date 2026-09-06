@@ -1,0 +1,157 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-ra \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @fold_zero_extended_word() { ret void }
+  define void @keep_live_zero_extended_word() { ret void }
+  define void @keep_nonzero_high_word() { ret void }
+  define void @fold_stored_wide_add_chain() { ret void }
+  define void @keep_live_stored_low_word() { ret void }
+  define void @keep_live_stored_addend() { ret void }
+...
+---
+name:            fold_zero_extended_word
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r5, $r8, $r9, $r14
+
+    $r4 = MOVrr killed $r5, implicit-def dead $psw
+    $r5 = MOVri4 0, implicit-def dead $psw
+    $r13 = MOVrr killed $r14, implicit-def dead $psw
+    $r14 = MOVri4 0, implicit-def dead $psw
+    $r13 = ADDrr killed $r13, killed $r4, implicit-def $psw, implicit-def $c
+    $r14 = ADDCrr killed $r14, killed $r5, implicit $psw, implicit $c, implicit-def dead $psw, implicit-def dead $c
+    $r13 = ADDrr killed $r13, $r8, implicit-def $psw, implicit-def $c
+    $r14 = ADDCrr killed $r14, $r9, implicit $psw, implicit $c, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r13, implicit $r14
+
+# CHECK-LABEL: name: fold_zero_extended_word
+# CHECK-NOT:   $r4 = MOVrr
+# CHECK-NOT:   $r5 = MOVri4 0
+# CHECK:       $r13 = MOVrr killed $r14
+# CHECK-NEXT:  $r14 = MOVri4 0
+# CHECK-NEXT:  $r13 = ADDrr killed $r13, killed $r5
+# CHECK-NEXT:  $r14 = ADDCri3 killed $r14, 0
+# CHECK-NEXT:  $r13 = ADDrr killed $r13, $r8
+# CHECK-NEXT:  $r14 = ADDCrr killed $r14, $r9
+...
+---
+name:            keep_live_zero_extended_word
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r5, $r14
+
+    $r4 = MOVrr killed $r5, implicit-def dead $psw
+    $r5 = MOVri4 0, implicit-def dead $psw
+    $r13 = MOVrr killed $r14, implicit-def dead $psw
+    $r14 = MOVri4 0, implicit-def dead $psw
+    $r13 = ADDrr killed $r13, $r4, implicit-def $psw, implicit-def $c
+    $r14 = ADDCrr killed $r14, $r5, implicit $psw, implicit $c, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r4, implicit $r13, implicit $r14
+
+# CHECK-LABEL: name: keep_live_zero_extended_word
+# CHECK:       $r4 = MOVrr killed $r5
+# CHECK-NOT:   $r5 = MOVri4 0
+# CHECK:       $r13 = ADDrr killed $r13, $r4
+# CHECK-NEXT:  $r14 = ADDCri3 killed $r14, 0
+...
+---
+name:            keep_nonzero_high_word
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r5, $r14, $r15
+
+    $r4 = MOVrr killed $r5, implicit-def dead $psw
+    $r5 = MOVrr killed $r15, implicit-def dead $psw
+    $r13 = MOVrr killed $r14, implicit-def dead $psw
+    $r14 = MOVri4 0, implicit-def dead $psw
+    $r13 = ADDrr killed $r13, killed $r4, implicit-def $psw, implicit-def $c
+    $r14 = ADDCrr killed $r14, killed $r5, implicit $psw, implicit $c, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r13, implicit $r14
+
+# CHECK-LABEL: name: keep_nonzero_high_word
+# CHECK:       $r4 = MOVrr killed $r5
+# CHECK-NEXT:  $r5 = MOVrr killed $r15
+# CHECK:       $r13 = ADDrr killed $r13, killed $r4
+# CHECK-NEXT:  $r14 = ADDCrr killed $r14, killed $r5
+...
+---
+name:            fold_stored_wide_add_chain
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r3, $r6, $r8, $r9, $r14r13
+
+    $r13 = MOVrr $r14, implicit-def dead $psw
+    $r14 = MOVri4 0, implicit-def dead $psw
+    $r13 = ADDrr killed $r13, $r6, implicit-def $psw, implicit-def $c
+    $r14 = ADDCri3 killed $r14, 0, implicit $psw, implicit $c, implicit-def dead $psw, implicit-def dead $c
+    $r13 = ADDrr killed $r13, killed $r8, implicit-def $psw, implicit-def $c
+    $r14 = ADDCrr killed $r14, killed $r9, implicit $psw, implicit $c, implicit-def dead $psw, implicit-def dead $c
+    MOVmr $r3, $r13, implicit-def dead $psw
+    MOVmr16 $r3, 2, $r14, implicit-def dead $psw, implicit killed $r14r13
+    RETS
+
+# CHECK-LABEL: name: fold_stored_wide_add_chain
+# CHECK-NOT:   $r13 = MOVrr
+# CHECK-NOT:   $r14 = MOVri4 0
+# CHECK:       $r8 = ADDrr $r8, killed $r6
+# CHECK-NEXT:  $r9 = ADDCri3 $r9, 0
+# CHECK-NEXT:  $r8 = ADDrr $r8, $r14
+# CHECK-NEXT:  $r9 = ADDCri3 $r9, 0
+# CHECK-NEXT:  MOVmr $r3, killed $r8
+# CHECK-NEXT:  $r14 = MOVrr killed $r9
+# CHECK-NEXT:  MOVmr16 $r3, 2, $r14, implicit-def dead $psw, implicit killed $r14r13
+# CHECK-NEXT:  RETS
+...
+---
+name:            keep_live_stored_low_word
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r3, $r6, $r8, $r9, $r14
+
+    $r13 = MOVrr $r14, implicit-def dead $psw
+    $r14 = MOVri4 0, implicit-def dead $psw
+    $r13 = ADDrr killed $r13, $r6, implicit-def $psw, implicit-def $c
+    $r14 = ADDCri3 killed $r14, 0, implicit $psw, implicit $c, implicit-def dead $psw, implicit-def dead $c
+    $r13 = ADDrr killed $r13, killed $r8, implicit-def $psw, implicit-def $c
+    $r14 = ADDCrr killed $r14, killed $r9, implicit $psw, implicit $c, implicit-def dead $psw, implicit-def dead $c
+    MOVmr $r3, $r13, implicit-def dead $psw
+    RETS implicit $r13, implicit $r14
+
+# CHECK-LABEL: name: keep_live_stored_low_word
+# CHECK:       $r13 = MOVrr $r14
+# CHECK-NEXT:  $r14 = MOVri4 0
+# CHECK:       MOVmr $r3, $r13
+# CHECK-NEXT:  RETS implicit $r13, implicit $r14
+...
+---
+name:            keep_live_stored_addend
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r3, $r6, $r8, $r9, $r14
+
+    $r13 = MOVrr $r14, implicit-def dead $psw
+    $r14 = MOVri4 0, implicit-def dead $psw
+    $r13 = ADDrr killed $r13, $r6, implicit-def $psw, implicit-def $c
+    $r14 = ADDCri3 killed $r14, 0, implicit $psw, implicit $c, implicit-def dead $psw, implicit-def dead $c
+    $r13 = ADDrr killed $r13, $r8, implicit-def $psw, implicit-def $c
+    $r14 = ADDCrr killed $r14, $r9, implicit $psw, implicit $c, implicit-def dead $psw, implicit-def dead $c
+    MOVmr $r3, $r13, implicit-def dead $psw
+    RETS implicit $r8, implicit $r9, implicit $r14
+
+# CHECK-LABEL: name: keep_live_stored_addend
+# CHECK:       $r13 = MOVrr $r14
+# CHECK-NEXT:  $r14 = MOVri4 0
+# CHECK:       $r13 = ADDrr killed $r13, $r8
+# CHECK-NEXT:  $r14 = ADDCrr killed $r14, $r9
+# CHECK-NEXT:  MOVmr $r3, $r13
+# CHECK-NEXT:  RETS implicit $r8, implicit $r9, implicit $r14
+...

@@ -120,8 +120,8 @@ unsigned int boundary_offsets(unsigned int value) {
 // CHECK-NEXT:  rets
 
 // CHECK-LABEL: <_stack_arg_with_local>:
-// CHECK:       sub r0, #2
-// CHECK-NEXT:  mov [[ARG:r[0-9]+]], [r0 + #2]
+// CHECK:       mov [[ARG:r[0-9]+]], [r0]
+// CHECK-NEXT:  sub r0, #2
 // CHECK-NEXT:  mov [r0], [[ARG]]
 // CHECK-NEXT:  mov r4, [r0]
 // CHECK-NEXT:  add r0, #2

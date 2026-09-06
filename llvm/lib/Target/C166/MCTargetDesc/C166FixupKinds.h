@@ -21,6 +21,7 @@ enum Fixups {
   fixup_c166_pag10,
   fixup_c166_pof14,
   fixup_c166_pc8,
+  fixup_c166_bit_pc8,
   fixup_c166_pc8_relax,
   fixup_c166_pc16,
   fixup_c166_dpp1_16,

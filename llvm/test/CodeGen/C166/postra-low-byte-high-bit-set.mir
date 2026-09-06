@@ -1,0 +1,56 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-ra \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @fold_low_byte_mask() { ret void }
+  define void @keep_register_without_byte_view() { ret void }
+  define void @keep_different_bit() { ret void }
+...
+---
+name:            fold_low_byte_mask
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r5
+
+    $r5 = ANDri16 $r5, 127, implicit-def dead $psw, implicit-def dead $c
+    $r5 = BSETreg killed $r5, 7, implicit-def dead $psw, implicit-def dead $c
+    RETS
+
+# CHECK-LABEL: name: fold_low_byte_mask
+# CHECK:       $r5 = MOVBZrr $rl5
+# CHECK-NEXT:  $r5 = BSETreg killed $r5, 7
+# CHECK-NOT:   ANDri16
+...
+---
+name:            keep_register_without_byte_view
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r13
+
+    $r13 = ANDri16 $r13, 127, implicit-def dead $psw, implicit-def dead $c
+    $r13 = BSETreg killed $r13, 7, implicit-def dead $psw, implicit-def dead $c
+    RETS
+
+# CHECK-LABEL: name: keep_register_without_byte_view
+# CHECK:       $r13 = ANDri16 $r13, 127
+# CHECK-NEXT:  $r13 = BSETreg killed $r13, 7
+...
+---
+name:            keep_different_bit
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r5
+
+    $r5 = ANDri16 $r5, 127, implicit-def dead $psw, implicit-def dead $c
+    $r5 = BSETreg killed $r5, 6, implicit-def dead $psw, implicit-def dead $c
+    RETS
+
+# CHECK-LABEL: name: keep_different_bit
+# CHECK:       $r5 = ANDri16 $r5, 127
+# CHECK-NEXT:  $r5 = BSETreg killed $r5, 6
+...

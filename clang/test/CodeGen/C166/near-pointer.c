@@ -178,8 +178,8 @@ near_void *xnear_to_near(xnear_void *p) { return (near_void *)p; }
 // DIS-NEXT:  ashr r4, #1
 // DIS:       rets
 // DIS-LABEL: <_near_between_words>:
-// DIS:       add r4, r12
-// DIS:       movb {{r[lh][0-9]+}}, [r13]
+// DIS-DAG:   add r4, r12
+// DIS-DAG:   movb {{r[lh][0-9]+}}, [r13]
 // DIS:       rets
 
 // Explicit _far remains the existing paged 32-bit data pointer.
@@ -191,44 +191,45 @@ near_void *xnear_to_near(xnear_void *p) { return (near_void *)p; }
 // Integer widening reads the ABI-selected page and strips the two selector
 // bits.  Narrowing forces exactly selector 10b for near or 01b for xnear.
 // DIS-LABEL: <_near_to_long>:
-// DIS:       mov {{r[0-9]+}}, dpp2
-// DIS:       shl {{r[0-9]+}}, #14
-// DIS:       and {{r[0-9]+}}, #16383
+// DIS-DAG:   mov {{r[0-9]+}}, dpp2
+// DIS-DAG:   shl {{r[0-9]+}}, #14
+// DIS-DAG:   and {{r[0-9]+}}, #16383
 // DIS:       rets
 // DIS-LABEL: <_xnear_to_long>:
-// DIS:       mov {{r[0-9]+}}, dpp1
-// DIS:       shl {{r[0-9]+}}, #14
-// DIS:       and {{r[0-9]+}}, #16383
+// DIS-DAG:   mov {{r[0-9]+}}, dpp1
+// DIS-DAG:   shl {{r[0-9]+}}, #14
+// DIS-DAG:   and {{r[0-9]+}}, #16383
 // DIS:       rets
 // DIS-LABEL: <_long_to_near>:
-// DIS:       or {{r[0-9]+}}, #32768
-// DIS:       and {{r[0-9]+}}, #49151
+// DIS:       bset {{r[0-9]+}}.15
+// DIS:       bclr {{r[0-9]+}}.14
 // DIS:       rets
 // DIS-LABEL: <_long_to_xnear>:
-// DIS:       or {{r[0-9]+}}, #16384
-// DIS:       and {{r[0-9]+}}, #32767
+// DIS:       bset {{r[0-9]+}}.14
+// DIS:       bclr {{r[0-9]+}}.15
 // DIS:       rets
 
 // Widening to far preserves raw null and otherwise forms offset:DPP.
+// MOV supplies the zero flag used by the null branch.
 // DIS-LABEL: <_near_to_far>:
-// DIS:       cmp
+// DIS:       mov [[NEAR_OFFSET:r[0-9]+]], r12
 // DIS-NEXT:  jmpr cc_eq,
-// DIS:       mov {{r[0-9]+}}, dpp2
-// DIS:       and {{r[0-9]+}}, #16383
+// DIS-DAG:   mov {{r[0-9]+}}, dpp2
+// DIS-DAG:   and [[NEAR_OFFSET]], #16383
 // DIS:       rets
 // DIS-LABEL: <_xnear_to_far>:
-// DIS:       cmp
+// DIS:       mov [[XNEAR_OFFSET:r[0-9]+]], r12
 // DIS-NEXT:  jmpr cc_eq,
-// DIS:       mov {{r[0-9]+}}, dpp1
-// DIS:       and {{r[0-9]+}}, #16383
+// DIS-DAG:   mov {{r[0-9]+}}, dpp1
+// DIS-DAG:   and [[XNEAR_OFFSET]], #16383
 // DIS:       rets
 
 // Cross-qualifier casts rewrite only the selector bits.
 // DIS-LABEL: <_near_to_xnear>:
-// DIS:       or {{r[0-9]+}}, #16384
-// DIS:       and {{r[0-9]+}}, #32767
+// DIS:       bset {{r[0-9]+}}.14
+// DIS:       bclr {{r[0-9]+}}.15
 // DIS:       rets
 // DIS-LABEL: <_xnear_to_near>:
-// DIS:       or {{r[0-9]+}}, #32768
-// DIS:       and {{r[0-9]+}}, #49151
+// DIS:       bset {{r[0-9]+}}.15
+// DIS:       bclr {{r[0-9]+}}.14
 // DIS:       rets

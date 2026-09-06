@@ -1,0 +1,28 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-ra -verify-machineinstrs -o - %s | FileCheck %s
+
+# CHECK: MOVmr16 $r0, 8
+# CHECK-NOT: MOVmrPreDec
+# CHECK: CALLS
+# CHECK: MOVrm16 $r0, 8
+# CHECK: CALLS
+# CHECK: MOVrm16 $r0, 8
+
+--- |
+  declare void @callee() addrspace(1)
+  define void @spill_slot_later_read() nounwind optsize { ret void }
+...
+---
+name: spill_slot_later_read
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 2, alignment: 2 }
+body: |
+  bb.0:
+    liveins: $r0, $r14
+    MOVmr16 $r0, 8, killed $r14, implicit-def dead $psw :: (store (s16) into %stack.0)
+    CALLS @callee, @callee, csr_c166_callpreserved
+    $r14 = MOVrm16 $r0, 8, implicit-def dead $psw :: (load (s16) from %stack.0)
+    CALLS @callee, @callee, csr_c166_callpreserved, implicit $r14
+    $r4 = MOVrm16 $r0, 8, implicit-def dead $psw :: (load (s16) from %stack.0)
+    RETS implicit $r4
+...

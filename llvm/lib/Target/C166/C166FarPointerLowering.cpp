@@ -9,6 +9,7 @@
 #include "C166.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instructions.h"
@@ -31,6 +32,11 @@ bool isSegmentedAddressSpace(unsigned AddressSpace) {
 bool isNearAddressSpace(unsigned AddressSpace) {
   return AddressSpace == C166::NearAddressSpace ||
          AddressSpace == C166::XNearDataAddressSpace;
+}
+
+bool isStackAddress(Value *Value) {
+  const auto *II = dyn_cast<IntrinsicInst>(Value);
+  return II && II->getIntrinsicID() == Intrinsic::c166_stack_address;
 }
 
 unsigned getNearDPP(unsigned AddressSpace) {
@@ -197,8 +203,9 @@ bool llvm::lowerC166PointerCasts(Function &F) {
                  isNearAddressSpace(Cast->getPointerAddressSpace())))
       PtrToInts.push_back(Cast);
     if (auto *Cast = dyn_cast<IntToPtrInst>(&I);
-        Cast && (Cast->getAddressSpace() == C166::FarDataAddressSpace ||
-                 isNearAddressSpace(Cast->getAddressSpace())))
+        Cast && !isStackAddress(Cast->getOperand(0)) &&
+        (Cast->getAddressSpace() == C166::FarDataAddressSpace ||
+         isNearAddressSpace(Cast->getAddressSpace())))
       IntToPtrs.push_back(Cast);
     if (auto *Cast = dyn_cast<AddrSpaceCastInst>(&I)) {
       unsigned SourceAddressSpace = Cast->getSrcAddressSpace();
@@ -286,8 +293,17 @@ bool llvm::lowerC166PointerCasts(Function &F) {
             : Builder.CreatePtrToAddr(Cast->getOperand(0), "c166.cast.raw");
     Value *Pointer;
 
-    if (IsSmallModel && SourceAddressSpace == C166::NearAddressSpace &&
-        DestinationAddressSpace == C166::FarDataAddressSpace) {
+    if (SourceAddressSpace == C166::FarDataAddressSpace &&
+        DestinationAddressSpace == C166::XNearDataAddressSpace &&
+        isa<AllocaInst>(getUnderlyingObject(Cast->getOperand(0)))) {
+      Function *StackAddress = Intrinsic::getOrInsertDeclaration(
+          M, Intrinsic::c166_stack_address, {Cast->getOperand(0)->getType()});
+      Value *Direct = Builder.CreateCall(StackAddress, Cast->getOperand(0),
+                                         "c166.stack.address");
+      Pointer =
+          Builder.CreateIntToPtr(Direct, Cast->getType(), "c166.stack.pointer");
+    } else if (IsSmallModel && SourceAddressSpace == C166::NearAddressSpace &&
+               DestinationAddressSpace == C166::FarDataAddressSpace) {
       Pointer = convertDirectToFar(Builder, *M, Raw, Cast->getType());
     } else if (IsSmallModel && SourceAddressSpace == C166::NearAddressSpace &&
                isSegmentedAddressSpace(DestinationAddressSpace)) {

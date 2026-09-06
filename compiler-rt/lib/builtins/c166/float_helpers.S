@@ -16,7 +16,8 @@
 // non-zero.  Far data accesses use the page register supplied by the caller.
 //
 // A double result uses an eight-byte stack block. __load8x publishes the
-// temporary address in R4 and R10 for the load/store helper sequence.
+// temporary address in R10. The near helper also mirrors it to R4; the far
+// helper uses R4 as its source cursor.
 //
 //===----------------------------------------------------------------------===//
 
@@ -38,14 +39,14 @@ __load8n:
         sub     r0, #4
         mov     r10, r0
 __ldnoal8n:
-        mov     r2, [r4]
-        mov     [r10], r2
-        mov     r2, [r4 + #2]
-        mov     [r10 + #2], r2
-        mov     r2, [r4 + #4]
-        mov     [r10 + #4], r2
-        mov     r2, [r4 + #6]
-        mov     [r10 + #6], r2
+        mov     r2, r10
+        mov     [r2+], [r4]
+        add     r4, #2
+        mov     [r2+], [r4]
+        add     r4, #2
+        mov     [r2+], [r4]
+        add     r4, #2
+        mov     [r2], [r4]
         mov     r4, r10
         C166_ABI_RET
         .size   __ldnoal8n, .-__ldnoal8n
@@ -54,16 +55,13 @@ __ldnoal8n:
         .globl  __store8n
         .type   __store8n,@function
 __store8n:
-        mov     r2, [r10]
-        mov     [r4], r2
-        mov     r2, [r10 + #2]
-        mov     [r4 + #2], r2
-        mov     r2, [r10 + #4]
-        mov     [r4 + #4], r2
-        mov     r2, [r10 + #6]
-        mov     [r4 + #6], r2
-        add     r10, #6
-        add     r4, #6
+        mov     [r4+], [r10]
+        add     r10, #2
+        mov     [r4+], [r10]
+        add     r10, #2
+        mov     [r4+], [r10]
+        add     r10, #2
+        mov     [r4], [r10]
         C166_ABI_RET
         .size   __store8n, .-__store8n
 
@@ -77,18 +75,21 @@ __load8f:
         mov     r10, r0
 __ldnoal8f:
         extp    r5, #1
+        mov     r2, [r4+]
+        mov     [r10], r2
+        add     r10, #2
+        extp    r5, #1
+        mov     r2, [r4+]
+        mov     [r10], r2
+        add     r10, #2
+        extp    r5, #1
+        mov     r2, [r4+]
+        mov     [r10], r2
+        add     r10, #2
+        extp    r5, #1
         mov     r2, [r4]
         mov     [r10], r2
-        extp    r5, #1
-        mov     r2, [r4 + #2]
-        mov     [r10 + #2], r2
-        extp    r5, #1
-        mov     r2, [r4 + #4]
-        mov     [r10 + #4], r2
-        extp    r5, #1
-        mov     r2, [r4 + #6]
-        mov     [r10 + #6], r2
-        mov     r4, r10
+        sub     r10, #6
         C166_ABI_RET
         .size   __ldnoal8f, .-__ldnoal8f
         .size   __load8f, .-__load8f
@@ -96,20 +97,21 @@ __ldnoal8f:
         .globl  __store8f
         .type   __store8f,@function
 __store8f:
+        mov     r2, [r10+]
+        extp    r5, #1
+        mov     [r4], r2
+        add     r4, #2
+        mov     r2, [r10+]
+        extp    r5, #1
+        mov     [r4], r2
+        add     r4, #2
+        mov     r2, [r10+]
+        extp    r5, #1
+        mov     [r4], r2
+        add     r4, #2
         mov     r2, [r10]
         extp    r5, #1
         mov     [r4], r2
-        mov     r2, [r10 + #2]
-        extp    r5, #1
-        mov     [r4 + #2], r2
-        mov     r2, [r10 + #4]
-        extp    r5, #1
-        mov     [r4 + #4], r2
-        mov     r2, [r10 + #6]
-        extp    r5, #1
-        mov     [r4 + #6], r2
-        add     r10, #6
-        add     r4, #6
         C166_ABI_RET
         .size   __store8f, .-__store8f
 
@@ -118,37 +120,28 @@ __store8f:
         .endm
 
         .macro  RESTORE_R2
-        mov     r2, [r0]
-        add     r0, #2
+        mov     r2, [r0+]
         .endm
 
         .globl  __cpnnb
         .type   __cpnnb,@function
 __cpnnb:
-        SAVE_R2
 .Lcpnnb_loop:
-        movb    rl2, [r4]
-        movb    [r10], rl2
+        movb    [r10+], [r4]
         add     r4, #1
-        add     r10, #1
         sub     r3, #1
         jmpr    cc_ne, .Lcpnnb_loop
-        RESTORE_R2
         C166_ABI_RET
         .size   __cpnnb, .-__cpnnb
 
         .globl  __cpnnw
         .type   __cpnnw,@function
 __cpnnw:
-        SAVE_R2
 .Lcpnnw_loop:
-        mov     r2, [r4]
-        mov     [r10], r2
+        mov     [r10+], [r4]
         add     r4, #2
-        add     r10, #2
         sub     r3, #1
         jmpr    cc_ne, .Lcpnnw_loop
-        RESTORE_R2
         C166_ABI_RET
         .size   __cpnnw, .-__cpnnw
 
@@ -215,3 +208,26 @@ __cpfnw:
         RESTORE_R2
         C166_ABI_RET
         .size   __cpfnw, .-__cpfnw
+
+#if __C166_MEMORY_MODEL__ == 2
+        .section .c166.near.text,"ax",@progbits
+#else
+        .section .text.___c166_df_limbs_increment,"ax",@progbits
+#endif
+        .p2align 1
+        .globl  ___c166_df_limbs_increment
+        .type   ___c166_df_limbs_increment,@function
+___c166_df_limbs_increment:
+        mov     r1, #0
+.Ldf_increment_loop:
+        mov     r2, r12
+        add     r2, r1
+        mov     r3, [r2]
+        add     r3, #1
+        mov     [r2], r3
+        jmpr    cc_uge, .Ldf_increment_done
+        cmpi2   r1, #6
+        jmpr    cc_ne, .Ldf_increment_loop
+.Ldf_increment_done:
+        C166_ABI_RET
+        .size   ___c166_df_limbs_increment, .-___c166_df_limbs_increment

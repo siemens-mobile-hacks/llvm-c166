@@ -54,6 +54,10 @@ static uint8_t invertJMPR(uint8_t opcode) {
     return 0x3d;
   case 0x3d:
     return 0x2d;
+  case 0x6d:
+    return 0x7d;
+  case 0x7d:
+    return 0x6d;
   case 0x8d:
     return 0x9d;
   case 0x9d:
@@ -73,6 +77,14 @@ static uint8_t invertJMPR(uint8_t opcode) {
   default:
     return 0;
   }
+}
+
+static uint8_t invertBitBranch(uint8_t opcode) {
+  if (opcode == 0x8a)
+    return 0x9a;
+  if (opcode == 0x9a)
+    return 0x8a;
+  return 0;
 }
 
 uint32_t C166::calcEFlags() const {
@@ -239,6 +251,7 @@ RelExpr C166::getRelExpr(RelType type, const Symbol &s,
   case R_C166_NONE:
     return R_NONE;
   case R_C166_PC8:
+  case R_C166_BIT_PC8:
   case R_C166_PC8_RELAX:
   case R_C166_PC16:
   case R_C166_COF16:
@@ -358,16 +371,30 @@ void C166::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
     *loc = words;
   }
     return;
+  case R_C166_BIT_PC8: {
+    int64_t delta = static_cast<int64_t>(val) - 2;
+    if (delta & 1) {
+      Err(ctx) << getErrorLoc(ctx, loc)
+               << "R_C166_BIT_PC8 target is not word-aligned";
+      return;
+    }
+    int64_t words = delta / 2;
+    checkInt(ctx, loc, words, 8, rel);
+    *loc = words;
+  }
+    return;
   case R_C166_PC8_RELAX: {
     uint8_t opcode = loc[0];
-    uint8_t inverse = invertJMPR(opcode);
-    if (opcode != 0x0d && inverse == 0) {
+    uint8_t inverseJMPR = invertJMPR(opcode);
+    uint8_t inverseBit = invertBitBranch(opcode);
+    if (opcode != 0x0d && inverseJMPR == 0 && inverseBit == 0) {
       Err(ctx) << getErrorLoc(ctx, loc)
-               << "R_C166_PC8_RELAX does not refer to a JMPR instruction";
+               << "R_C166_PC8_RELAX does not refer to a relative branch";
       return;
     }
 
-    int64_t delta = static_cast<int64_t>(val) - 2;
+    bool isBitBranch = inverseBit != 0;
+    int64_t delta = static_cast<int64_t>(val) - (isBitBranch ? 4 : 2);
     if (delta & 1) {
       Err(ctx) << getErrorLoc(ctx, loc)
                << "R_C166_PC8_RELAX target is not word-aligned";
@@ -375,12 +402,20 @@ void C166::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
     }
     int64_t words = delta / 2;
     if (isInt<8>(words)) {
-      loc[1] = words;
+      loc[isBitBranch ? 2 : 1] = words;
       return;
     }
 
     uint64_t target = rel.sym->getVA(ctx, rel.addend);
     checkUInt(ctx, loc, target, 24, rel);
+    if (isBitBranch) {
+      loc[0] = inverseBit;
+      loc[2] = 2;
+      loc[4] = 0xfa;
+      loc[5] = (target >> 16) & 0xff;
+      write16le(loc + 6, target & 0xffff);
+      return;
+    }
     if (opcode == 0x0d) {
       loc[0] = 0xfa;
       loc[1] = (target >> 16) & 0xff;
@@ -390,7 +425,7 @@ void C166::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
 
     // Invert the condition to skip the four-byte segmented jump when the
     // original branch is not taken.
-    loc[0] = inverse;
+    loc[0] = inverseJMPR;
     loc[1] = 2;
     loc[2] = 0xfa;
     loc[3] = (target >> 16) & 0xff;

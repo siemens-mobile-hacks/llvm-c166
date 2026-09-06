@@ -20,12 +20,31 @@
 
 using namespace llvm;
 
+MCSection *C166TargetObjectFile::remapTextSection(MCSection *Section,
+                                                  StringRef Name,
+                                                  bool MakeUnique) const {
+  auto *ELFSection = static_cast<MCSectionELF *>(Section);
+  assert(ELFSection->getName().starts_with(".text") &&
+         "unexpected ELF text section name");
+
+  // Keep one conventional name for each physical code region.  The unique
+  // section ID retains -ffunction-sections granularity without requiring a
+  // linker script to recognize target-specific name suffixes.
+  unsigned UniqueID = ELFSection->getUniqueID();
+  if (MakeUnique && !ELFSection->isUnique())
+    UniqueID = NextTextSectionID++;
+  return getContext().getELFSection(
+      Name, ELFSection->getType(), ELFSection->getFlags(),
+      ELFSection->getEntrySize(), ELFSection->getGroup(),
+      ELFSection->isComdat(), UniqueID,
+      static_cast<const MCSymbolELF *>(ELFSection->getLinkedToSymbol()));
+}
+
 void C166TargetObjectFile::Initialize(MCContext &Ctx, const TargetMachine &TM) {
   Base::Initialize(Ctx, TM);
+  NextTextSectionID = 1;
 
   constexpr unsigned AllocWrite = ELF::SHF_ALLOC | ELF::SHF_WRITE;
-  NearTextSection = Ctx.getELFSection(".c166.near.text", ELF::SHT_PROGBITS,
-                                      ELF::SHF_ALLOC | ELF::SHF_EXECINSTR);
   NearDataSection =
       Ctx.getELFSection(".c166.near.data", ELF::SHT_PROGBITS, AllocWrite);
   NearBSSSection =
@@ -69,14 +88,16 @@ MCSection *C166TargetObjectFile::SelectSectionForGlobal(
     const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM) const {
   if (!GO->hasSection() && isa<Function>(GO) &&
       C166::isCodeBankAddressSpace(GO->getAddressSpace())) {
-    SmallString<32> Name(".text.c166.bank.");
-    Name += utostr(C166::getCodeBank(GO->getAddressSpace()));
-    return getContext().getELFSection(Name, ELF::SHT_PROGBITS,
-                                      ELF::SHF_ALLOC | ELF::SHF_EXECINSTR);
+    SmallString<32> Prefix(".text.c166.bank.");
+    Prefix += utostr(C166::getCodeBank(GO->getAddressSpace()));
+    return remapTextSection(Base::SelectSectionForGlobal(GO, Kind, TM), Prefix,
+                            TM.getFunctionSections() || GO->hasComdat());
   }
   if (!GO->hasSection() && isa<Function>(GO) &&
       GO->getAddressSpace() == C166::NearAddressSpace)
-    return NearTextSection;
+    return remapTextSection(Base::SelectSectionForGlobal(GO, Kind, TM),
+                            ".c166.near.text",
+                            TM.getFunctionSections() || GO->hasComdat());
   bool IsSmallData =
       TM.getCodeModel() == CodeModel::Small && !isa<Function>(GO);
   if (!GO->hasSection() && IsSmallData) {

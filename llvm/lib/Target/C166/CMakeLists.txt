@@ -19,23 +19,29 @@ add_llvm_target(C166CodeGen
   C166AsmPrinter.cpp
   C166ArgumentLoadSinking.cpp
   C166AtomicLowering.cpp
+  C166ByValTailForwarding.cpp
   C166CallFrameExpansion.cpp
   C166CFI.cpp
   C166FarPointerLowering.cpp
+  C166F64Lowering.cpp
   C166FrameAddressRematerialization.cpp
   C166FloatMemoryLowering.cpp
   C166FrameLowering.cpp
   C166ISelDAGToDAG.cpp
   C166ISelLowering.cpp
   C166InstrInfo.cpp
+  C166LongBranchOpt.cpp
   C166MachineFunctionInfo.cpp
+  C166PHIEdgeSplitting.cpp
   C166PostISel.cpp
+  C166PostRA.cpp
   C166RegisterInfo.cpp
   C166SelectionDAGInfo.cpp
   C166Subtarget.cpp
   C166TargetMachine.cpp
   C166TargetObjectFile.cpp
   C166UnsupportedFeatures.cpp
+  C166VAArgLowering.cpp
 
   LINK_COMPONENTS
   Analysis

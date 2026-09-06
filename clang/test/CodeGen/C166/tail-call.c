@@ -8,11 +8,16 @@
 // C166-ABI: calls.tail
 
 typedef unsigned int u16;
+typedef struct {
+  u16 word[4];
+} aggregate;
 
 extern u16 callee(u16);
 extern u16 callee_five(u16, u16, u16, u16, u16);
 extern u16 __attribute__((c166_near)) near_callee(u16);
 extern u16 __attribute__((c166_huge)) huge_callee(u16);
+extern double double_callee(double, double);
+extern aggregate aggregate_callee(aggregate, aggregate);
 
 u16 tail_default(u16 value) { return callee(value); }
 
@@ -38,6 +43,22 @@ u16 no_tail_stack_argument(u16 a, u16 b, u16 c, u16 d, u16 e) {
   return callee_five(a, b, c, d, e);
 }
 
+double tail_double(double left, double right) {
+  return double_callee(left, right);
+}
+
+double no_tail_reordered_double(double left, double right) {
+  return double_callee(right, left);
+}
+
+aggregate tail_aggregate(aggregate left, aggregate right) {
+  return aggregate_callee(left, right);
+}
+
+aggregate no_tail_reordered_aggregate(aggregate left, aggregate right) {
+  return aggregate_callee(right, left);
+}
+
 // FAR-LABEL: <_tail_default>:
 // FAR-NEXT:  jmps
 
@@ -57,6 +78,20 @@ u16 no_tail_stack_argument(u16 a, u16 b, u16 c, u16 d, u16 e) {
 // FAR-NEXT:  jmps
 
 // FAR-LABEL: <_no_tail_stack_argument>:
+// FAR:       calls
+// FAR:       rets
+
+// FAR-LABEL: <_tail_double>:
+// FAR-NEXT:  jmps
+
+// FAR-LABEL: <_no_tail_reordered_double>:
+// FAR:       calls
+// FAR:       rets
+
+// FAR-LABEL: <_tail_aggregate>:
+// FAR-NEXT:  jmps
+
+// FAR-LABEL: <_no_tail_reordered_aggregate>:
 // FAR:       calls
 // FAR:       rets
 
@@ -85,5 +120,19 @@ u16 no_tail_stack_argument(u16 a, u16 b, u16 c, u16 d, u16 e) {
 // MEDIUM-NEXT:  jmpa
 
 // MEDIUM-LABEL: <_no_tail_stack_argument>:
+// MEDIUM:       calla
+// MEDIUM:       ret
+
+// MEDIUM-LABEL: <_tail_double>:
+// MEDIUM-NEXT:  jmpa
+
+// MEDIUM-LABEL: <_no_tail_reordered_double>:
+// MEDIUM:       calla
+// MEDIUM:       ret
+
+// MEDIUM-LABEL: <_tail_aggregate>:
+// MEDIUM-NEXT:  jmpa
+
+// MEDIUM-LABEL: <_no_tail_reordered_aggregate>:
 // MEDIUM:       calla
 // MEDIUM:       ret

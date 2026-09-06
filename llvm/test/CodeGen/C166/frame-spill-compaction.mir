@@ -1,0 +1,95 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=prolog-epilog \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @compact_low_word_spills() #0 { ret void }
+  define void @keep_live_pair_spill() #0 { ret void }
+  define void @keep_volatile_pair_spill() #0 { ret void }
+  define void @keep_live_flags_pair_spill() #0 { ret void }
+
+  attributes #0 = { optsize }
+...
+---
+name:            compact_low_word_spills
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 4, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r2r1, $r10
+
+    FRAMESTORE32 %stack.0, 0, killed $r2r1, implicit-def dead $psw
+    $r2r1 = FRAMELOAD32 %stack.0, 0, implicit-def dead $psw
+    $r10 = ADDrr $r10, $r1, implicit-def dead $psw, implicit-def dead $c, implicit killed $r2r1
+    $r2 = MOVri4 0, implicit-def dead $psw
+    RETS implicit $r10
+
+# CHECK-LABEL: name: compact_low_word_spills
+# CHECK:       stackSize: 2
+# CHECK-NOT:   size: 4
+# CHECK:       MOVmr $r0, $r1
+# CHECK-NOT:   MOVmr16
+# CHECK:       $r1 = MOVrm $r0
+# CHECK-NOT:   MOVrm16
+# CHECK-NOT:   NEARLOAD32
+# CHECK-NOT:   NEARSTORE32
+...
+---
+name:            keep_live_pair_spill
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 4, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r2r1
+
+    FRAMESTORE32 %stack.0, 0, killed $r2r1, implicit-def dead $psw
+    $r2r1 = FRAMELOAD32 %stack.0, 0, implicit-def dead $psw
+    RETS implicit $r2r1
+
+# CHECK-LABEL: name: keep_live_pair_spill
+# CHECK:       stackSize: 4
+# CHECK:       MOVmr
+# CHECK:       MOVmr16
+# CHECK:       MOVrm
+# CHECK:       MOVrm16
+...
+---
+name:            keep_volatile_pair_spill
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 4, alignment: 2 }
+body:             |
+  bb.0:
+    $r2r1 = FRAMELOAD32 %stack.0, 0, implicit-def dead $psw :: (volatile load (s32) from %stack.0)
+    RETS implicit $r1
+
+# CHECK-LABEL: name: keep_volatile_pair_spill
+# CHECK:       stackSize: 4
+# CHECK:       NEARLOAD32
+...
+---
+name:            keep_live_flags_pair_spill
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 4, alignment: 2 }
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+
+    $r2r1 = FRAMELOAD32 %stack.0, 0, implicit-def $psw
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_live_flags_pair_spill
+# CHECK:       stackSize: 4
+# CHECK:       NEARLOAD32
+# CHECK-NEXT:  JMPR_EQ
+...

@@ -14,7 +14,7 @@ body:             |
   bb.0:
     liveins: $r0, $r12, $r13
 
-    ALLOCSP 8, 8, implicit-def dead $r0, implicit-def dead $psw, implicit $r0
+    ALLOCSP 8, 8, implicit-def dead $r0, implicit-def dead $psw, implicit-def dead $c, implicit $r0
     PUSHARG 10, $r13, implicit-def dead $r0, implicit-def dead $psw, implicit $r0
     PUSHARG 12, killed $r12, implicit-def dead $r0, implicit-def dead $psw, implicit $r0
     RETS

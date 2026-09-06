@@ -1,0 +1,157 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-isel \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @low_word_mask() { ret void }
+  define void @high_word_mask() { ret void }
+  define void @full_word_mask() { ret void }
+  define void @keep_two_word_mask() { ret void }
+  define void @keep_non_test_use() { ret void }
+...
+---
+name:            low_word_mask
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr32 }
+  - { id: 1, class: gr32 }
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r15r14
+
+    %0:gr32 = COPY $r15r14
+    %1:gr32 = AND32ri %0, 255, implicit-def dead $psw, implicit-def dead $c
+    TEST32BR %1.sub_lo16, %1.sub_hi16, 4, %bb.2, implicit-def dead $r1, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.1:
+    successors: %bb.2, %bb.3
+
+    TEST32BR %1.sub_lo16, %1.sub_hi16, 4, %bb.3, implicit-def dead $r1, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.2
+
+  bb.2:
+    RETS
+
+  bb.3:
+    RETS
+
+# CHECK-LABEL: name: low_word_mask
+# CHECK:       [[MASK:%[0-9]+]]:gr16 = ANDri16 %0.sub_lo16, 255
+# CHECK:       CMPBRi [[MASK]], 0, 4, %bb.2
+# CHECK:       CMPBRi [[MASK]], 0, 4, %bb.3
+# CHECK-NOT:   AND32ri
+# CHECK-NOT:   TEST32BR
+...
+---
+name:            high_word_mask
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr32 }
+  - { id: 1, class: gr32 }
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r15r14
+
+    %0:gr32 = COPY $r15r14
+    %1:gr32 = AND32ri %0, -2147483648, implicit-def dead $psw, implicit-def dead $c
+    TEST32BR %1.sub_lo16, %1.sub_hi16, 4, %bb.2, implicit-def dead $r1, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: high_word_mask
+# CHECK:       [[MASK:%[0-9]+]]:gr16 = ANDri16 %0.sub_hi16, 32768
+# CHECK:       CMPBRi [[MASK]], 0, 4, %bb.2
+# CHECK-NOT:   AND32ri
+# CHECK-NOT:   TEST32BR
+...
+---
+name:            full_word_mask
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr32 }
+  - { id: 1, class: gr32 }
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r15r14
+
+    %0:gr32 = COPY $r15r14
+    %1:gr32 = AND32ri %0, 65535, implicit-def dead $psw, implicit-def dead $c
+    TEST32BR %1.sub_lo16, %1.sub_hi16, 4, %bb.2, implicit-def dead $r1, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: full_word_mask
+# CHECK:       [[MASK:%[0-9]+]]:gr16 = COPY %0.sub_lo16
+# CHECK:       CMPBRi [[MASK]], 0, 4, %bb.2
+# CHECK-NOT:   AND32ri
+# CHECK-NOT:   TEST32BR
+...
+---
+name:            keep_two_word_mask
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr32 }
+  - { id: 1, class: gr32 }
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r15r14
+
+    %0:gr32 = COPY $r15r14
+    %1:gr32 = AND32ri %0, 65537, implicit-def dead $psw, implicit-def dead $c
+    TEST32BR %1.sub_lo16, %1.sub_hi16, 4, %bb.2, implicit-def dead $r1, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_two_word_mask
+# CHECK:       %1:gr32 = AND32ri %0, 65537
+# CHECK:       TEST32BR %1.sub_lo16, %1.sub_hi16, 4, %bb.2
+...
+---
+name:            keep_non_test_use
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr32 }
+  - { id: 1, class: gr32 }
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r15r14
+
+    %0:gr32 = COPY $r15r14
+    %1:gr32 = AND32ri %0, 255, implicit-def dead $psw, implicit-def dead $c
+    TEST32BR %1.sub_lo16, %1.sub_hi16, 4, %bb.2, implicit-def dead $r1, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.1:
+    $r5r4 = COPY %1
+    RETS implicit $r5r4
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_non_test_use
+# CHECK:       %1:gr32 = AND32ri %0, 255
+# CHECK:       TEST32BR %1.sub_lo16, %1.sub_hi16, 4, %bb.2
+# CHECK:       $r5r4 = COPY %1
+...

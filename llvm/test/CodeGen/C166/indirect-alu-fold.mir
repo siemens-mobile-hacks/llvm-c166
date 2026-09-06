@@ -1,0 +1,217 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-isel \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @fold_sub_load() { ret void }
+  define void @fold_commuted_add_load() { ret void }
+  define void @fold_compare_load() { ret void }
+  define void @fold_postincrement_load() { ret void }
+  define void @keep_nonadjacent_postincrement_load() { ret void }
+  define void @keep_live_load_flags() { ret void }
+  define void @keep_volatile_load() { ret void }
+  define void @keep_load_across_store() { ret void }
+...
+---
+name:            fold_sub_load
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr16 }
+  - { id: 1, class: gr16 }
+  - { id: 2, class: gr16 }
+  - { id: 3, class: gr16 }
+body:             |
+  bb.0:
+    liveins: $r4, $r12
+
+    %0:gr16 = COPY $r12
+    %1:gr16 = MOVrm %0, implicit-def dead $psw :: (load (s16))
+    %2:gr16 = COPY $r4
+    %3:gr16 = SUBrr %2, %1, implicit-def dead $psw, implicit-def dead $c
+    $r4 = COPY %3
+    RETS
+
+# CHECK-LABEL: name: fold_sub_load
+# CHECK:       %0:gr16indirect = COPY $r12
+# CHECK-NOT:   MOVrm
+# CHECK:       %3:gr16 = SUBrm %2, %0
+...
+---
+name:            fold_commuted_add_load
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr16 }
+  - { id: 1, class: gr16 }
+  - { id: 2, class: gr16 }
+  - { id: 3, class: gr16 }
+body:             |
+  bb.0:
+    liveins: $r4, $r12
+
+    %0:gr16 = COPY $r12
+    %1:gr16 = MOVrm %0, implicit-def dead $psw :: (load (s16))
+    %2:gr16 = COPY $r4
+    %3:gr16 = ADDrr %1, %2, implicit-def dead $psw, implicit-def dead $c
+    $r4 = COPY %3
+    RETS
+
+# CHECK-LABEL: name: fold_commuted_add_load
+# CHECK:       %0:gr16indirect = COPY $r12
+# CHECK-NOT:   MOVrm
+# CHECK:       %3:gr16 = ADDrm %2, %0
+...
+---
+name:            fold_compare_load
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr16 }
+  - { id: 1, class: gr16 }
+  - { id: 2, class: gr16 }
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4, $r12
+
+    %0:gr16 = COPY $r12
+    %1:gr16 = MOVrm %0, implicit-def dead $psw :: (load (s16))
+    %2:gr16 = COPY $r4
+    CMPBR %2, %1, 0, %bb.2, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: fold_compare_load
+# CHECK:       %0:gr16indirect = COPY $r12
+# CHECK-NOT:   MOVrm
+# CHECK:       CMPBRm %2, %0, 0, %bb.2
+...
+---
+name:            fold_postincrement_load
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr16 }
+  - { id: 1, class: gr16 }
+  - { id: 2, class: gr16 }
+  - { id: 3, class: gr16 }
+  - { id: 4, class: gr16 }
+body:             |
+  bb.0:
+    liveins: $r4, $r12
+
+    %0:gr16 = COPY $r12
+    %3:gr16 = COPY $r4
+    %1:gr16, %2:gr16 = MOVrmPostInc %0, implicit-def dead $psw :: (load (s16))
+    %4:gr16 = ORrr %3, %1, implicit-def dead $psw, implicit-def dead $c
+    $r4 = COPY %4
+    $r12 = COPY %2
+    RETS
+
+# CHECK-LABEL: name: fold_postincrement_load
+# CHECK:       %0:gr16indirect = COPY $r12
+# CHECK-NOT:   MOVrmPostInc
+# CHECK:       %4:gr16, %2:gr16indirect = ORrmPostInc %3, %0
+...
+---
+name:            keep_nonadjacent_postincrement_load
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr16 }
+  - { id: 1, class: gr16 }
+  - { id: 2, class: gr16 }
+  - { id: 3, class: gr16 }
+  - { id: 4, class: gr16 }
+body:             |
+  bb.0:
+    liveins: $r4, $r12, $r13
+
+    %0:gr16 = COPY $r12
+    %1:gr16, %2:gr16 = MOVrmPostInc %0, implicit-def dead $psw :: (load (s16))
+    %3:gr16 = COPY $r13
+    %4:gr16 = ORrr %3, %1, implicit-def dead $psw, implicit-def dead $c
+    $r4 = COPY %4
+    $r12 = COPY %2
+    RETS
+
+# CHECK-LABEL: name: keep_nonadjacent_postincrement_load
+# CHECK:       %1:gr16, %2:gr16 = MOVrmPostInc %0
+# CHECK:       %3:gr16 = COPY $r13
+# CHECK:       %4:gr16 = ORrr %3, %1
+...
+---
+name:            keep_live_load_flags
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr16 }
+  - { id: 1, class: gr16 }
+  - { id: 2, class: gr16 }
+  - { id: 3, class: gr16 }
+body:             |
+  bb.0:
+    liveins: $r4, $r12
+
+    %0:gr16 = COPY $r12
+    %1:gr16 = MOVrm %0, implicit-def $psw :: (load (s16))
+    %2:gr16 = COPY $r4
+    %3:gr16 = ADDrr %2, %1, implicit-def dead $psw, implicit-def dead $c
+    $r4 = COPY %3
+    RETS
+
+# CHECK-LABEL: name: keep_live_load_flags
+# CHECK:       %1:gr16 = MOVrm %0, implicit-def $psw
+# CHECK:       %3:gr16 = ADDrr %2, %1
+...
+---
+name:            keep_volatile_load
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr16 }
+  - { id: 1, class: gr16 }
+  - { id: 2, class: gr16 }
+  - { id: 3, class: gr16 }
+body:             |
+  bb.0:
+    liveins: $r4, $r12
+
+    %0:gr16 = COPY $r12
+    %1:gr16 = MOVrm %0, implicit-def dead $psw :: (volatile load (s16))
+    %2:gr16 = COPY $r4
+    %3:gr16 = ADDrr %2, %1, implicit-def dead $psw, implicit-def dead $c
+    $r4 = COPY %3
+    RETS
+
+# CHECK-LABEL: name: keep_volatile_load
+# CHECK:       %1:gr16 = MOVrm %0
+# CHECK:       %3:gr16 = ADDrr %2, %1
+...
+---
+name:            keep_load_across_store
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr16 }
+  - { id: 1, class: gr16 }
+  - { id: 2, class: gr16 }
+  - { id: 3, class: gr16 }
+  - { id: 4, class: gr16 }
+body:             |
+  bb.0:
+    liveins: $r4, $r12, $r13
+
+    %0:gr16 = COPY $r12
+    %1:gr16 = MOVrm %0, implicit-def dead $psw :: (load (s16))
+    %2:gr16 = COPY $r4
+    %3:gr16 = COPY $r13
+    MOVmr %3, %2, implicit-def dead $psw :: (store (s16))
+    %4:gr16 = ADDrr %2, %1, implicit-def dead $psw, implicit-def dead $c
+    $r4 = COPY %4
+    RETS
+
+# CHECK-LABEL: name: keep_load_across_store
+# CHECK:       %1:gr16 = MOVrm %0
+# CHECK:       MOVmr %3, %2
+# CHECK:       %4:gr16 = ADDrr %2, %1
+...

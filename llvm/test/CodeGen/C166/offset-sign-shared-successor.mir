@@ -1,0 +1,32 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-isel -verify-machineinstrs -o - %s | FileCheck %s
+
+# CHECK: %2:gr16 = nsw ADDri16 %0, 1075
+
+--- |
+  define void @shared_successor() { ret void }
+...
+---
+name: shared_successor
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr16 }
+  - { id: 1, class: gr16 }
+  - { id: 2, class: gr16 }
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r4
+    %0:gr16 = COPY $r4
+    CMPBRi %0, 0, 0, %bb.2, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+  bb.1:
+    successors: %bb.3, %bb.2
+    %1:gr16 = nsw ADDri16 %0, 1074, implicit-def dead $psw, implicit-def dead $c
+    CMPBRi %0, -1075, 9, %bb.3, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.2
+  bb.2:
+    %2:gr16 = nsw ADDri16 %0, 1075, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit %2
+  bb.3:
+    RETS implicit %1
+...

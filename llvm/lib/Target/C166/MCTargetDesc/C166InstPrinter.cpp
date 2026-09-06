@@ -62,11 +62,7 @@ void C166InstPrinter::printImmediate16(const MCInst *MI, unsigned OpNo,
     MAI.printExpr(OS, *Op.getExpr());
 }
 
-void C166InstPrinter::printBitAddress(const MCInst *MI, unsigned OpNo,
-                                      raw_ostream &OS) {
-  uint64_t Packed = MI->getOperand(OpNo).getImm();
-  unsigned WordAddress = Packed >> 4;
-  unsigned Bit = Packed & 0xf;
+static void printBitOffsetName(unsigned WordAddress, raw_ostream &OS) {
   switch (WordAddress) {
   case 0x00:
     OS << "dpp0";
@@ -111,7 +107,19 @@ void C166InstPrinter::printBitAddress(const MCInst *MI, unsigned OpNo,
       OS << WordAddress;
     break;
   }
+}
+
+void C166InstPrinter::printBitAddress(const MCInst *MI, unsigned OpNo,
+                                      raw_ostream &OS) {
+  uint64_t Packed = MI->getOperand(OpNo).getImm();
+  printBitOffsetName(Packed >> 4, OS);
+  unsigned Bit = Packed & 0xf;
   OS << '.' << Bit;
+}
+
+void C166InstPrinter::printBitOffset(const MCInst *MI, unsigned OpNo,
+                                     raw_ostream &OS) {
+  printBitOffsetName(MI->getOperand(OpNo).getImm(), OS);
 }
 
 void C166InstPrinter::printAddress(const MCInst *MI, unsigned OpNo,

@@ -243,11 +243,11 @@ u32 medium_recursive(u16 depth, u16 head, u32 value, u16 tail) {
 // CHECK-NEXT:  ret
 
 // CHECK-LABEL: <_take_two>:
-// CHECK:       mov {{r[0-9]+}}, [r0]
 // CHECK:       mov r4, [r0 + #2]
+// CHECK-NEXT:  add r4, [r0]
 // CHECK:       ret
 // CHECK-LABEL: <_mixed_aggregate>:
-// CHECK:       mov r4, [r0 + #4]
+// CHECK:       mov {{r[0-9]+}}, [r0 + #4]
 // CHECK:       mov {{r[0-9]+}}, [r0]
 // CHECK:       mov {{r[0-9]+}}, [r0 + #2]
 // CHECK:       ret
@@ -259,8 +259,8 @@ u32 medium_recursive(u16 depth, u16 head, u32 value, u16 tail) {
 // CHECK-LABEL: <_consume_return_two>:
 // CHECK:       calla
 // CHECK-NEXT:  {{.*}}R_C166_COF16{{[[:space:]]+}}_return_two
+// CHECK:       mov {{r[0-9]+}}, [r4+]
 // CHECK:       mov {{r[0-9]+}}, [r4]
-// CHECK:       mov {{r[0-9]+}}, [r4 + #2]
 // CHECK:       add r0, #4
 // CHECK:       ret
 // CHECK-LABEL: <_return_four_with_stack_tail>:
@@ -272,10 +272,8 @@ u32 medium_recursive(u16 depth, u16 head, u32 value, u16 tail) {
 // CHECK-LABEL: <_consume_return_four_with_stack_tail>:
 // CHECK:       calla
 // CHECK-NEXT:  {{.*}}R_C166_COF16{{[[:space:]]+}}_return_four_with_stack_tail
-// CHECK:       mov {{r[0-9]+}}, [r4]
-// CHECK:       mov {{r[0-9]+}}, [r4 + #2]
-// CHECK:       mov {{r[0-9]+}}, [r4 + #4]
-// CHECK:       mov r4, [r4 + #6]
+// CHECK-COUNT-3: mov {{r[0-9]+}}, [r4+]
+// CHECK:       mov r4, [r4]
 // CHECK:       ret
 
 // CHECK-LABEL: <_sum_words>:
@@ -283,16 +281,14 @@ u32 medium_recursive(u16 depth, u16 head, u32 value, u16 tail) {
 // CHECK:       extp {{r[0-9]+}}, #1
 // CHECK:       ret
 // CHECK-LABEL: <_take_long>:
-// CHECK:       mov {{r[0-9]+}}, dpp1
-// CHECK:       extp {{r[0-9]+}}, #2
-// CHECK:       mov r4, [{{r[0-9]+}}]
-// CHECK:       mov r5, [{{r[0-9]+}} + #2]
+// CHECK-NOT:   extp
+// CHECK:       mov r4, [r0]
+// CHECK:       mov r5, [r0 + #2]
 // CHECK:       ret
 // CHECK-LABEL: <_take_pointer>:
-// CHECK:       mov {{r[0-9]+}}, dpp1
-// CHECK:       extp {{r[0-9]+}}, #2
-// CHECK:       mov r4, [{{r[0-9]+}}]
-// CHECK:       mov r5, [{{r[0-9]+}} + #2]
+// CHECK-NOT:   extp
+// CHECK:       mov r4, [r0]
+// CHECK:       mov r5, [r0 + #2]
 // CHECK:       ret
 // CHECK-LABEL: <_call_sum_words>:
 // CHECK-COUNT-3: mov [-r0], {{r[0-9]+}}
@@ -301,8 +297,11 @@ u32 medium_recursive(u16 depth, u16 head, u32 value, u16 tail) {
 // CHECK:       add r0, #6
 // CHECK:       ret
 // CHECK-LABEL: <_take_va_pair>:
-// CHECK:       mov {{r[0-9]+}}, dpp1
-// CHECK:       extp {{r[0-9]+}}, #1
+// CHECK-NOT:   extp
+// CHECK:       mov [[VA_ARGS:r[0-9]+]], r0
+// CHECK:       mov {{r[0-9]+}}, [[[VA_ARGS]]+]
+// CHECK:       mov {{r[0-9]+}}, [[[VA_ARGS]]+]
+// CHECK:       mov {{r[0-9]+}}, [[[VA_ARGS]]]
 // CHECK:       ret
 // CHECK-LABEL: <_call_va_pair>:
 // CHECK-COUNT-3: mov [-r0], {{r[0-9]+}}

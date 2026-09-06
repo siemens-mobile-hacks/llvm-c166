@@ -83,6 +83,12 @@ def STKUN : C166Reg<"stkun", 0x0b, -1>;
 def MDC  : C166Reg<"mdc",  0x87, -1>;
 def PSW  : C166Reg<"psw",  0x88, -1>;
 
+// Allocation-only view of PSW.C.  It deliberately does not alias PSW: many
+// instructions update the other condition flags while preserving carry.
+def C : C166Reg<"c", 0, -1> {
+  let isArtificial = 1;
+}
+
 // DWARF call-frame information describes the 32-bit linear CSP:IP return
 // address through virtual register 301.  It is not an allocatable CPU
 // register and exists only so MC can put the ABI register number in the CIE.
@@ -98,6 +104,10 @@ def GR16 : RegisterClass<"C166", [i16], 16,
                          (add R0, R1, R2, R3, R4, R5, R6, R7,
                               R8, R9, R10, R11, R12, R13, R14, R15)>;
 
+// The compact indirect ALU encodings have a two-bit address-register field.
+def GR16Indirect : RegisterClass<"C166", [i16], 16,
+                                 (add R0, R1, R2, R3)>;
+
 // Word registers whose low byte is directly addressable as RL0-RL7.
 def GR16Byte : RegisterClass<"C166", [i16], 16,
                              (add R0, R1, R2, R3, R4, R5, R6, R7)>;
@@ -105,6 +115,12 @@ def GR16Byte : RegisterClass<"C166", [i16], 16,
 def SFR16 : RegisterClass<"C166", [i16], 16,
                           (add DPP0, DPP1, DPP2, DPP3, CSP, MDH, MDL, CP, SP,
                                STKOV, STKUN, MDC, PSW)>;
+
+// Keep a carry chain in the hardware flag instead of materializing a
+// general-register boolean between adjacent operations.
+def CARRY : RegisterClass<"C166", [i16], 16, (add C)> {
+  let CopyCost = -1;
+}
 
 def Direct16 : RegisterClass<"C166", [i16], 16, (add GR16, SFR16)>;
 

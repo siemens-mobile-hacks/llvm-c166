@@ -41,10 +41,10 @@ unsigned long load_atomic_long(void) {
 // MEDIUM-NOT:   R_C166_SOF16 ___addsf3
 // MEDIUM-LABEL: <_add_double>:
 // MEDIUM:       calla
-// MEDIUM:       R_C166_COF16 ___adddf3
-// MEDIUM-NOT:   R_C166_SEG24 ___adddf3
-// MEDIUM-NOT:   R_C166_SEG8 ___adddf3
-// MEDIUM-NOT:   R_C166_SOF16 ___adddf3
+// MEDIUM:       R_C166_COF16 ___c166_adddf3
+// MEDIUM-NOT:   R_C166_SEG24 ___c166_adddf3
+// MEDIUM-NOT:   R_C166_SEG8 ___c166_adddf3
+// MEDIUM-NOT:   R_C166_SOF16 ___c166_adddf3
 // MEDIUM-LABEL: <_load_atomic_long>:
 // MEDIUM:       calla
 // MEDIUM:       R_C166_COF16 ___atomic_load
@@ -64,7 +64,7 @@ unsigned long load_atomic_long(void) {
 // HUGE:       R_C166_SEG24 ___addsf3
 // HUGE-LABEL: <_add_double>:
 // HUGE:       calls
-// HUGE:       R_C166_SEG24 ___adddf3
+// HUGE:       R_C166_SEG24 ___c166_adddf3
 // HUGE-LABEL: <_load_atomic_long>:
 // HUGE:       calls
 // HUGE:       R_C166_SEG24 ___atomic_load

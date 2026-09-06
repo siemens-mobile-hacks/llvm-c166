@@ -65,6 +65,8 @@ protected:
       return ELF::R_C166_POF14;
     case C166::fixup_c166_pc8:
       return ELF::R_C166_PC8;
+    case C166::fixup_c166_bit_pc8:
+      return ELF::R_C166_BIT_PC8;
     case C166::fixup_c166_pc8_relax:
       return ELF::R_C166_PC8_RELAX;
     case C166::fixup_c166_pc16:

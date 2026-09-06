@@ -47,10 +47,8 @@ unsigned int lshr_int(unsigned int value, unsigned int amount) {
 // CHECK-NEXT:  subc r5, r13
 // CHECK:       rets
 
-// A comparison checks the high words first, signed for signed long and
-// unsigned otherwise, then checks the low words as unsigned when the highs
-// are equal.  Every CMP must remain adjacent to its JMPR because MOV updates
-// N/Z/E on C166.
+// Equality compares both words without destroying either operand. Every CMP
+// must remain adjacent to its JMPR because MOV updates N/Z/E on C166.
 // CHECK-LABEL: <_eq_long>:
 // CHECK:       cmp
 // CHECK-NEXT:  jmpr cc_{{(eq|ne)}}
@@ -61,97 +59,69 @@ unsigned int lshr_int(unsigned int value, unsigned int amount) {
 // CHECK-NEXT:  jmpr cc_{{(eq|ne)}}
 // CHECK:       cmp
 // CHECK-NEXT:  jmpr cc_{{(eq|ne)}}
+
+// Ordered comparisons subtract both words. SUBC leaves the 32-bit carry,
+// overflow, sign, and sticky-zero result in PSW, so the branch must be
+// adjacent to it.
 // CHECK-LABEL: <_lt_long>:
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
+// CHECK:       sub
+// CHECK-NEXT:  subc
+// CHECK-NEXT:  jmpr cc_slt
 // CHECK-LABEL: <_le_long>:
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
+// CHECK:       sub
+// CHECK-NEXT:  subc
+// CHECK-NEXT:  jmpr cc_sle
 // CHECK-LABEL: <_gt_long>:
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
+// CHECK:       sub
+// CHECK-NEXT:  subc
+// CHECK-NEXT:  jmpr cc_sgt
 // CHECK-LABEL: <_ge_long>:
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
+// CHECK:       sub
+// CHECK-NEXT:  subc
+// CHECK-NEXT:  jmpr cc_sge
 // CHECK-LABEL: <_ult_long>:
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
+// CHECK:       sub
+// CHECK-NEXT:  subc
+// CHECK-NEXT:  jmpr cc_ult
 // CHECK-LABEL: <_ule_long>:
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
+// CHECK:       sub
+// CHECK-NEXT:  subc
+// CHECK-NEXT:  jmpr cc_ule
 // CHECK-LABEL: <_ugt_long>:
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
+// CHECK:       sub
+// CHECK-NEXT:  subc
+// CHECK-NEXT:  jmpr cc_ugt
 // CHECK-LABEL: <_uge_long>:
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
+// CHECK:       sub
+// CHECK-NEXT:  subc
+// CHECK-NEXT:  jmpr cc_uge
 
 // CHECK-LABEL: <_branch_long>:
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
+// CHECK:       sub
+// CHECK-NEXT:  subc
+// CHECK-NEXT:  jmpr cc_slt
+// A select needs both operands after the comparison. Compare their words
+// without allocating a destructive i32 result pair.
 // CHECK-LABEL: <_select_long>:
 // CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_s{{(lt|le|gt|ge)}}
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr cc_u{{(lt|le|gt|ge)}}
+// CHECK-NEXT:  jmpr cc_slt
+// CHECK-NEXT:  jmpr cc_sgt
+// CHECK-NEXT:  cmp
+// CHECK-NEXT:  jmpr cc_ult
 // CHECK-LABEL: <_select_long_on_int>:
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr
+// CHECK:       mov [[COND:r[0-9]+]], [r0]
+// CHECK-NEXT:  jmpr cc_eq
 // CHECK-LABEL: <_direct_branch_long>:
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr
-// CHECK:       cmp
-// CHECK-NEXT:  jmpr
+// CHECK:       sub
+// CHECK-NEXT:  subc
+// CHECK-NEXT:  jmpr cc_sge
 
-// At O0 the boolean values are spilled before the compare tree.  These
-// adjacency checks catch a flag-clobbering spill between CMP and signed JMPR.
+// At O0 the boolean values are spilled around the comparison. This adjacency
+// check catches a flag-clobbering spill between SUBC and JMPR.
 // O0-LABEL: <_lt_long>:
-// O0:       cmp
+// O0:       sub r{{[0-9]+}}, r{{[0-9]+}}
+// O0-NEXT:  subc
 // O0-NEXT:  jmpr cc_slt
-// O0:       cmp
-// O0-NEXT:  jmpr cc_ult
-// O0:       cmp
-// O0-NEXT:  jmpr cc_sgt
 
 // CHECK-LABEL: <_shl_int>:
 // CHECK:       shl r4, r13

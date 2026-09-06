@@ -74,14 +74,12 @@ ull word_to_long_long(u16 value) {
 // A long-long value may start at R13; it is not even-pair aligned, and the
 // following word remains in R15.
 // CHECK-LABEL: <_long_long_packed>:
-// CHECK:       mov r4, r13
-// CHECK-NEXT:  mov r5, r14
 // CHECK:       mov r1, r12
 // CHECK-NEXT:  mov r2, #0
-// CHECK-NEXT:  add r4, r1
-// CHECK-NEXT:  addc r5, r2
-// CHECK:       mov r1, r15
-// CHECK-NEXT:  mov r2, #0
+// CHECK-NEXT:  add r1, r13
+// CHECK-NEXT:  addc r2, r14
+// CHECK-NEXT:  mov r4, r15
+// CHECK-NEXT:  mov r5, #0
 // CHECK-NEXT:  add r4, r1
 // CHECK-NEXT:  addc r5, r2
 // CHECK-NEXT:  rets

@@ -1,0 +1,131 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=prolog-epilog \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @hot_frame_object() { ret void }
+  define void @size_store_chain() optsize { ret void }
+  define void @regular_store_chain() { ret void }
+  define void @size_spill_store_chain() optsize { ret void }
+  define void @ignore_nonzero_object_offsets() { ret void }
+...
+---
+name:            hot_frame_object
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 8, alignment: 2 }
+  - { id: 1, type: default, size: 2, alignment: 2 }
+body:             |
+  bb.0:
+    $r1 = MOVfi %stack.0, 0, implicit-def dead $psw
+    $r2 = MOVfi %stack.0, 0, implicit-def dead $psw
+    $r3 = MOVfi %stack.0, 0, implicit-def dead $psw
+    $r4 = MOVfi %stack.1, 0, implicit-def dead $psw
+    RETS
+
+# CHECK-LABEL: name: hot_frame_object
+# CHECK:       $r1 = MOVrm $r0
+# CHECK-NEXT:  $r2 = MOVrm $r0
+# CHECK-NEXT:  $r3 = MOVrm $r0
+# CHECK-NEXT:  $r4 = MOVrm16 $r0, 8
+...
+---
+name:            size_store_chain
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 6, alignment: 2 }
+  - { id: 1, type: default, size: 4, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3
+
+    MOVfiStore %stack.0, 0, $r1, implicit-def dead $psw
+    MOVfiStore %stack.0, 2, $r2, implicit-def dead $psw
+    MOVfiStore %stack.0, 4, $r3, implicit-def dead $psw
+    $r4 = MOVfi %stack.1, 2, implicit-def dead $psw
+    RETS implicit $r4
+
+# CHECK-LABEL: name: size_store_chain
+# CHECK:       $r4 = MOVri4 10
+# CHECK-NEXT:  $r4 = ADDrr $r4, $r0
+# CHECK-NEXT:  $r4 = MOVmrPreDec killed $r4, $r3
+# CHECK-NEXT:  $r4 = MOVmrPreDec killed $r4, $r2
+# CHECK-NEXT:  dead $r4 = MOVmrPreDec killed $r4, $r1
+# CHECK-NEXT:  $r4 = MOVrm16 $r0, 2
+...
+---
+name:            regular_store_chain
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 6, alignment: 2 }
+  - { id: 1, type: default, size: 4, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3
+
+    MOVfiStore %stack.0, 0, $r1, implicit-def dead $psw
+    MOVfiStore %stack.0, 2, $r2, implicit-def dead $psw
+    MOVfiStore %stack.0, 4, $r3, implicit-def dead $psw
+    $r4 = MOVfi %stack.1, 2, implicit-def dead $psw
+    RETS implicit $r4
+
+# CHECK-LABEL: name: regular_store_chain
+# CHECK:       $r4 = MOVrr $r0
+# CHECK-NEXT:  $r4 = ADDri3 $r4, 6
+# CHECK-NEXT:  $r4 = MOVmrPreDec killed $r4, $r3
+# CHECK-NEXT:  $r4 = MOVmrPreDec killed $r4, $r2
+# CHECK-NEXT:  dead $r4 = MOVmrPreDec killed $r4, $r1
+# CHECK-NEXT:  $r4 = MOVrm16 $r0, 8
+...
+---
+name:            size_spill_store_chain
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 6, alignment: 2 }
+  - { id: 1, type: default, size: 4, alignment: 2 }
+body:             |
+  bb.0:
+    liveins: $r1, $r2, $r3
+
+    MOVfiStore %stack.0, 0, $r1, implicit-def dead $psw
+    MOVfiStore %stack.0, 2, $r2, implicit-def dead $psw
+    MOVfiStore %stack.0, 4, $r3, implicit-def dead $psw
+    $r4 = MOVfi %stack.1, 2, implicit-def dead $psw
+    $r5 = LEAfi %stack.0, 2, implicit-def dead $psw
+    RETS implicit $r4, implicit $r5
+
+# CHECK-LABEL: name: size_spill_store_chain
+# CHECK:       $r4 = MOVrr $r0
+# CHECK-NEXT:  $r4 = ADDri3 $r4, 6
+# CHECK-NEXT:  $r4 = MOVmrPreDec killed $r4, $r3
+# CHECK-NEXT:  $r4 = MOVmrPreDec killed $r4, $r2
+# CHECK-NEXT:  dead $r4 = MOVmrPreDec killed $r4, $r1
+# CHECK-NEXT:  $r4 = MOVrm16 $r0, 8
+# CHECK-NEXT:  $r5 = MOVrr $r0
+# CHECK-NEXT:  $r5 = ADDri3 $r5, 2
+...
+---
+name:            ignore_nonzero_object_offsets
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: default, size: 8, alignment: 2 }
+  - { id: 1, type: default, size: 2, alignment: 2 }
+body:             |
+  bb.0:
+    $r1 = MOVfi %stack.0, 0, implicit-def dead $psw
+    $r5 = MOVfi %stack.1, 0, implicit-def dead $psw
+    $r2 = MOVfi %stack.0, 2, implicit-def dead $psw
+    $r6 = MOVfi %stack.1, 0, implicit-def dead $psw
+    $r3 = MOVfi %stack.0, 4, implicit-def dead $psw
+    $r4 = MOVfi %stack.0, 6, implicit-def dead $psw
+    RETS
+
+# CHECK-LABEL: name: ignore_nonzero_object_offsets
+# CHECK:       $r1 = MOVrm16 $r0, 2
+# CHECK-NEXT:  $r5 = MOVrm $r0
+# CHECK-NEXT:  $r2 = MOVrm16 $r0, 4
+# CHECK-NEXT:  $r6 = MOVrm $r0
+# CHECK-NEXT:  $r3 = MOVrm16 $r0, 6
+# CHECK-NEXT:  $r4 = MOVrm16 $r0, 8
+...

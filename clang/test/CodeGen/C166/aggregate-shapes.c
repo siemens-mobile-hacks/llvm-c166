@@ -177,10 +177,11 @@ u16 call_bytes3_after_select(u16 seed, u16 selection) {
 // CHECK-DAG:   mov {{r[0-9]+}}, [r0 + #6]
 // CHECK:       rets
 // CHECK-LABEL: <_take_nested6>:
-// CHECK-DAG:   mov {{r[0-9]+}}, [r0]
-// CHECK-DAG:   mov {{r[0-9]+}}, [r0 + #2]
-// CHECK-DAG:   mov {{r[0-9]+}}, [r0 + #4]
-// CHECK-DAG:   mov {{r[0-9]+}}, [r0 + #6]
+// CHECK:       mov {{r[0-9]+}}, [r0 + #6]
+// CHECK-NEXT:  mov [[NESTED_ARGS:r[0-9]+]], r0
+// CHECK:       mov {{r[0-9]+}}, [[[NESTED_ARGS]]+]
+// CHECK:       mov {{r[0-9]+}}, [[[NESTED_ARGS]]+]
+// CHECK:       mov {{r[0-9]+}}, [[[NESTED_ARGS]]]
 // CHECK:       rets
 
 // The optimized callee can write directly into the caller-reserved block at
@@ -202,7 +203,11 @@ u16 call_bytes3_after_select(u16 seed, u16 selection) {
 // CHECK:       mov r4, r0
 // CHECK-NOT:   and r4
 // CHECK-NOT:   mov r5, dpp1
-// CHECK:       mov [r0], r12
+// CHECK:       mov [[BASE:r[0-9]+]], r0
+// CHECK-NEXT:  add [[BASE]], #6
+// CHECK-NEXT:  mov [-[[BASE]]], r14
+// CHECK-NEXT:  mov [-[[BASE]]], r13
+// CHECK-NEXT:  mov [-[[BASE]]], r12
 // CHECK:       rets
 
 // Caller-side cleanup proves the rounded caller-reserved sizes: 3 -> 4,

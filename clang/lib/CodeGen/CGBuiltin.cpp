@@ -135,6 +135,8 @@ static Value *EmitTargetArchBuiltinExpr(CodeGenFunction *CGF,
     return CGF->EmitSPIRVBuiltinExpr(BuiltinID, E);
   case llvm::Triple::avr:
     return CGF->EmitAVRBuiltinExpr(BuiltinID, E);
+  case llvm::Triple::c166:
+    return CGF->EmitC166BuiltinExpr(BuiltinID, E);
   default:
     return nullptr;
   }

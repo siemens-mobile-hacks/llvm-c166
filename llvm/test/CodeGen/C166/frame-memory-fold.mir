@@ -1,0 +1,71 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-isel \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @fold_frame_memory() { ret void }
+  define void @remove_dead_psw_defs() { ret void }
+...
+---
+name:            fold_frame_memory
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr32 }
+  - { id: 1, class: gr32 }
+  - { id: 2, class: gr32 }
+  - { id: 3, class: gr16byte }
+  - { id: 4, class: gr16 }
+  - { id: 5, class: gr32 }
+stack:
+  - { id: 0, type: default, size: 8, alignment: 2 }
+body:             |
+  bb.0:
+    successors: %bb.1
+
+    %0:gr32 = FRAMEADDR32 %stack.0, 0, implicit-def dead $psw
+    %1:gr32 = FARADD32i %0, 2, implicit-def dead $psw, implicit-def dead $c
+    %2:gr32 = COPY %1
+    BR %bb.1
+
+  bb.1:
+    %3:gr16byte = FARLOAD8Z %2, 0, implicit-def dead $psw
+    FARSTORE8 %2, 0, %3, implicit-def dead $psw
+    %4:gr16 = FARLOAD16 %2, 0, implicit-def dead $psw
+    FARSTORE16 %2, 0, %4, implicit-def dead $psw
+    %5:gr32 = FARLOAD32 %2, 0, implicit-def dead $psw
+    FARSTORE32 %2, 0, %5, implicit-def dead $psw
+    RETS
+
+# CHECK-LABEL: name: fold_frame_memory
+# CHECK:       %3:gr16byte = FRAMELOAD8Z %stack.0, 2
+# CHECK-NEXT:  FRAMESTORE8 %stack.0, 2, %3
+# CHECK-NEXT:  %4:gr16 = MOVfi %stack.0, 2
+# CHECK-NEXT:  MOVfiStore %stack.0, 2, %4
+# CHECK-NEXT:  %5:gr32 = FRAMELOAD32 %stack.0, 2
+# CHECK-NEXT:  FRAMESTORE32 %stack.0, 2, %5
+# CHECK-NOT:   FARLOAD
+# CHECK-NOT:   FARSTORE
+...
+---
+name:            remove_dead_psw_defs
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: gr32 }
+  - { id: 1, class: gr32 }
+  - { id: 2, class: gr16 }
+stack:
+  - { id: 0, type: default, size: 2, alignment: 2 }
+body:             |
+  bb.0:
+    %0:gr32 = FRAMEADDR32 %stack.0, 0, implicit-def dead $psw
+    %1:gr32 = FARADD32i %0, 2, implicit-def dead $psw, implicit-def dead $c
+    %2:gr16 = MOVri4 1, implicit-def dead $psw
+    RETS
+
+# CHECK-LABEL: name: remove_dead_psw_defs
+# CHECK-NOT:   FRAMEADDR32
+# CHECK-NOT:   FARADD32
+# CHECK-NOT:   MOVri
+# CHECK:       RETS
+...

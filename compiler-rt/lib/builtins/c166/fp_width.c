@@ -7,10 +7,9 @@
 //===----------------------------------------------------------------------===//
 //
 // The C166 ABI stores floating-point objects most-significant-word first,
-// while integer objects are stored least-significant-word first.  The generic
-// compiler-rt width conversions deliberately assume that both types have the
-// same byte order, so keep the IEEE manipulation in a C166-local translation
-// unit and cross the typed boundaries with bit_cast.
+// while integer objects are stored least-significant-word first.  The target
+// translates typed floating-point loads and stores to LLVM's logical IEEE
+// representation, so keep the conversion arithmetic in that representation.
 //
 //===----------------------------------------------------------------------===//
 
@@ -19,43 +18,60 @@
 
 #include "../int_lib.h"
 
-static __inline su_int c166_single_to_rep(float value) {
-  // bit_cast observes the C166 object representation: the most-significant
-  // floating word is stored first, while the integer result is interpreted
-  // least-significant-word first.  Restore the logical IEEE bit numbering used
-  // by the conversion algorithm.
-  const su_int physical = __builtin_bit_cast(su_int, value);
-  return physical << 16 | physical >> 16;
-}
+typedef union {
+  rep_t all;
+  uint16_t word[4];
+} c166_width_rep;
+
+enum {
+  binary32ExponentBias = 127,
+  binary64ExponentBias = 1023,
+  exponentBiasDelta = binary64ExponentBias - binary32ExponentBias,
+  binary32NormalSourceExponentMin = exponentBiasDelta + 1,
+  binary32NormalSourceExponentMax = exponentBiasDelta + 0xfe,
+  binary32OverflowSourceExponent = exponentBiasDelta + 0xff,
+  binary32HalfMinSubnormalSourceExponent = binary64ExponentBias - 150,
+  binary32SubnormalShiftBase = binary64ExponentBias + 52 - 149,
+};
 
 COMPILER_RT_ABI double __extendsfdf2(float value) {
-  const su_int source = c166_single_to_rep(value);
-  const su_int sourceSign = source >> 31;
-  const su_int sourceExponent = (source >> 23) & UINT32_C(0xff);
-  const su_int sourceFraction = source & UINT32_C(0x007fffff);
+  const su_int source = __builtin_bit_cast(su_int, value);
+  const uint16_t sourceHigh = (uint16_t)(source >> 16);
+  const uint16_t sourceSign = sourceHigh & UINT16_C(0x8000);
+  const uint16_t sourceExponent = (sourceHigh >> 7) & UINT16_C(0xff);
+  uint16_t sourceFractionLow = (uint16_t)source;
+  uint16_t sourceFractionHigh = sourceHigh & UINT16_C(0x7f);
 
-  rep_t destinationExponent;
-  rep_t destinationFraction;
+  uint16_t destinationExponent;
 
   if (sourceExponent >= 1 && sourceExponent < 0xff) {
-    destinationExponent = (rep_t)sourceExponent + (1023 - 127);
-    destinationFraction = (rep_t)sourceFraction << (52 - 23);
+    destinationExponent = sourceExponent + exponentBiasDelta;
   } else if (sourceExponent == 0xff) {
     destinationExponent = 0x7ff;
-    destinationFraction = (rep_t)sourceFraction << (52 - 23);
-  } else if (sourceFraction != 0) {
-    const int scale = clzsi(sourceFraction) - 8;
-    destinationExponent = 1023 - 127 - scale + 1;
-    destinationFraction = (rep_t)sourceFraction << (52 - 23 + scale);
-    destinationFraction ^= REP_C(1) << 52;
+  } else if ((sourceFractionHigh | sourceFractionLow) != 0) {
+    const int scale = sourceFractionHigh != 0
+                          ? __builtin_clz((unsigned int)sourceFractionHigh) - 8
+                          : __builtin_clz((unsigned int)sourceFractionLow) + 8;
+    destinationExponent = exponentBiasDelta - scale + 1;
+    if (scale < 16) {
+      sourceFractionHigh =
+          sourceFractionHigh << scale | sourceFractionLow >> (16 - scale);
+      sourceFractionLow <<= scale;
+    } else {
+      sourceFractionHigh = sourceFractionLow << (scale - 16);
+      sourceFractionLow = 0;
+    }
+    // The packing expressions below discard the normalized implicit bit.
   } else {
     destinationExponent = 0;
-    destinationFraction = 0;
   }
 
-  const rep_t destination =
-      (rep_t)sourceSign << 63 | destinationExponent << 52 | destinationFraction;
-  return fromRep(destination);
+  const c166_width_rep destination = {
+      .word = {0, (uint16_t)(sourceFractionLow << 13),
+               (uint16_t)(sourceFractionLow >> 3 | sourceFractionHigh << 13),
+               (uint16_t)(sourceSign | destinationExponent << 4 |
+                          (sourceFractionHigh >> 3 & 0xf))}};
+  return fromRep(destination.all);
 }
 
 // SelectionDAG softens the result of FPROUND to its i32 representation before
@@ -63,76 +79,80 @@ COMPILER_RT_ABI double __extendsfdf2(float value) {
 // the logical binary32 bits in the integer R4:R5 convention; a public C float
 // return is converted to the MSW-first R4:R5 convention by its caller.
 COMPILER_RT_ABI su_int __truncdfsf2(double value) {
-  const rep_t source = toRep(value);
-  const rep_t sourceSign = source >> 63;
-  const rep_t sourceExponent = source >> 52 & REP_C(0x7ff);
-  const rep_t sourceFraction = source & ((REP_C(1) << 52) - 1);
+  const c166_width_rep source = {.all = toRep(value)};
+  const uint16_t sourceSign = source.word[3] & UINT16_C(0x8000);
+  const uint16_t sourceExponent = source.word[3] >> 4 & UINT16_C(0x7ff);
+  const bool sourceFractionIsZero = ((source.word[3] & 0xf) | source.word[2] |
+                                     source.word[1] | source.word[0]) == 0;
 
-  const rep_t sourceMinNormal = REP_C(1) << 52;
-  const rep_t roundMask = (REP_C(1) << (52 - 23)) - 1;
-  const rep_t halfway = REP_C(1) << (52 - 23 - 1);
-  const rep_t sourceQNaN = REP_C(1) << 51;
-  const rep_t sourceNaNCode = sourceQNaN - 1;
-  const su_int destinationQNaN = UINT32_C(1) << 22;
-  const su_int destinationNaNCode = destinationQNaN - 1;
+  uint16_t destinationExponent;
+  uint16_t destinationFractionLow;
+  uint16_t destinationFractionHigh;
 
-  su_int destinationExponent;
-  su_int destinationFraction;
-  const int destinationExponentCandidate = (int)sourceExponent - 1023 + 127;
+  if (sourceExponent >= binary32NormalSourceExponentMin &&
+      sourceExponent <= binary32NormalSourceExponentMax) {
+    destinationExponent = sourceExponent - exponentBiasDelta;
+    destinationFractionLow = source.word[2] << 3 | source.word[1] >> 13;
+    destinationFractionHigh =
+        (source.word[3] & 0xf) << 3 | source.word[2] >> 13;
 
-  if (destinationExponentCandidate >= 1 &&
-      destinationExponentCandidate < 0xff) {
-    destinationExponent = destinationExponentCandidate;
-    destinationFraction = (su_int)(sourceFraction >> (52 - 23));
+    const uint16_t roundHigh = source.word[1];
+    if ((roundHigh & UINT16_C(0x1000)) != 0 &&
+        ((roundHigh & UINT16_C(0x0fff)) != 0 || source.word[0] != 0 ||
+         (destinationFractionLow & 1) != 0)) {
+      ++destinationFractionLow;
+      if (destinationFractionLow == 0)
+        ++destinationFractionHigh;
+    }
 
-    const rep_t roundBits = sourceFraction & roundMask;
-    if (roundBits > halfway)
-      ++destinationFraction;
-    else if (roundBits == halfway)
-      destinationFraction += destinationFraction & 1;
-
-    if (destinationFraction >= (UINT32_C(1) << 23)) {
+    if (destinationFractionHigh & UINT16_C(0x80)) {
       ++destinationExponent;
-      destinationFraction ^= UINT32_C(1) << 23;
+      destinationFractionHigh ^= UINT16_C(0x80);
     }
-  } else if (sourceExponent == 0x7ff && sourceFraction != 0) {
+  } else if (sourceExponent == 0x7ff && !sourceFractionIsZero) {
     destinationExponent = 0xff;
-    destinationFraction = destinationQNaN;
-    destinationFraction |=
-        ((sourceFraction & sourceNaNCode) >> (52 - 23)) & destinationNaNCode;
-  } else if ((int)sourceExponent >= 1023 + 0xff - 127) {
+    destinationFractionLow = source.word[2] << 3 | source.word[1] >> 13;
+    destinationFractionHigh =
+        UINT16_C(0x40) | (source.word[3] & 0x7) << 3 | source.word[2] >> 13;
+  } else if (sourceExponent >= binary32OverflowSourceExponent) {
     destinationExponent = 0xff;
-    destinationFraction = 0;
-  } else {
-    rep_t significand = sourceFraction;
-    int shift = 1023 - 127 - (int)sourceExponent;
-
-    if (sourceExponent != 0) {
-      significand |= sourceMinNormal;
-      ++shift;
-    }
-
+    destinationFractionLow = 0;
+    destinationFractionHigh = 0;
+  } else if (sourceExponent < binary32HalfMinSubnormalSourceExponent) {
     destinationExponent = 0;
-    if (shift > 52) {
-      destinationFraction = 0;
-    } else {
-      const bool sticky = shift && (significand << (64 - shift)) != 0;
-      const rep_t denormalized = significand >> shift | sticky;
-      destinationFraction = (su_int)(denormalized >> (52 - 23));
-      const rep_t roundBits = denormalized & roundMask;
-      if (roundBits > halfway)
-        ++destinationFraction;
-      else if (roundBits == halfway)
-        destinationFraction += destinationFraction & 1;
+    destinationFractionLow = 0;
+    destinationFractionHigh = 0;
+  } else {
+    unsigned int shift = binary32SubnormalShiftBase - sourceExponent;
+    uint16_t significand0 = source.word[0];
+    uint16_t significand1 = source.word[1];
+    uint16_t significand2 = source.word[2];
+    uint16_t significand3 = (source.word[3] & 0xf) | 0x10;
+    bool guard = false;
+    bool sticky = false;
+    do {
+      sticky |= guard;
+      guard = (significand0 & 1) != 0;
+      significand0 = (significand0 >> 1) | (uint16_t)(significand1 << 15);
+      significand1 = (significand1 >> 1) | (uint16_t)(significand2 << 15);
+      significand2 = (significand2 >> 1) | (uint16_t)(significand3 << 15);
+      significand3 >>= 1;
+    } while (--shift != 0);
 
-      if (destinationFraction >= (UINT32_C(1) << 23)) {
-        ++destinationExponent;
-        destinationFraction ^= UINT32_C(1) << 23;
-      }
+    destinationFractionLow = significand0;
+    destinationFractionHigh = significand1;
+    destinationExponent = 0;
+    uint16_t roundUp = guard && (sticky || (destinationFractionLow & 1));
+    uint16_t unroundedLow = destinationFractionLow;
+    destinationFractionLow += roundUp;
+    destinationFractionHigh += destinationFractionLow < unroundedLow;
+    if (destinationFractionHigh & UINT16_C(0x80)) {
+      ++destinationExponent;
+      destinationFractionHigh ^= UINT16_C(0x80);
     }
   }
 
-  const su_int destination = (su_int)sourceSign << 31 |
-                             destinationExponent << 23 | destinationFraction;
-  return destination;
+  const uint16_t destinationHigh =
+      sourceSign | destinationExponent << 7 | destinationFractionHigh;
+  return (su_int)destinationHigh << 16 | destinationFractionLow;
 }

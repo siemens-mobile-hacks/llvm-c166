@@ -56,7 +56,7 @@
 
 ## PC8, PC16, and COF16 need nearby code symbols.  The use object's .text is
 ## laid out first; its local target is at +0x30, the aligned definitions from
-## the second object are at +0x34/+0x36, common is fixed at +0x80, and the
+## the second object are at +0x32/+0x34, common is fixed at +0x80, and the
 ## undefined weak reference uses an addend to name +0x60.  The section-symbol
 ## case names the beginning of the output .text section.
 # RUN: ld.lld --gc-sections -e _pc_start %t.o %t.defs.o \
@@ -66,9 +66,9 @@
 # RUN: llvm-objdump -s --section=.pc %t.pc | \
 # RUN:   FileCheck %s --check-prefix=PC
 # PC:      Contents of section .pc:
-# PC-NEXT:  120000 0d170d18 0d180d2c 0d3b0dfa 24002600
-# PC-NEXT:  120010 26004e00 6c00eaff ca003000 ca003400
-# PC-NEXT:  120020 ca003600 ca006000 ca008000 ca000000
+# PC-NEXT:  120000 0d170d17 0d170d2c 0d3b0dfa 24002400
+# PC-NEXT:  120010 24004e00 6c00eaff ca003000 ca003200
+# PC-NEXT:  120020 ca003400 ca006000 ca008000 ca000000
 # PC-NEXT:  120030 0000
 
 .weak weak_undefined_object

@@ -25,9 +25,8 @@ static const double_words global_double = {.value = 1.0};
 // before the target could expose that physical representation.
 
 // CHECK-LABEL: define{{.*}} i16 @float_msw(
-// CHECK: [[FBITS:%.*]] = bitcast float %{{.*}} to i32
-// CHECK: [[FMSW:%.*]] = lshr i32 [[FBITS]], 16
-// CHECK: [[FRESULT:%.*]] = trunc{{.*}} i32 [[FMSW]] to i16
+// CHECK: call{{.*}} @llvm.c166.float.store.f32.p2(float %value, ptr addrspace(2) [[FVIEW:%.*]], i32 2)
+// CHECK: [[FRESULT:%.*]] = load i16, ptr addrspace(2) [[FVIEW]]
 // CHECK: ret i16 [[FRESULT]]
 u16 float_msw(float value) {
   float_words view;
@@ -36,8 +35,9 @@ u16 float_msw(float value) {
 }
 
 // CHECK-LABEL: define{{.*}} i16 @float_lsw(
-// CHECK: [[FBITS2:%.*]] = bitcast float %{{.*}} to i32
-// CHECK: [[FRESULT2:%.*]] = trunc i32 [[FBITS2]] to i16
+// CHECK: call{{.*}} @llvm.c166.float.store.f32.p2(float %value, ptr addrspace(2) [[FVIEW2:%.*]], i32 2)
+// CHECK: [[FLSW:%.*]] = getelementptr{{.*}} ptr addrspace(2) [[FVIEW2]], i32 2
+// CHECK: [[FRESULT2:%.*]] = load i16, ptr addrspace(2) [[FLSW]]
 // CHECK: ret i16 [[FRESULT2]]
 u16 float_lsw(float value) {
   float_words view;
@@ -46,8 +46,9 @@ u16 float_lsw(float value) {
 }
 
 // CHECK-LABEL: define{{.*}} i16 @double_msw(
-// CHECK: [[DPHYSICAL:%.*]] = load i64
-// CHECK: [[DRESULT:%.*]] = trunc i64 [[DPHYSICAL]] to i16
+// CHECK: [[DVALUE:%.*]] = load double, ptr addrspace(2) %{{.*}}
+// CHECK: call{{.*}} @llvm.c166.float.store.f64.p2(double [[DVALUE]], ptr addrspace(2) [[DVIEW:%.*]], i32 2)
+// CHECK: [[DRESULT:%.*]] = load i16, ptr addrspace(2) [[DVIEW]]
 // CHECK: ret i16 [[DRESULT]]
 u16 double_msw(double value) {
   double_words view;
@@ -56,9 +57,10 @@ u16 double_msw(double value) {
 }
 
 // CHECK-LABEL: define{{.*}} i16 @double_lsw(
-// CHECK: [[DPHYSICAL2:%.*]] = load i64
-// CHECK: [[DLSW:%.*]] = lshr i64 [[DPHYSICAL2]], 48
-// CHECK: [[DRESULT2:%.*]] = trunc{{.*}} i64 [[DLSW]] to i16
+// CHECK: [[DVALUE2:%.*]] = load double, ptr addrspace(2) %{{.*}}
+// CHECK: call{{.*}} @llvm.c166.float.store.f64.p2(double [[DVALUE2]], ptr addrspace(2) [[DVIEW2:%.*]], i32 2)
+// CHECK: [[DLSW:%.*]] = getelementptr{{.*}} ptr addrspace(2) [[DVIEW2]], i32 6
+// CHECK: [[DRESULT2:%.*]] = load i16, ptr addrspace(2) [[DLSW]]
 // CHECK: ret i16 [[DRESULT2]]
 u16 double_lsw(double value) {
   double_words view;
@@ -67,11 +69,10 @@ u16 double_lsw(double value) {
 }
 
 // CHECK-LABEL: define{{.*}} float @float_from_words(
-// CHECK: [[FLSW32:%.*]] = zext i16 %{{.*}} to i32
-// CHECK: [[FMSW16:%.*]] = zext i16 %{{.*}} to i32
-// CHECK: [[FMSW32:%.*]] = shl nuw i32 [[FMSW16]], 16
-// CHECK: [[FCOMBINED:%.*]] = or disjoint i32 [[FMSW32]], [[FLSW32]]
-// CHECK: [[FVALUE:%.*]] = bitcast i32 [[FCOMBINED]] to float
+// CHECK: store i16 %msw, ptr addrspace(2) [[WVIEW:%[-a-zA-Z$._0-9]+]]
+// CHECK: [[WLSW:%.*]] = getelementptr{{.*}} ptr addrspace(2) [[WVIEW]], i32 2
+// CHECK: store i16 %lsw, ptr addrspace(2) [[WLSW]]
+// CHECK: [[FVALUE:%.*]] = call{{.*}} float @llvm.c166.float.load.f32.p2(ptr addrspace(2) [[WVIEW]], i32 2)
 // CHECK: ret float [[FVALUE]]
 float float_from_words(u16 msw, u16 lsw) {
   float_words view;

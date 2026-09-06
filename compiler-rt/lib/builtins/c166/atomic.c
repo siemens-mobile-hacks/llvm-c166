@@ -32,7 +32,6 @@
 typedef unsigned char c166_atomic_byte;
 
 enum {
-  C166_ATOMIC_XCHG,
   C166_ATOMIC_ADD,
   C166_ATOMIC_SUB,
   C166_ATOMIC_AND,
@@ -57,24 +56,29 @@ c166_atomic_enter(void) {
 
 static __inline __attribute__((always_inline)) void
 c166_atomic_leave(unsigned int SavedPSW) {
-  if (SavedPSW & 0x0800)
-    __asm__ volatile("bset psw.11" ::: "cc", "memory");
-  else
-    __asm__ volatile("" ::: "memory");
+  __asm__ volatile("bmov psw.11, %0.11" : : "r"(SavedPSW) : "cc", "memory");
 }
 
 static __inline __attribute__((always_inline)) void
 c166_atomic_copy(c166_atomic_byte volatile *Destination,
                  const c166_atomic_byte volatile *Source, unsigned int Size) {
-  unsigned int I;
-  for (I = 0; I != Size; ++I)
-    Destination[I] = Source[I];
+  while (Size != 0) {
+    *Destination++ = *Source++;
+    --Size;
+  }
 }
 
 static __inline __attribute__((always_inline)) int
-c166_atomic_compare_unsigned(const c166_atomic_byte volatile *Left,
-                             const c166_atomic_byte volatile *Right,
-                             unsigned int Size) {
+c166_atomic_compare(const c166_atomic_byte volatile *Left,
+                    const c166_atomic_byte volatile *Right, unsigned int Size,
+                    unsigned int Signed) {
+  if (Signed && Size != 0) {
+    unsigned int LeftNegative = Left[Size - 1] >> 7;
+    unsigned int RightNegative = Right[Size - 1] >> 7;
+    if (LeftNegative != RightNegative)
+      return LeftNegative ? -1 : 1;
+  }
+
   while (Size != 0) {
     c166_atomic_byte L = Left[Size - 1];
     c166_atomic_byte R = Right[Size - 1];
@@ -83,19 +87,6 @@ c166_atomic_compare_unsigned(const c166_atomic_byte volatile *Left,
     --Size;
   }
   return 0;
-}
-
-static __inline __attribute__((always_inline)) int
-c166_atomic_compare_signed(const c166_atomic_byte volatile *Left,
-                           const c166_atomic_byte volatile *Right,
-                           unsigned int Size) {
-  if (Size != 0) {
-    unsigned int LeftNegative = Left[Size - 1] >> 7;
-    unsigned int RightNegative = Right[Size - 1] >> 7;
-    if (LeftNegative != RightNegative)
-      return LeftNegative ? -1 : 1;
-  }
-  return c166_atomic_compare_unsigned(Left, Right, Size);
 }
 
 COMPILER_RT_ABI _Bool __c166_atomic_is_lock_free(unsigned int size,
@@ -132,7 +123,6 @@ COMPILER_RT_ABI void __c166_atomic_exchange(unsigned int Size,
                                             const void *Value, void *Result,
                                             int Order) {
   unsigned int SavedPSW;
-  unsigned int I;
   c166_atomic_byte volatile *ObjectBytes = (c166_atomic_byte volatile *)Object;
   const c166_atomic_byte volatile *ValueBytes =
       (const c166_atomic_byte volatile *)Value;
@@ -140,10 +130,11 @@ COMPILER_RT_ABI void __c166_atomic_exchange(unsigned int Size,
   (void)Order;
 
   SavedPSW = c166_atomic_enter();
-  for (I = 0; I != Size; ++I) {
-    c166_atomic_byte Old = ObjectBytes[I];
-    ResultBytes[I] = Old;
-    ObjectBytes[I] = ValueBytes[I];
+  while (Size != 0) {
+    c166_atomic_byte Old = *ObjectBytes;
+    *ResultBytes++ = Old;
+    *ObjectBytes++ = *ValueBytes++;
+    --Size;
   }
   c166_atomic_leave(SavedPSW);
 }
@@ -179,32 +170,25 @@ __c166_atomic_compare_exchange(unsigned int Size, volatile void *Object,
 
 COMPILER_RT_ABI void __c166_atomic_rmw(unsigned int Size, volatile void *Object,
                                        const void *Value, void *Result,
-                                       unsigned int Operation, int Order) {
+                                       unsigned int Operation) {
   unsigned int SavedPSW;
-  unsigned int I;
   unsigned int Carry = 0;
   int Comparison = 0;
   c166_atomic_byte volatile *ObjectBytes = (c166_atomic_byte volatile *)Object;
   const c166_atomic_byte volatile *ValueBytes =
       (const c166_atomic_byte volatile *)Value;
   c166_atomic_byte volatile *ResultBytes = (c166_atomic_byte volatile *)Result;
-  (void)Order;
-
   SavedPSW = c166_atomic_enter();
-  if (Operation == C166_ATOMIC_MAX || Operation == C166_ATOMIC_MIN)
-    Comparison = c166_atomic_compare_signed(ObjectBytes, ValueBytes, Size);
-  else if (Operation == C166_ATOMIC_UMAX || Operation == C166_ATOMIC_UMIN)
-    Comparison = c166_atomic_compare_unsigned(ObjectBytes, ValueBytes, Size);
+  if (Operation >= C166_ATOMIC_MAX && Operation <= C166_ATOMIC_UMIN)
+    Comparison = c166_atomic_compare(ObjectBytes, ValueBytes, Size,
+                                     Operation < C166_ATOMIC_UMAX);
 
-  for (I = 0; I != Size; ++I) {
-    unsigned int Old = ObjectBytes[I];
-    unsigned int Operand = ValueBytes[I];
+  while (Size != 0) {
+    unsigned int Old = *ObjectBytes;
+    unsigned int Operand = *ValueBytes++;
     unsigned int NewValue = Old;
-    ResultBytes[I] = (c166_atomic_byte)Old;
+    *ResultBytes++ = (c166_atomic_byte)Old;
     switch (Operation) {
-    case C166_ATOMIC_XCHG:
-      NewValue = Operand;
-      break;
     case C166_ATOMIC_ADD:
       NewValue = Old + Operand + Carry;
       Carry = NewValue >> 8;
@@ -240,7 +224,8 @@ COMPILER_RT_ABI void __c166_atomic_rmw(unsigned int Size, volatile void *Object,
     default:
       break;
     }
-    ObjectBytes[I] = (c166_atomic_byte)NewValue;
+    *ObjectBytes++ = (c166_atomic_byte)NewValue;
+    --Size;
   }
   c166_atomic_leave(SavedPSW);
 }

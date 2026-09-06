@@ -94,7 +94,9 @@ double stackparm_double_indirect(stackparm_double_function *function,
 // MEDIUM-NEXT:  ret
 // MEDIUM-LABEL: _stackparm_double_identity:
 // MEDIUM:       mov [r0 + #10], {{r[0-9]+}}
-// MEDIUM:       mov [r0 + #12], {{r[0-9]+}}
+// MEDIUM:       mov [[RESULT_BASE:r[0-9]+]], r0
+// MEDIUM-NEXT:  add [[RESULT_BASE]], #18
+// MEDIUM-COUNT-3: mov [-[[RESULT_BASE]]], {{r[0-9]+}}
 // MEDIUM-NEXT:  mov r10, r4
 // MEDIUM-NEXT:  ret
 // MEDIUM-LABEL: _stackparm_float_direct:
@@ -134,7 +136,8 @@ double stackparm_double_indirect(stackparm_double_function *function,
 // ASM-NEXT:  mov r5, [r0 + #2]
 // ASM-NEXT:  rets
 // ASM-LABEL: _stackparm_double_identity:
-// ASM:       mov {{r[0-9]+}}, [r0]
+// ASM:       mov [[DOUBLE_ARGS:r[0-9]+]], r0
+// ASM-NEXT:  mov {{r[0-9]+}}, [[[DOUBLE_ARGS]]+]
 // ASM:       mov [r0 + #10], {{r[0-9]+}}
 // ASM:       mov r10, r4
 // ASM-NEXT:  rets

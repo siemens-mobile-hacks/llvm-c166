@@ -1,0 +1,47 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-phi-edge-splitting \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @keep_shared_phi_source(i16 %condition) minsize {
+    ret void
+  }
+...
+---
+name:            keep_shared_phi_source
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r12
+
+    %0:gr16 = MOVri4 0, implicit-def dead $psw
+    %1:gr16 = COPY $r12
+    CMPBRi %1, 0, 0, %bb.2, implicit-def dead $psw, implicit-def dead $c
+    BR %bb.1
+
+  bb.1:
+    successors: %bb.2
+
+    %2:gr16 = MOVri4 1, implicit-def dead $psw
+    %3:gr16 = MOVri4 2, implicit-def dead $psw
+    %4:gr16 = MOVri4 3, implicit-def dead $psw
+    BR %bb.2
+
+  bb.2:
+    %5:gr16 = PHI %0, %bb.0, %2, %bb.1
+    %6:gr16 = PHI %0, %bb.0, %3, %bb.1
+    %7:gr16 = PHI %0, %bb.0, %4, %bb.1
+    %8:gr16 = ADDri3 %0, 1, implicit-def dead $psw, implicit-def dead $c
+    RETS
+
+# CHECK-LABEL: name: keep_shared_phi_source
+# CHECK:       bb.0:
+# CHECK:       CMPBRi
+# CHECK-NEXT:  BR %bb.1
+# CHECK:       bb.1:
+# CHECK:       bb.2:
+# CHECK:       %5:gr16 = PHI %0, %bb.0, %2, %bb.1
+# CHECK-NOT:   bb.3:
+...
