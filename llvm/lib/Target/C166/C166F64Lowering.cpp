@@ -48,16 +48,51 @@ static bool isSRetObject(Value *Pointer) {
   return Arg && Arg->hasStructRetAttr() && Arg->hasNoAliasAttr();
 }
 
+static Value *getStackAddressSource(Value *Pointer) {
+  auto *Cast = dyn_cast<IntToPtrInst>(Pointer);
+  if (!Cast)
+    return nullptr;
+  auto *Call = dyn_cast<IntrinsicInst>(Cast->getOperand(0));
+  if (!Call || Call->getIntrinsicID() != Intrinsic::c166_stack_address)
+    return nullptr;
+  return Call->getArgOperand(0);
+}
+
+static bool preservesStackObject(const Instruction &I, Value *Pointer) {
+  const auto *Call = dyn_cast<CallBase>(&I);
+  if (!Call || !Call->onlyAccessesArgMemory())
+    return false;
+
+  Value *Object = getUnderlyingObject(Pointer);
+  if (!isStackObject(Object))
+    return false;
+
+  for (unsigned Index = 0; Index != Call->arg_size(); ++Index) {
+    Value *Argument = Call->getArgOperand(Index);
+    if (!Argument->getType()->isPointerTy() ||
+        Call->paramHasAttr(Index, Attribute::ReadOnly))
+      continue;
+    if (Value *Source = getStackAddressSource(Argument))
+      Argument = Source;
+    Value *ArgumentObject = getUnderlyingObject(Argument);
+    if (!isStackObject(ArgumentObject) || ArgumentObject == Object)
+      return false;
+  }
+  return true;
+}
+
 // Re-reading memory at a use is valid only while the loaded value is intact.
 // Stay within one block; a stack object may escape or be overwritten too.
 static bool hasNoWritesBetween(Instruction *Definition, Instruction *Use,
+                               Value *Pointer,
                                Instruction *IgnoredStore = nullptr) {
   if (Definition->getParent() != Use->getParent() ||
       !Definition->comesBefore(Use))
     return false;
   for (Instruction *I = Definition->getNextNode(); I != Use;
        I = I->getNextNode())
-    if (I != IgnoredStore && I->mayWriteToMemory())
+    if (I != IgnoredStore && I->mayWriteToMemory() &&
+        !preservesStackObject(*I, Pointer))
       return false;
   return true;
 }
@@ -93,7 +128,7 @@ static bool isF64LoadFrom(User *U, Value *Slot) {
 }
 
 static Value *getByValCopySource(Instruction &Load, Instruction &Use,
-                               Value *Pointer, Instruction *&DefinitionOut) {
+                                 Value *Pointer, Instruction *&DefinitionOut) {
   auto *Slot = dyn_cast<AllocaInst>(Pointer);
   if (!Slot)
     return nullptr;
@@ -129,7 +164,8 @@ static Value *getByValCopySource(Instruction &Load, Instruction &Use,
     return nullptr;
   // Definition writes only the private, non-escaping copy described above.
   // Other writes, including calls, can invalidate the original byval value.
-  if (!hasNoWritesBetween(cast<Instruction>(StoredValue), &Use, Definition))
+  if (!hasNoWritesBetween(cast<Instruction>(StoredValue), &Use, SourcePointer,
+                          Definition))
     return nullptr;
   DefinitionOut = Definition;
   return SourcePointer;
@@ -228,6 +264,10 @@ static CallInst *createRuntimeCall(IRBuilder<> &Builder, Module &M,
     Function->setDoesNotThrow();
     Function->addFnAttr(Attribute::NoFree);
     Function->addFnAttr(Attribute::WillReturn);
+    Function->setOnlyAccessesArgMemory();
+    Function->addParamAttr(0, Attribute::WriteOnly);
+    Function->addParamAttr(1, Attribute::ReadOnly);
+    Function->addParamAttr(2, Attribute::ReadOnly);
   }
 
   Value *Arguments[] = {
@@ -274,6 +314,7 @@ static CallInst *createConversionRuntimeCall(IRBuilder<> &Builder, Module &M,
     Function->setDoesNotThrow();
     Function->addFnAttr(Attribute::NoFree);
     Function->addFnAttr(Attribute::WillReturn);
+    Function->setOnlyAccessesArgMemory();
     Function->addParamAttr(0, Attribute::WriteOnly);
   }
 
@@ -385,11 +426,12 @@ bool llvm::lowerC166F64Operations(Module &M) {
 
       if (Value *Pointer = getF64LoadPointer(V);
           Pointer && isStackObject(Pointer) &&
-          hasNoWritesBetween(cast<Instruction>(V), &*Builder.GetInsertPoint())) {
+          hasNoWritesBetween(cast<Instruction>(V), &*Builder.GetInsertPoint(),
+                             Pointer)) {
         auto *Load = cast<Instruction>(V);
         Instruction *Definition = nullptr;
-        if (Value *Source = getByValCopySource(
-                *Load, *Builder.GetInsertPoint(), Pointer, Definition)) {
+        if (Value *Source = getByValCopySource(*Load, *Builder.GetInsertPoint(),
+                                               Pointer, Definition)) {
           Pointer = Source;
           if (SeenForwardedCopies.insert(Definition).second)
             ForwardedCopies.emplace_back(
@@ -459,8 +501,7 @@ bool llvm::lowerC166F64Operations(Module &M) {
         if (!Child ||
             (!isF64Arithmetic(*Child) && !isI32ToF64Conversion(*Child)) ||
             !Child->hasOneUse() || *Child->user_begin() != Operation ||
-            Child->getNextNode() != Operation ||
-            Destinations.count(Child))
+            Child->getNextNode() != Operation || Destinations.count(Child))
           continue;
         Destinations[Child] = Destination;
         break;
