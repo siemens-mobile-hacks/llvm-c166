@@ -2189,6 +2189,60 @@ static bool removeRedundantPhysicalImmediates(MachineFunction &MF,
   return Changed;
 }
 
+static bool removeDeadHighWordImmediates(MachineFunction &MF,
+                                         const C166InstrInfo &TII) {
+  const TargetRegisterInfo &TRI = TII.getRegisterInfo();
+  bool Changed = false;
+
+  for (MachineBasicBlock &MBB : MF) {
+    for (auto I = MBB.begin(); I != MBB.end();) {
+      MachineInstr &Move = *I++;
+      Register Value;
+      uint16_t Immediate;
+      if (!getPhysicalImmediateMove(Move, Value, Immediate) ||
+          Move.isBundledWithPred() || Move.isBundledWithSucc() ||
+          isInsideExtensionWindow(
+              MBB, MachineBasicBlock::const_iterator(Move.getIterator())))
+        continue;
+
+      MCRegister Pair =
+          TRI.getMatchingSuperReg(Value, sub_hi16, &C166::GR32RegClass);
+      if (!Pair)
+        continue;
+
+      // A low-word use keeps the GR32 pair live through register allocation,
+      // even when the preceding high-word materialization is not needed.
+      Register Low = TRI.getSubReg(Pair, sub_lo16);
+      bool HasLowUse = false;
+      for (auto Scan = nextNonDebug(MBB, Move.getIterator());
+           Scan != MBB.end(); Scan = nextNonDebug(MBB, Scan)) {
+        HasLowUse = llvm::any_of(Scan->operands(), [&](const MachineOperand &MO) {
+          return MO.isReg() && MO.isUse() && !MO.isImplicit() &&
+                 MO.getReg() == Low && !MO.getSubReg();
+        });
+        if (HasLowUse || Scan->modifiesRegister(Value, &TRI))
+          break;
+      }
+      if (!HasLowUse)
+        continue;
+
+      auto IsDead = [&](Register Reg) {
+        const MachineOperand *Def = Move.findRegisterDefOperand(Reg, &TRI);
+        return Def && (Def->isDead() ||
+                       TII.isRegisterOverwrittenBeforeUse(Move, Reg));
+      };
+      if (!IsDead(Value) || !IsDead(C166::PSW) ||
+          hasDebugUseBeforeOverwrite(Move, Value, TRI))
+        continue;
+
+      Move.eraseFromParent();
+      Changed = true;
+    }
+  }
+
+  return Changed;
+}
+
 static bool replaceZeroAnds(MachineFunction &MF, const C166InstrInfo &TII) {
   const TargetRegisterInfo &TRI = TII.getRegisterInfo();
   bool Changed = false;
@@ -6380,6 +6434,7 @@ public:
     Changed |= foldConditionalBooleanOrs(MF, TII);
     Changed |= foldInvertedBitExtractions(MF, TII);
     Changed |= removeRedundantPhysicalImmediates(MF, TII);
+    Changed |= removeDeadHighWordImmediates(MF, TII);
     Changed |= foldStoredWideAddChains(MF, TII);
     Changed |= foldPreservedRegisterShuttles(MF, TII);
     Changed |= foldLoopRegisterShuttles(MF, TII);

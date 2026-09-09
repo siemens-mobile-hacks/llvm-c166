@@ -4,6 +4,9 @@
 --- |
   target triple = "c166-none-elf"
 
+  define void @remove_dead_immediates() { ret void }
+  define void @keep_live_immediate_pair() { ret void }
+  define void @keep_dead_immediate_with_live_flags() { ret void }
   define void @remove_redundant_immediate() { ret void }
   define void @reuse_immediate_for_single_use() { ret void }
   define void @reuse_immediate_for_multiple_uses() { ret void }
@@ -28,6 +31,60 @@
   define void @keep_add_immediates_with_live_flags() { ret void }
   define void @keep_different_add_registers() { ret void }
   define void @keep_add_immediates_in_extension_window() { ret void }
+...
+---
+name:            remove_dead_immediates
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r6, $r8, $r13
+
+    $r9 = MOVri4 0, implicit-def $psw
+    MULUrr $r8, $r13, implicit-def $mdh, implicit-def $mdl, implicit-def $mdc, implicit-def $psw, implicit-def $c, implicit $mdc
+    dead $r7 = MOVri16 4660, implicit-def dead $psw
+    MULUrr $r6, $r13, implicit-def $mdh, implicit-def $mdl, implicit-def $mdc, implicit-def $psw, implicit-def $c, implicit $mdc
+    RETS
+
+# CHECK-LABEL: name: remove_dead_immediates
+# CHECK-NOT:   $r9 = MOVri4
+# CHECK:       MULUrr
+# CHECK-NOT:   $r7 = MOVri16
+# CHECK:       MULUrr
+# CHECK-NEXT:  RETS
+...
+---
+name:            keep_live_immediate_pair
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r8
+
+    $r9 = MOVri4 0, implicit-def dead $psw
+    RETS implicit $r9r8
+
+# CHECK-LABEL: name: keep_live_immediate_pair
+# CHECK:       $r9 = MOVri4 0
+# CHECK-NEXT:  RETS implicit $r9r8
+...
+---
+name:            keep_dead_immediate_with_live_flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+
+    dead $r7 = MOVri16 4660, implicit-def $psw
+    JMPR_EQ %bb.2, implicit $psw
+
+  bb.1:
+    RETS
+
+  bb.2:
+    RETS
+
+# CHECK-LABEL: name: keep_dead_immediate_with_live_flags
+# CHECK:       dead $r7 = MOVri16 4660, implicit-def $psw
+# CHECK-NEXT:  JMPR_EQ
 ...
 ---
 name:            remove_redundant_immediate

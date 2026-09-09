@@ -16,7 +16,19 @@ unsigned immediate_constraint(void) {
   return result;
 }
 
+unsigned multiply_clobbers(unsigned left, unsigned right) {
+  unsigned low;
+  __asm__ volatile("mulu %1, %2\n\tmov %0, mdl"
+                   : "=r"(low)
+                   : "r"(left), "r"(right)
+                   : "mdl", "mdh", "cc");
+  return low;
+}
+
 // CHECK-LABEL: _register_constraint:
 // CHECK: mov r{{[0-9]+}}, r{{[0-9]+}}
 // CHECK-LABEL: _immediate_constraint:
 // CHECK: mov r{{[0-9]+}}, #7
+// CHECK-LABEL: _multiply_clobbers:
+// CHECK: mulu r{{[0-9]+}}, r{{[0-9]+}}
+// CHECK: mov r{{[0-9]+}}, mdl

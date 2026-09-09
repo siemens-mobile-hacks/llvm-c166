@@ -28,13 +28,28 @@ static unsigned int c166_sf_normalize(c166_sf_limbs *value) {
 static inline ALWAYS_INLINE void
 c166_sf_multiply_significands(uint16_t product[3], const c166_sf_limbs *left,
                               const c166_sf_limbs *right) {
-  uint32_t low_product = (uint32_t)left->low * right->low;
-  uint32_t middle = (uint32_t)left->low * right->high +
-                    (uint32_t)left->high * right->low + (low_product >> 16);
-  product[0] = (uint16_t)low_product;
-  product[1] = (uint16_t)middle;
-  uint16_t high_product = (uint16_t)((uint32_t)left->high * right->high);
-  product[2] = high_product + (uint16_t)(middle >> 16);
+  uint16_t low;
+  uint16_t middle;
+  uint16_t high;
+  __asm__("mulu %3, %5\n\t"
+          "mov %0, mdl\n\t"
+          "mov %1, mdh\n\t"
+          "mulu %3, %6\n\t"
+          "add %1, mdl\n\t"
+          "mov %2, mdh\n\t"
+          "addc %2, #0\n\t"
+          "mulu %4, %5\n\t"
+          "add %1, mdl\n\t"
+          "addc %2, mdh\n\t"
+          "mulu %4, %6\n\t"
+          "add %2, mdl"
+          : "=&r"(low), "=&r"(middle), "=&r"(high)
+          : "r"(left->low), "r"(left->high), "r"(right->low),
+            "r"(right->high)
+          : "mdl", "mdh", "cc");
+  product[0] = low;
+  product[1] = middle;
+  product[2] = high;
 }
 
 COMPILER_RT_ABI rep_t __mulsf3(rep_t left, rep_t right) {

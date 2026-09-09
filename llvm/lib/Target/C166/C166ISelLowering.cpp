@@ -503,6 +503,16 @@ C166TargetLowering::getConstraintType(StringRef Constraint) const {
   return TargetLowering::getConstraintType(Constraint);
 }
 
+Register C166TargetLowering::getRegisterByName(
+    const char *RegName, LLT, const MachineFunction &) const {
+  StringRef Name(RegName);
+  if (Name == "mdl")
+    return C166::MDL;
+  if (Name == "mdh")
+    return C166::MDH;
+  report_fatal_error(Twine("invalid register name '") + Name + "'");
+}
+
 std::pair<unsigned, const TargetRegisterClass *>
 C166TargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
                                                  StringRef Constraint,
@@ -631,6 +641,12 @@ SDValue C166TargetLowering::LowerOperation(SDValue Op,
                                Value.getOperand(ConstantOperand ^ 1));
         }
       }
+      if (Extension == ISD::ZERO_EXTEND &&
+          DAG.computeKnownBits(Value).countMaxActiveBits() <= 16)
+        return DAG.getNode(C166ISD::LOWORD, DL, MVT::i16, Value);
+      if (Extension == ISD::SIGN_EXTEND &&
+          DAG.ComputeNumSignBits(Value) >= 17)
+        return DAG.getNode(C166ISD::LOWORD, DL, MVT::i16, Value);
       return SDValue();
     };
     for (auto [Extension, Opcode] :

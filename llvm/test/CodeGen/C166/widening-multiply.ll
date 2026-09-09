@@ -95,6 +95,30 @@ define i32 @masked_words(i32 %left, i32 %right) {
   ret i32 %product
 }
 
+define i32 @known_unsigned_words(i16 %left, i16 %right) {
+; CHECK-LABEL: known_unsigned_words:
+; CHECK-NOT:   calls
+; CHECK:       mulu {{r[0-9]+}}, {{r[0-9]+}}
+  %left.wide = zext i16 %left to i32
+  %right.wide = zext i16 %right to i32
+  %left.bits = or i32 %left.wide, 128
+  %right.bits = or i32 %right.wide, 128
+  %product = mul i32 %left.bits, %right.bits
+  ret i32 %product
+}
+
+define i32 @known_signed_words(i16 %left, i16 %right) {
+; CHECK-LABEL: known_signed_words:
+; CHECK-NOT:   calls
+; CHECK:       mul {{r[0-9]+}}, {{r[0-9]+}}
+  %left.wide = sext i16 %left to i32
+  %right.wide = sext i16 %right to i32
+  %left.half = ashr i32 %left.wide, 1
+  %right.half = ashr i32 %right.wide, 1
+  %product = mul i32 %left.half, %right.half
+  ret i32 %product
+}
+
 define i32 @replace_high_word(i32 %low_source, i16 %high) {
 ; CHECK-LABEL: replace_high_word:
 ; CHECK:       mov r4, r12
