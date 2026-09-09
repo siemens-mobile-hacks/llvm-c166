@@ -54,6 +54,10 @@ static uint8_t invertJMPR(uint8_t opcode) {
     return 0x3d;
   case 0x3d:
     return 0x2d;
+  case 0x4d:
+    return 0x5d;
+  case 0x5d:
+    return 0x4d;
   case 0x6d:
     return 0x7d;
   case 0x7d:
@@ -106,6 +110,20 @@ void C166::finalizeRelax(int passes) const {
     return;
 
   uint32_t flags = getC166EFlags(ctx.objectFiles.front());
+
+  // CP addresses internal register RAM, not an arbitrary near-data page.
+  // Check input sections so an output-section rename cannot hide bad placement.
+  for (InputSectionBase *sec : ctx.inputSections) {
+    if (!sec->isLive() || sec->name != ".c166.regbank" || !sec->parent)
+      continue;
+    uint64_t start = sec->getVA();
+    uint64_t size = sec->getSize();
+    if ((start & 1) == 0 && start >= 0xf200 && start < 0xfe00 &&
+        size <= 0xfe00 - start)
+      continue;
+    Err(ctx) << "C166 register bank section must be word-aligned within "
+                "[0xF200, 0xFE00); use a linker script to select device IRAM";
+  }
 
   auto CheckRange = [&](const Twine &Owner, uint64_t start, uint64_t size) {
     if (start < 0x10000 && size <= 0x10000 - start)
@@ -276,6 +294,17 @@ RelExpr C166::getRelExpr(RelType type, const Symbol &s,
 }
 
 void C166::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
+  if (rel.type == R_C166_PC8 || rel.type == R_C166_BIT_PC8) {
+    uint64_t target = rel.sym->getVA(ctx, rel.addend);
+    unsigned offset = rel.type == R_C166_PC8 ? 1 : 2;
+    uint64_t instruction = target - val - offset;
+    checkUInt(ctx, loc, target, 24, rel);
+    if ((target >> 16) != (instruction >> 16)) {
+      Err(ctx) << getErrorLoc(ctx, loc)
+               << "relative code relocation crosses a 64 KiB code boundary";
+      return;
+    }
+  }
   switch (rel.type) {
   case R_C166_NONE:
     return;
@@ -360,7 +389,8 @@ void C166::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
               (rel.type == R_C166_DPP1_16 ? 0x4000 : 0x8000) | (val & 0x3fff));
     return;
   case R_C166_PC8: {
-    int64_t delta = static_cast<int64_t>(val) - 1;
+    // IP wraps at 16 bits; the segment was checked before selecting the delta.
+    int64_t delta = SignExtend64<16>(val - 1);
     if (delta & 1) {
       Err(ctx) << getErrorLoc(ctx, loc)
                << "R_C166_PC8 target is not word-aligned";
@@ -372,7 +402,7 @@ void C166::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
   }
     return;
   case R_C166_BIT_PC8: {
-    int64_t delta = static_cast<int64_t>(val) - 2;
+    int64_t delta = SignExtend64<16>(val - 2);
     if (delta & 1) {
       Err(ctx) << getErrorLoc(ctx, loc)
                << "R_C166_BIT_PC8 target is not word-aligned";
@@ -387,30 +417,63 @@ void C166::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
     uint8_t opcode = loc[0];
     uint8_t inverseJMPR = invertJMPR(opcode);
     uint8_t inverseBit = invertBitBranch(opcode);
-    if (opcode != 0x0d && inverseJMPR == 0 && inverseBit == 0) {
+    bool isNET = opcode == 0x1d;
+    bool bitWriteback = opcode == 0xaa || opcode == 0xba;
+    if (opcode != 0x0d && !isNET && !bitWriteback && inverseJMPR == 0 &&
+        inverseBit == 0) {
       Err(ctx) << getErrorLoc(ctx, loc)
                << "R_C166_PC8_RELAX does not refer to a relative branch";
       return;
     }
 
-    bool isBitBranch = inverseBit != 0;
-    int64_t delta = static_cast<int64_t>(val) - (isBitBranch ? 4 : 2);
+    bool isBitBranch = inverseBit != 0 || bitWriteback;
+    uint64_t target = rel.sym->getVA(ctx, rel.addend);
+    uint64_t instruction = target - val;
+    checkUInt(ctx, loc, target, 24, rel);
+    int64_t delta = SignExtend64<16>(val - (isBitBranch ? 4 : 2));
     if (delta & 1) {
       Err(ctx) << getErrorLoc(ctx, loc)
                << "R_C166_PC8_RELAX target is not word-aligned";
       return;
     }
     int64_t words = delta / 2;
-    if (isInt<8>(words)) {
+    if ((target >> 16) == (instruction >> 16) && isInt<8>(words)) {
       loc[isBitBranch ? 2 : 1] = words;
       return;
     }
 
-    uint64_t target = rel.sym->getVA(ctx, rel.addend);
-    checkUInt(ctx, loc, target, 24, rel);
-    if (isBitBranch) {
-      loc[0] = inverseBit;
-      loc[2] = 2;
+    // The replacement is fetched using the current CSP throughout.
+    unsigned size = bitWriteback             ? 10
+                    : (isBitBranch || isNET) ? 8
+                    : opcode == 0x0d         ? 4
+                                             : 6;
+    if ((instruction & 0xffff) + size > 0x10000) {
+      Err(ctx) << getErrorLoc(ctx, loc)
+               << "relative branch replacement crosses a 64 KiB code boundary";
+      return;
+    }
+
+    if (bitWriteback) {
+      // Preserve the original test, bit writeback and flags. Its taken path
+      // reaches JMPS; the other path skips it using a flag-neutral JMPR.
+      loc[2] = 1;
+      loc[4] = 0x0d;
+      loc[5] = 2;
+      loc[6] = 0xfa;
+      loc[7] = (target >> 16) & 0xff;
+      write16le(loc + 8, target & 0xffff);
+      return;
+    }
+    if (isBitBranch || isNET) {
+      if (isNET) {
+        // NET true reaches JMPS; false skips it without changing PSW.
+        loc[1] = 1;
+        loc[2] = 0x0d;
+        loc[3] = 2;
+      } else {
+        loc[0] = inverseBit;
+        loc[2] = 2;
+      }
       loc[4] = 0xfa;
       loc[5] = (target >> 16) & 0xff;
       write16le(loc + 6, target & 0xffff);

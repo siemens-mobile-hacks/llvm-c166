@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "C166BitExpr.h"
 #include "C166FixupKinds.h"
 #include "C166MCAsmInfo.h"
 #include "C166MCTargetDesc.h"
@@ -40,8 +41,16 @@ static bool haveSameRelocatableValue(const MCExpr *LHS, const MCExpr *RHS) {
 class C166MCCodeEmitter : public MCCodeEmitter {
   MCContext &Ctx;
   const MCInstrInfo &MCII;
+  unsigned encodeBitAddress(const MCOperand &MO, C166::Fixups Kind,
+                            SmallVectorImpl<MCFixup> &Fixups) const;
 
 public:
+  unsigned getBitAddressOpValue(const MCInst &MI, unsigned OpNo,
+                                SmallVectorImpl<MCFixup> &Fixups,
+                                const MCSubtargetInfo &STI) const;
+  unsigned getBitOffsetOpValue(const MCInst &MI, unsigned OpNo,
+                               SmallVectorImpl<MCFixup> &Fixups,
+                               const MCSubtargetInfo &STI) const;
   C166MCCodeEmitter(const MCInstrInfo &MCII, MCContext &Ctx)
       : Ctx(Ctx), MCII(MCII) {}
 
@@ -62,6 +71,22 @@ public:
                                      const MCSubtargetInfo &STI) const;
 
   unsigned getSequenceCountOpValue(const MCInst &MI, unsigned OpNo,
+                                   SmallVectorImpl<MCFixup> &Fixups,
+                                   const MCSubtargetInfo &STI) const;
+
+  unsigned getSegmentOpValue(const MCInst &MI, unsigned OpNo,
+                             SmallVectorImpl<MCFixup> &Fixups,
+                             const MCSubtargetInfo &STI) const;
+
+  unsigned getCodeAddressOpValue(const MCInst &MI, unsigned OpNo,
+                                 SmallVectorImpl<MCFixup> &Fixups,
+                                 const MCSubtargetInfo &STI) const;
+
+  unsigned getDirectAddressOpValue(const MCInst &MI, unsigned OpNo,
+                                   SmallVectorImpl<MCFixup> &Fixups,
+                                   const MCSubtargetInfo &STI) const;
+
+  unsigned getByteImmediateOpValue(const MCInst &MI, unsigned OpNo,
                                    SmallVectorImpl<MCFixup> &Fixups,
                                    const MCSubtargetInfo &STI) const;
 
@@ -92,6 +117,58 @@ public:
 } // namespace
 
 unsigned
+C166MCCodeEmitter::getBitOffsetOpValue(const MCInst &MI, unsigned OpNo,
+                                       SmallVectorImpl<MCFixup> &Fixups,
+                                       const MCSubtargetInfo &STI) const {
+  const MCOperand &MO = MI.getOperand(OpNo);
+  if (MO.isImm())
+    return MO.getImm();
+  Fixups.push_back(MCFixup::create(
+      1, MO.getExpr(), static_cast<MCFixupKind>(C166::fixup_c166_bit_offset)));
+  return 0;
+}
+
+unsigned
+C166MCCodeEmitter::getBitAddressOpValue(const MCInst &MI, unsigned OpNo,
+                                        SmallVectorImpl<MCFixup> &Fixups,
+                                        const MCSubtargetInfo &STI) const {
+  const MCOperand &MO = MI.getOperand(OpNo);
+  if (MO.isImm())
+    return MO.getImm();
+  auto Kind = C166::fixup_c166_bit_src;
+  if (MI.getOpcode() == C166::BSET || MI.getOpcode() == C166::BCLR) {
+    Kind = C166::fixup_c166_bit_set;
+  } else if (!MCII.get(MI.getOpcode()).isBranch() && OpNo == 0) {
+    Kind = C166::fixup_c166_bit_dst;
+  }
+  return encodeBitAddress(MO, Kind, Fixups);
+}
+
+unsigned
+C166MCCodeEmitter::encodeBitAddress(const MCOperand &MO, C166::Fixups Kind,
+                                    SmallVectorImpl<MCFixup> &Fixups) const {
+  if (MO.isImm())
+    return MO.getImm();
+  if (const auto *Parts = dyn_cast<C166BitExpr>(MO.getExpr())) {
+    unsigned WordOffset = Kind == C166::fixup_c166_bit_dst ? 2 : 1;
+    unsigned BitOffset = Kind == C166::fixup_c166_bit_set ? 0 : 3;
+    auto BitKind = Kind == C166::fixup_c166_bit_dst
+                       ? C166::fixup_c166_bit_low4
+                       : C166::fixup_c166_bit_high4;
+    Fixups.push_back(
+        MCFixup::create(WordOffset, Parts->getWord(),
+                        static_cast<MCFixupKind>(C166::fixup_c166_bit_offset)));
+    Fixups.push_back(MCFixup::create(BitOffset, Parts->getBit(),
+                                     static_cast<MCFixupKind>(BitKind)));
+    return 0;
+  }
+  unsigned Offset = Kind == C166::fixup_c166_bit_dst ? 2 : 0;
+  Fixups.push_back(
+      MCFixup::create(Offset, MO.getExpr(), static_cast<MCFixupKind>(Kind)));
+  return 0;
+}
+
+unsigned
 C166MCCodeEmitter::getSequenceCountOpValue(const MCInst &MI, unsigned OpNo,
                                            SmallVectorImpl<MCFixup> &Fixups,
                                            const MCSubtargetInfo &STI) const {
@@ -101,9 +178,61 @@ C166MCCodeEmitter::getSequenceCountOpValue(const MCInst &MI, unsigned OpNo,
 }
 
 unsigned
+C166MCCodeEmitter::getByteImmediateOpValue(const MCInst &MI, unsigned OpNo,
+                                           SmallVectorImpl<MCFixup> &Fixups,
+                                           const MCSubtargetInfo &STI) const {
+  const MCOperand &MO = MI.getOperand(OpNo);
+  if (MO.isImm())
+    return static_cast<unsigned>(MO.getImm());
+  Fixups.push_back(MCFixup::create(2, MO.getExpr(), FK_Data_1));
+  return 0;
+}
+
+unsigned
+C166MCCodeEmitter::getSegmentOpValue(const MCInst &MI, unsigned OpNo,
+                                     SmallVectorImpl<MCFixup> &Fixups,
+                                     const MCSubtargetInfo &STI) const {
+  const MCOperand &MO = MI.getOperand(OpNo);
+  if (MO.isImm())
+    return static_cast<unsigned>(MO.getImm());
+  const auto *Expr = cast<MCSpecifierExpr>(MO.getExpr());
+  assert(Expr->getSpecifier() == C166::S_SEG &&
+         "expected a segment expression");
+  Fixups.push_back(MCFixup::create(
+      1, Expr->getSubExpr(), static_cast<MCFixupKind>(C166::fixup_c166_seg8)));
+  return 0;
+}
+
+unsigned
+C166MCCodeEmitter::getCodeAddressOpValue(const MCInst &MI, unsigned OpNo,
+                                         SmallVectorImpl<MCFixup> &Fixups,
+                                         const MCSubtargetInfo &STI) const {
+  const MCOperand &MO = MI.getOperand(OpNo);
+  if (MO.isImm() || isa<MCSpecifierExpr>(MO.getExpr()))
+    return getMachineOpValue(MI, MO, Fixups, STI);
+  Fixups.push_back(MCFixup::create(
+      2, MO.getExpr(), static_cast<MCFixupKind>(C166::fixup_c166_cof16)));
+  return 0;
+}
+
+unsigned
+C166MCCodeEmitter::getDirectAddressOpValue(const MCInst &MI, unsigned OpNo,
+                                           SmallVectorImpl<MCFixup> &Fixups,
+                                           const MCSubtargetInfo &STI) const {
+  const MCOperand &MO = MI.getOperand(OpNo);
+  if (MO.isImm() || isa<MCSpecifierExpr>(MO.getExpr()))
+    return getMachineOpValue(MI, MO, Fixups, STI);
+  Fixups.push_back(MCFixup::create(
+      2, MO.getExpr(), static_cast<MCFixupKind>(C166::fixup_c166_address16)));
+  return 0;
+}
+
+unsigned
 C166MCCodeEmitter::getDirectRegOpValue(const MCInst &MI, unsigned OpNo,
                                        SmallVectorImpl<MCFixup> &Fixups,
                                        const MCSubtargetInfo &STI) const {
+  if (MI.getOperand(OpNo).isImm())
+    return MI.getOperand(OpNo).getImm();
   MCRegister Reg = MI.getOperand(OpNo).getReg();
   const MCRegisterInfo *MRI = Ctx.getRegisterInfo();
   unsigned Encoding = MRI->getEncodingValue(Reg);
@@ -123,6 +252,8 @@ unsigned
 C166MCCodeEmitter::getSFRAddressOpValue(const MCInst &MI, unsigned OpNo,
                                         SmallVectorImpl<MCFixup> &Fixups,
                                         const MCSubtargetInfo &STI) const {
+  if (MI.getOperand(OpNo).isImm())
+    return MI.getOperand(OpNo).getImm();
   MCRegister Reg = MI.getOperand(OpNo).getReg();
   return 0xfe00 | (Ctx.getRegisterInfo()->getEncodingValue(Reg) << 1);
 }
@@ -131,6 +262,8 @@ unsigned
 C166MCCodeEmitter::getSFRShortOpValue(const MCInst &MI, unsigned OpNo,
                                       SmallVectorImpl<MCFixup> &Fixups,
                                       const MCSubtargetInfo &STI) const {
+  if (MI.getOperand(OpNo).isImm())
+    return MI.getOperand(OpNo).getImm();
   MCRegister Reg = MI.getOperand(OpNo).getReg();
   return Ctx.getRegisterInfo()->getEncodingValue(Reg);
 }
@@ -164,19 +297,20 @@ unsigned C166MCCodeEmitter::getBitBranchTargetOpValue(
 void C166MCCodeEmitter::encodeRelaxableBranch(
     const MCInst &MI, SmallVectorImpl<char> &CB,
     SmallVectorImpl<MCFixup> &Fixups) const {
-  if (MI.getOpcode() == C166::PseudoBitBranchRelax) {
+  if (MI.getOpcode() == C166::PseudoBitBranchRelax ||
+      MI.getOpcode() == C166::PseudoBitBranchWritebackRelax) {
     unsigned Opcode = MI.getOperand(0).getImm();
-    uint16_t Address = MI.getOperand(1).getImm();
+    uint16_t Address =
+        encodeBitAddress(MI.getOperand(1), C166::fixup_c166_bit_src, Fixups);
     const MCOperand &Target = MI.getOperand(2);
     assert(Target.isExpr() && "expected a C166 relaxable branch expression");
 
     uint32_t Encoding = Opcode | ((Address >> 4) << 8) |
                         ((Address & 0xf) << 28);
     support::endian::write(CB, Encoding, llvm::endianness::little);
-    support::endian::write(CB, static_cast<uint16_t>(0x00cc),
-                           llvm::endianness::little);
-    support::endian::write(CB, static_cast<uint16_t>(0x00cc),
-                           llvm::endianness::little);
+    for (unsigned I = 4; I < MCII.get(MI.getOpcode()).getSize(); I += 2)
+      support::endian::write(CB, static_cast<uint16_t>(0x00cc),
+                             llvm::endianness::little);
     Fixups.push_back(MCFixup::create(
         0, Target.getExpr(),
         static_cast<MCFixupKind>(C166::fixup_c166_pc8_relax), true));
@@ -191,9 +325,7 @@ void C166MCCodeEmitter::encodeRelaxableBranch(
   unsigned Opcode = IsUnconditional ? 0x0d : MI.getOperand(0).getImm();
   support::endian::write(CB, static_cast<uint16_t>(Opcode),
                          llvm::endianness::little);
-  support::endian::write(CB, static_cast<uint16_t>(0x00cc),
-                         llvm::endianness::little);
-  if (!IsUnconditional)
+  for (unsigned Size = 2; Size < MCII.get(MI.getOpcode()).getSize(); Size += 2)
     support::endian::write(CB, static_cast<uint16_t>(0x00cc),
                            llvm::endianness::little);
 
@@ -222,7 +354,7 @@ C166MCCodeEmitter::getMachineOpValue(const MCInst &MI, const MCOperand &MO,
   C166::Fixups Kind;
   switch (Expr->getSpecifier()) {
   case C166::S_SEG:
-    Offset = MI.getOpcode() == C166::MOVri16 ? 2 : 1;
+    Offset = 2;
     Kind = C166::fixup_c166_seg8;
     break;
   case C166::S_SOF:
@@ -262,8 +394,10 @@ void C166MCCodeEmitter::encodeInstruction(const MCInst &MI,
                                           SmallVectorImpl<MCFixup> &Fixups,
                                           const MCSubtargetInfo &STI) const {
   if (MI.getOpcode() == C166::PseudoJMPRRelax ||
+      MI.getOpcode() == C166::PseudoJMPRRelaxNET ||
       MI.getOpcode() == C166::PseudoJMPRRelaxUC ||
-      MI.getOpcode() == C166::PseudoBitBranchRelax) {
+      MI.getOpcode() == C166::PseudoBitBranchRelax ||
+      MI.getOpcode() == C166::PseudoBitBranchWritebackRelax) {
     encodeRelaxableBranch(MI, CB, Fixups);
     return;
   }

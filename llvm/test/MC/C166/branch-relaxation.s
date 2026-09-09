@@ -7,6 +7,7 @@
 ; RUN: llvm-objdump -dr --section=.text.backward_far %t.o | FileCheck %s --check-prefix=BFAR
 
 ; Same-section branches remain two bytes at both representable boundaries.
+; Their deltas are left to the linker so it can check the final code segment.
 .section .text.forward_limit,"ax",@progbits
 .globl forward_limit
 forward_limit:
@@ -16,7 +17,8 @@ forward_limit_target:
   nop
 
 ; FLIMIT-LABEL: <forward_limit>:
-; FLIMIT-NEXT: 0: 2d 7f{{.*}}jmpr cc_eq, 127
+; FLIMIT-NEXT: 0: 2d 00{{.*}}jmpr cc_eq, 0
+; FLIMIT-NEXT: {{[ ]*}}1: R_C166_PC8{{[ \t]+}}.text.forward_limit+0x100
 ; FLIMIT-LABEL: <forward_limit_target>:
 ; FLIMIT-NEXT: 100: cc 00{{.*}}nop
 
@@ -31,7 +33,8 @@ backward_limit:
 ; BLIMIT-LABEL: <backward_limit_target>:
 ; BLIMIT-NEXT: 0: cc 00{{.*}}nop
 ; BLIMIT-LABEL: <backward_limit>:
-; BLIMIT-NEXT: fe: 3d 80{{.*}}jmpr cc_ne, 128
+; BLIMIT-NEXT: fe: 3d 00{{.*}}jmpr cc_ne, 0
+; BLIMIT-NEXT: {{[ ]*}}ff: R_C166_PC8{{[ \t]+}}.text.backward_limit
 
 ; A local branch outside the short range gets a fixed replacement slot and a
 ; linker relocation.  Conditional slots contain two NOP words; unconditional

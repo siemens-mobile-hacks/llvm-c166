@@ -1,5 +1,11 @@
 ; RUN: llc -mtriple=c166-none-elf -code-model=large -verify-machineinstrs < %s \
 ; RUN:   | FileCheck %s --check-prefixes=CHECK,HUGE
+; RUN: llc -mtriple=c166-none-elf -code-model=large -verify-machineinstrs \
+; RUN:   -stop-after=finalize-isel < %s | FileCheck %s --check-prefix=ISEL
+; RUN: llc -mtriple=c166-none-elf -code-model=medium -verify-machineinstrs \
+; RUN:   -stop-after=finalize-isel < %s | FileCheck %s --check-prefix=ISEL
+; RUN: llc -mtriple=c166-none-elf -code-model=small -verify-machineinstrs \
+; RUN:   -stop-after=finalize-isel < %s | FileCheck %s --check-prefix=ISEL
 ; RUN: llc -mtriple=c166-none-elf -code-model=medium -verify-machineinstrs < %s \
 ; RUN:   | FileCheck %s --check-prefixes=CHECK,NEAR
 ; RUN: llc -mtriple=c166-none-elf -code-model=small -verify-machineinstrs < %s \
@@ -36,6 +42,10 @@ define i32 @rotl32_5(i32 %value) {
 }
 
 define i32 @rotl32_16(i32 %value) {
+; ISEL-LABEL: name: rotl32_16
+; ISEL:       REG_SEQUENCE
+; ISEL-NOT:   ROTL32ri5
+; ISEL:       RET{{S?}}
 ; CHECK-LABEL: rotl32_16:
 ; CHECK-NOT:   calls
 ; CHECK-NOT:   shl

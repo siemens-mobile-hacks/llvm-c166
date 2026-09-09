@@ -2831,6 +2831,54 @@ static bool accessesSpillSlot(const MachineInstr &MI, int FrameIndex) {
   });
 }
 
+static bool
+isSpillWordReadBeforeOverwrite(const MachineInstr &Store, int FrameIndex,
+                               int64_t Offset, const MachineFrameInfo &MFI,
+                               ArrayRef<MachineInstr *> IgnoredLoads = {}) {
+  SmallVector<const MachineBasicBlock *, 8> Worklist;
+  SmallPtrSet<const MachineBasicBlock *, 8> Visited;
+  auto Scan = [&](const MachineBasicBlock &MBB,
+                  MachineBasicBlock::const_iterator Begin) {
+    for (auto I = Begin; I != MBB.end(); ++I) {
+      if (I->isInlineAsm())
+        return true;
+      if (!accessesSpillSlot(*I, FrameIndex))
+        continue;
+      int AccessIndex;
+      int64_t AccessOffset;
+      if (!getSpillSlotAccess(*I, MFI, AccessIndex, AccessOffset) ||
+          (**I->memoperands_begin()).getSize() != LocationSize::precise(2) ||
+          AccessOffset % 2 != 0 || Offset % 2 != 0 ||
+          hasExplicitOrderedMemoryAccess(*I))
+        return true;
+      if (AccessOffset != Offset)
+        continue;
+      if (I->mayLoad()) {
+        if (llvm::is_contained(IgnoredLoads, &*I))
+          continue;
+        return true;
+      }
+      Register Base, Source;
+      int64_t AddressOffset;
+      if (getPhysicalStoreAddress(*I, Base, AddressOffset, Source) &&
+          Base == C166::R0)
+        return false;
+      return true;
+    }
+    llvm::append_range(Worklist, MBB.successors());
+    return false;
+  };
+
+  if (Scan(*Store.getParent(), std::next(Store.getIterator())))
+    return true;
+  while (!Worklist.empty()) {
+    const MachineBasicBlock *MBB = Worklist.pop_back_val();
+    if (Visited.insert(MBB).second && Scan(*MBB, MBB->begin()))
+      return true;
+  }
+  return false;
+}
+
 static bool removeUnreadSpillWordStores(MachineFunction &MF,
                                         const C166InstrInfo &TII) {
   if (!MF.getFunction().hasOptSize())
@@ -2897,7 +2945,9 @@ static bool removeUnreadSpillWordStores(MachineFunction &MF,
         continue;
 
       if (UnknownSlots.contains(FrameIndex) ||
-          ReadWords.contains({FrameIndex, MemoryOffset}))
+          (ReadWords.contains({FrameIndex, MemoryOffset}) &&
+           isSpillWordReadBeforeOverwrite(Store, FrameIndex, MemoryOffset,
+                                          MFI)))
         continue;
 
       Store.eraseFromParent();
@@ -3497,13 +3547,17 @@ static bool foldCallSpillSequences(MachineFunction &MF,
         I = std::next(Stores.back()->getIterator());
         continue;
       }
-      // Push/pop preserves registers, not the original frame slots. Reject
-      // the replacement if any other instruction can read these slots.
+      // Push/pop preserves registers, not the original frame slots. Other
+      // reads are safe only if a new store supplies their value.
       DenseMap<int, unsigned> MatchedReads;
       for (auto [FrameIndex, Offset] : Slots)
         ++MatchedReads[FrameIndex];
-      if (llvm::any_of(MatchedReads, [&](const auto &Entry) {
-            return SlotReads.lookup(Entry.first) != Entry.second;
+      if (llvm::any_of(llvm::enumerate(Slots), [&](const auto &Entry) {
+            auto [FrameIndex, Offset] = Entry.value();
+            return SlotReads.lookup(FrameIndex) !=
+                       MatchedReads.lookup(FrameIndex) &&
+                   isSpillWordReadBeforeOverwrite(
+                       *Stores[Entry.index()], FrameIndex, Offset, MFI, Loads);
           })) {
         I = std::next(Stores.back()->getIterator());
         continue;

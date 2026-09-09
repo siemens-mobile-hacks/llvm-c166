@@ -52,6 +52,15 @@ void C166InstPrinter::printImmediate(const MCInst *MI, unsigned OpNo,
     MAI.printExpr(OS, *Op.getExpr());
 }
 
+void C166InstPrinter::printShortRegister(const MCInst *MI, unsigned OpNo,
+                                         raw_ostream &OS) {
+  const MCOperand &Op = MI->getOperand(OpNo);
+  if (Op.isReg())
+    printRegName(OS, Op.getReg());
+  else
+    OS << "sfr(" << Op.getImm() << ')';
+}
+
 void C166InstPrinter::printImmediate16(const MCInst *MI, unsigned OpNo,
                                        raw_ostream &OS) {
   const MCOperand &Op = MI->getOperand(OpNo);
@@ -64,38 +73,8 @@ void C166InstPrinter::printImmediate16(const MCInst *MI, unsigned OpNo,
 
 static void printBitOffsetName(unsigned WordAddress, raw_ostream &OS) {
   switch (WordAddress) {
-  case 0x00:
-    OS << "dpp0";
-    break;
-  case 0x01:
-    OS << "dpp1";
-    break;
-  case 0x02:
-    OS << "dpp2";
-    break;
-  case 0x03:
-    OS << "dpp3";
-    break;
-  case 0x04:
-    OS << "csp";
-    break;
-  case 0x06:
-    OS << "mdh";
-    break;
-  case 0x07:
-    OS << "mdl";
-    break;
-  case 0x08:
-    OS << "cp";
-    break;
-  case 0x09:
-    OS << "sp";
-    break;
-  case 0x0a:
-    OS << "stkov";
-    break;
-  case 0x0b:
-    OS << "stkun";
+  case 0x87:
+    OS << "mdc";
     break;
   case 0x88:
     OS << "psw";
@@ -111,14 +90,26 @@ static void printBitOffsetName(unsigned WordAddress, raw_ostream &OS) {
 
 void C166InstPrinter::printBitAddress(const MCInst *MI, unsigned OpNo,
                                       raw_ostream &OS) {
+  if (MI->getOperand(OpNo).isExpr()) {
+    printAddress(MI, OpNo, OS);
+    return;
+  }
   uint64_t Packed = MI->getOperand(OpNo).getImm();
-  printBitOffsetName(Packed >> 4, OS);
+  unsigned WordAddress = Packed >> 4;
+  printBitOffsetName(WordAddress, OS);
   unsigned Bit = Packed & 0xf;
-  OS << '.' << Bit;
+  // Separate a numeric word address from the bit to avoid a real-number token.
+  bool Named =
+      WordAddress >= 0xf0 || WordAddress == 0x87 || WordAddress == 0x88;
+  OS << (Named ? "." : " . ") << Bit;
 }
 
 void C166InstPrinter::printBitOffset(const MCInst *MI, unsigned OpNo,
                                      raw_ostream &OS) {
+  if (MI->getOperand(OpNo).isExpr()) {
+    printAddress(MI, OpNo, OS);
+    return;
+  }
   printBitOffsetName(MI->getOperand(OpNo).getImm(), OS);
 }
 

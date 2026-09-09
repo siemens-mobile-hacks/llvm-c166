@@ -76,6 +76,7 @@ private:
 
   SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerVAARG(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerVACOPY(SDValue Op, SelectionDAG &DAG) const;
   SDValue CombineSplitLeftShiftOne(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue CombineSplitRightShiftOne(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue CombineI64ConstantShift(SDNode *N, SelectionDAG &DAG) const;

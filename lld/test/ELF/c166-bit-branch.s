@@ -1,7 +1,7 @@
 ; REQUIRES: c166
 ; RUN: llvm-mc -filetype=obj -triple=c166-none-elf %s -o %t.o
 ; RUN: llvm-readobj --relocations %t.o | FileCheck %s --check-prefix=RELOC
-; RUN: ld.lld -Ttext=0x10000 -e _start %t.o \
+; RUN: ld.lld -Ttext=0x10200 -e _start %t.o \
 ; RUN:   --defsym=near_set=_start+64 \
 ; RUN:   --defsym=near_clear=_start-20 \
 ; RUN:   --defsym=far_set=_start+512 \
@@ -26,18 +26,18 @@ _start:
 
 ; In-range branches keep their opcode and padding.
 ; DIS-LABEL: <_start>:
-; DIS-NEXT:  10000: 8a fc 1e 70{{.*}}jb r12.7, 30
-; DIS-NEXT:  10004: cc 00{{.*}}nop
-; DIS-NEXT:  10006: cc 00{{.*}}nop
-; DIS-NEXT:  10008: 9a 88 f0 b0{{.*}}jnb psw.11, 240
-; DIS-NEXT:  1000c: cc 00{{.*}}nop
-; DIS-NEXT:  1000e: cc 00{{.*}}nop
+; DIS-NEXT:  10200: 8a fc 1e 70{{.*}}jb r12.7, 30
+; DIS-NEXT:  10204: cc 00{{.*}}nop
+; DIS-NEXT:  10206: cc 00{{.*}}nop
+; DIS-NEXT:  10208: 9a 88 f0 b0{{.*}}jnb psw.11, 240
+; DIS-NEXT:  1020c: cc 00{{.*}}nop
+; DIS-NEXT:  1020e: cc 00{{.*}}nop
 
 ; Out-of-range branches invert the bit test and skip a segmented jump.
-; DIS-NEXT:  10010: 9a f1 02 00{{.*}}jnb r1.0, 2
-; DIS-NEXT:  10014: fa 01 00 02{{.*}}jmps 1, 512
-; DIS-NEXT:  10018: 8a ff 02 f0{{.*}}jb r15.15, 2
-; DIS-NEXT:  1001c: fa 00 00 fe{{.*}}jmps 0, 65024
+; DIS-NEXT:  10210: 9a f1 02 00{{.*}}jnb r1.0, 2
+; DIS-NEXT:  10214: fa 01 00 04{{.*}}jmps 1, 1024
+; DIS-NEXT:  10218: 8a ff 02 f0{{.*}}jb r15.15, 2
+; DIS-NEXT:  1021c: fa 01 00 00{{.*}}jmps 1, 0
 
 ; Exercise the non-relaxing relocation used for an explicitly constructed
 ; four-byte bit branch.

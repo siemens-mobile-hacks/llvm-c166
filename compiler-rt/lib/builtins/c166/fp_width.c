@@ -35,7 +35,9 @@ enum {
 };
 
 COMPILER_RT_ABI double __extendsfdf2(float value) {
-  const su_int source = __builtin_bit_cast(su_int, value);
+  // bit_cast preserves object bytes, whose word order is opposite to integers.
+  const su_int object = __builtin_bit_cast(su_int, value);
+  const su_int source = (object << 16) | (object >> 16);
   const uint16_t sourceHigh = (uint16_t)(source >> 16);
   const uint16_t sourceSign = sourceHigh & UINT16_C(0x8000);
   const uint16_t sourceExponent = (sourceHigh >> 7) & UINT16_C(0xff);

@@ -1,4 +1,5 @@
 # RUN: llvm-mc -triple c166 -show-encoding %s | FileCheck %s --check-prefix=ENC
+# RUN: llvm-mc -triple=c166 %s | llvm-mc -triple=c166 -show-encoding | FileCheck %s --check-prefix=ENC
 # RUN: llvm-mc -triple c166 -filetype=obj %s -o - | llvm-objdump -d - | FileCheck %s --check-prefix=DIS
 
 bfldl r4, #240, #16

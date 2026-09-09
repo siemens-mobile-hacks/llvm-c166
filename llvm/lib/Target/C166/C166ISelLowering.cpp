@@ -91,7 +91,7 @@ C166TargetLowering::C166TargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::VAARG, MVT::Other, Custom);
   setOperationAction(ISD::BR_JT, MVT::Other, Custom);
   setOperationAction(ISD::VAEND, MVT::Other, Expand);
-  setOperationAction(ISD::VACOPY, MVT::Other, Expand);
+  setOperationAction(ISD::VACOPY, MVT::Other, Custom);
   for (MVT VT : {MVT::i8, MVT::i16})
     setIndexedLoadAction(ISD::POST_INC, VT, Legal);
   setTargetDAGCombine({ISD::INTRINSIC_WO_CHAIN, ISD::OR, ISD::FSHL, ISD::FSHR,
@@ -600,6 +600,8 @@ SDValue C166TargetLowering::LowerOperation(SDValue Op,
     return LowerVASTART(Op, DAG);
   case ISD::VAARG:
     return LowerVAARG(Op, DAG);
+  case ISD::VACOPY:
+    return LowerVACOPY(Op, DAG);
   case ISD::BR_JT:
     return LowerBRJT(Op, DAG);
   case ISD::BR_CC:
@@ -2049,6 +2051,16 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
   }
 
   if (SRetDestination && SRetBytes) {
+    // Result loads must precede cleanup, but their users must depend on it.
+    // Otherwise forwarding the stores below into a pure libcall's users can
+    // discard CALLSEQ_END. Virtual copies carry that dependency without
+    // keeping the temporary result block live after cleanup.
+    for (SDValue &Word : ResultWords) {
+      Register Reg = MF.getRegInfo().createVirtualRegister(&C166::GR16RegClass);
+      Chain = DAG.getCopyToReg(Chain, DL, Reg, Word);
+      Word = DAG.getCopyFromReg(Chain, DL, Reg, MVT::i16);
+      Chain = Word.getValue(1);
+    }
     for (unsigned I = 0; I != ResultWords.size(); ++I) {
       unsigned Offset = I * 2;
       unsigned DestinationOffset =
@@ -2115,6 +2127,21 @@ SDValue C166TargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
   SDValue Address = DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i32, Offset, Page);
   return DAG.getStore(Page.getValue(1), DL, Address, Op.getOperand(1),
                       MachinePointerInfo(SV));
+}
+
+SDValue C166TargetLowering::LowerVACOPY(SDValue Op, SelectionDAG &DAG) const {
+  const DataLayout &DL = DAG.getDataLayout();
+  // va_list holds a data pointer, not the address-space-zero pointer used by
+  // generic VACOPY expansion. These have different widths in Small.
+  MVT CursorVT = getPointerTy(DL, DL.getDefaultGlobalsAddressSpace());
+  const Value *Dst = cast<SrcValueSDNode>(Op.getOperand(3))->getValue();
+  const Value *Src = cast<SrcValueSDNode>(Op.getOperand(4))->getValue();
+  SDLoc Loc(Op);
+  SDValue Cursor =
+      DAG.getLoad(CursorVT, Loc, Op.getOperand(0), Op.getOperand(2),
+                  MachinePointerInfo(Src), Align(2));
+  return DAG.getStore(Cursor.getValue(1), Loc, Cursor, Op.getOperand(1),
+                      MachinePointerInfo(Dst), Align(2));
 }
 
 SDValue C166TargetLowering::LowerVAARG(SDValue Op, SelectionDAG &DAG) const {

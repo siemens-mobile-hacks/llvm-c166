@@ -1,5 +1,6 @@
 add_llvm_component_library(LLVMC166Desc
   C166AsmBackend.cpp
+  C166BitExpr.cpp
   C166ELFObjectWriter.cpp
   C166InstPrinter.cpp
   C166MCAsmInfo.cpp

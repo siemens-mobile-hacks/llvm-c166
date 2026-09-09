@@ -30,10 +30,16 @@ static unsigned getJMPREncoding(unsigned Opcode) {
   switch (Opcode) {
   case C166::JMPR_UC:
     return 0x0d;
+  case C166::JMPR_NET:
+    return 0x1d;
   case C166::JMPR_EQ:
     return 0x2d;
   case C166::JMPR_NE:
     return 0x3d;
+  case C166::JMPR_V:
+    return 0x4d;
+  case C166::JMPR_NV:
+    return 0x5d;
   case C166::JMPR_N:
     return 0x6d;
   case C166::JMPR_NN:
@@ -65,6 +71,10 @@ static unsigned getBitBranchEncoding(unsigned Opcode) {
     return 0x8a;
   case C166::JNB:
     return 0x9a;
+  case C166::JBC:
+    return 0xaa;
+  case C166::JNBS:
+    return 0xba;
   default:
     llvm_unreachable("not a C166 bit branch");
   }
@@ -74,16 +84,59 @@ class C166AsmBackend : public MCAsmBackend {
   uint64_t adjustFixupValue(const MCFixup &Fixup, const MCValue &Target,
                             uint64_t Value) const {
     switch (Fixup.getKind()) {
+    case C166::fixup_c166_bit_low4:
+    case C166::fixup_c166_bit_high4:
+      if (!isUInt<4>(Value))
+        getContext().reportError(Fixup.getLoc(),
+                                 "bit number must be in the range 0..15");
+      return Value;
+    case C166::fixup_c166_bit_offset:
+      if (!isUInt<8>(Value))
+        getContext().reportError(
+            Fixup.getLoc(), "bit word address must be in the range 0..255");
+      return Value;
+    case C166::fixup_c166_bit_set:
+    case C166::fixup_c166_bit_src:
+    case C166::fixup_c166_bit_dst:
+      if (!isUInt<12>(Value))
+        getContext().reportError(
+            Fixup.getLoc(), "packed bit address must be in the range 0..4095");
+      if (Fixup.getKind() == C166::fixup_c166_bit_set)
+        return ((Value >> 4) << 8) | ((Value & 15) << 4);
+      if (Fixup.getKind() == C166::fixup_c166_bit_dst)
+        return (Value >> 4) | ((Value & 15) << 8);
+      return ((Value >> 4) << 8) | ((Value & 15) << 28);
+    case C166::fixup_c166_address16:
+      // A relocatable symbol-minus-constant may still resolve to a valid
+      // address. Only absolute expressions can be range-checked here.
+      if (Target.isAbsolute() && !isUInt<16>(Value))
+        getContext().reportError(
+            Fixup.getLoc(), "direct address must be in the range 0..65535");
+      return Value;
     case FK_Data_1:
     case FK_Data_2:
-    case FK_Data_4:
+    case FK_Data_4: {
       if (Target.getSpecifier() == C166::S_PAGED32) {
+        if (Fixup.getKind() != FK_Data_4)
+          getContext().reportError(Fixup.getLoc(),
+                                   "paged pointer requires a 32-bit field");
         if (Value > 0xffffff)
           getContext().reportError(Fixup.getLoc(),
                                    "far data address exceeds 24 bits");
         return (Value & 0x3fff) | (((Value >> 14) & 0x3ff) << 16);
       }
+      if (Target.getSpecifier() == C166::S_SOF) {
+        if (Value > 0xffffff)
+          getContext().reportError(Fixup.getLoc(),
+                                   "code address exceeds 24 bits");
+        return Value & 0xffff;
+      }
+      unsigned Bits = getFixupKindInfo(Fixup.getKind()).TargetSize;
+      if (!isUIntN(Bits, Value) && !isIntN(Bits, static_cast<int64_t>(Value)))
+        getContext().reportError(Fixup.getLoc(),
+                                 "value does not fit in the relocation field");
       return Value;
+    }
     case C166::fixup_c166_seg8:
       if (Value > 0xffffff)
         getContext().reportError(Fixup.getLoc(),
@@ -95,8 +148,10 @@ class C166AsmBackend : public MCAsmBackend {
                                  "code address exceeds 24 bits");
       return ((Value & 0xffff) << 8) | ((Value >> 16) & 0xff);
     case C166::fixup_c166_sof16:
-      return Value & 0xffff;
     case C166::fixup_c166_cof16:
+      if (Value > 0xffffff)
+        getContext().reportError(Fixup.getLoc(),
+                                 "code address exceeds 24 bits");
       return Value & 0xffff;
     case C166::fixup_c166_pag10:
       if (Value > 0xffffff)
@@ -104,11 +159,17 @@ class C166AsmBackend : public MCAsmBackend {
                                  "far data address exceeds 24 bits");
       return (Value >> 14) & 0x3ff;
     case C166::fixup_c166_pof14:
+      if (Value > 0xffffff)
+        getContext().reportError(Fixup.getLoc(),
+                                 "far data address exceeds 24 bits");
       return Value & 0x3fff;
     case C166::fixup_c166_dpp1_16:
-      return 0x4000 | (Value & 0x3fff);
     case C166::fixup_c166_dpp2_16:
-      return 0x8000 | (Value & 0x3fff);
+      if (Value > 0xffffff)
+        getContext().reportError(Fixup.getLoc(),
+                                 "far data address exceeds 24 bits");
+      return (Fixup.getKind() == C166::fixup_c166_dpp1_16 ? 0x4000 : 0x8000) |
+             (Value & 0x3fff);
     case C166::fixup_c166_pc8: {
       int64_t Delta = static_cast<int64_t>(Value) - 1;
       if (Delta & 1)
@@ -147,8 +208,11 @@ public:
                          const MCSubtargetInfo &) const override {
     switch (Opcode) {
     case C166::JMPR_UC:
+    case C166::JMPR_NET:
     case C166::JMPR_EQ:
     case C166::JMPR_NE:
+    case C166::JMPR_V:
+    case C166::JMPR_NV:
     case C166::JMPR_N:
     case C166::JMPR_NN:
     case C166::JMPR_ULT:
@@ -161,6 +225,8 @@ public:
     case C166::JMPR_ULE:
     case C166::JB:
     case C166::JNB:
+    case C166::JBC:
+    case C166::JNBS:
       return true;
     default:
       return false;
@@ -185,8 +251,12 @@ public:
 
   void relaxInstruction(MCInst &Inst, const MCSubtargetInfo &) const override {
     MCInst Relaxed;
-    if (Inst.getOpcode() == C166::JB || Inst.getOpcode() == C166::JNB) {
-      Relaxed.setOpcode(C166::PseudoBitBranchRelax);
+    if (Inst.getOpcode() == C166::JB || Inst.getOpcode() == C166::JNB ||
+        Inst.getOpcode() == C166::JBC || Inst.getOpcode() == C166::JNBS) {
+      bool Writeback =
+          Inst.getOpcode() == C166::JBC || Inst.getOpcode() == C166::JNBS;
+      Relaxed.setOpcode(Writeback ? C166::PseudoBitBranchWritebackRelax
+                                  : C166::PseudoBitBranchRelax);
       Relaxed.addOperand(
           MCOperand::createImm(getBitBranchEncoding(Inst.getOpcode())));
       Relaxed.addOperand(Inst.getOperand(0));
@@ -195,7 +265,9 @@ public:
       Relaxed.setOpcode(C166::PseudoJMPRRelaxUC);
       Relaxed.addOperand(Inst.getOperand(0));
     } else {
-      Relaxed.setOpcode(C166::PseudoJMPRRelax);
+      Relaxed.setOpcode(Inst.getOpcode() == C166::JMPR_NET
+                            ? C166::PseudoJMPRRelaxNET
+                            : C166::PseudoJMPRRelax);
       Relaxed.addOperand(
           MCOperand::createImm(getJMPREncoding(Inst.getOpcode())));
       Relaxed.addOperand(Inst.getOperand(0));
@@ -223,6 +295,15 @@ public:
       return;
     }
 
+    // Bit operands are assembler constants, not link-time addresses.
+    if (Fixup.getKind() >= C166::fixup_c166_bit_offset &&
+        Fixup.getKind() <= C166::fixup_c166_bit_high4 &&
+        (!IsResolved || !Target.isAbsolute() || Target.getSpecifier())) {
+      getContext().reportError(
+          Fixup.getLoc(), "bit operand must resolve to an absolute constant");
+      return;
+    }
+
     if (Fixup.getKind() == C166::fixup_c166_pc8_relax) {
       maybeAddReloc(F, Fixup, Target, Value, /*IsResolved=*/false);
       return;
@@ -231,8 +312,10 @@ public:
     const bool IsPCRel = Fixup.getKind() == C166::fixup_c166_pc8 ||
                          Fixup.getKind() == C166::fixup_c166_bit_pc8 ||
                          Fixup.getKind() == C166::fixup_c166_pc16;
-    if (Fixup.getKind() >= FirstTargetFixupKind && !IsPCRel &&
-        !Target.isAbsolute())
+    // Even a resolved short branch needs its final code segment checked.
+    // Keep symbolic addresses relocatable without enlarging local branches.
+    if (Fixup.getKind() >= FirstTargetFixupKind &&
+        Fixup.getKind() != C166::fixup_c166_pc16 && !Target.isAbsolute())
       IsResolved = false;
     maybeAddReloc(F, Fixup, Target, Value, IsResolved);
     // C166 uses RELA.  An unresolved PC-relative fixup is left as zero and
@@ -256,12 +339,16 @@ public:
 
   MCFixupKindInfo getFixupKindInfo(MCFixupKind Kind) const override {
     static const MCFixupKindInfo Infos[C166::NumTargetFixupKinds] = {
-        {"fixup_c166_seg8", 0, 8, 0},      {"fixup_c166_seg24", 0, 24, 0},
-        {"fixup_c166_sof16", 0, 16, 0},    {"fixup_c166_cof16", 0, 16, 0},
-        {"fixup_c166_pag10", 0, 10, 0},    {"fixup_c166_pof14", 0, 14, 0},
-        {"fixup_c166_pc8", 0, 8, 0},       {"fixup_c166_bit_pc8", 0, 8, 0},
-        {"fixup_c166_pc8_relax", 8, 8, 0}, {"fixup_c166_pc16", 0, 16, 0},
-        {"fixup_c166_dpp1_16", 0, 16, 0},  {"fixup_c166_dpp2_16", 0, 16, 0},
+        {"fixup_c166_seg8", 0, 8, 0},       {"fixup_c166_seg24", 0, 24, 0},
+        {"fixup_c166_sof16", 0, 16, 0},     {"fixup_c166_cof16", 0, 16, 0},
+        {"fixup_c166_pag10", 0, 10, 0},     {"fixup_c166_pof14", 0, 14, 0},
+        {"fixup_c166_pc8", 0, 8, 0},        {"fixup_c166_bit_pc8", 0, 8, 0},
+        {"fixup_c166_pc8_relax", 8, 8, 0},  {"fixup_c166_pc16", 0, 16, 0},
+        {"fixup_c166_dpp1_16", 0, 16, 0},   {"fixup_c166_dpp2_16", 0, 16, 0},
+        {"fixup_c166_address16", 0, 16, 0}, {"fixup_c166_bit_offset", 0, 8, 0},
+        {"fixup_c166_bit_set", 0, 16, 0},   {"fixup_c166_bit_src", 0, 32, 0},
+        {"fixup_c166_bit_dst", 0, 12, 0},   {"fixup_c166_bit_low4", 0, 4, 0},
+        {"fixup_c166_bit_high4", 4, 4, 0},
     };
     static_assert(std::size(Infos) == C166::NumTargetFixupKinds);
 

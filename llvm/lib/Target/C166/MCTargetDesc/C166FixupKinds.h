@@ -26,6 +26,13 @@ enum Fixups {
   fixup_c166_pc16,
   fixup_c166_dpp1_16,
   fixup_c166_dpp2_16,
+  fixup_c166_address16,
+  fixup_c166_bit_offset,
+  fixup_c166_bit_set,
+  fixup_c166_bit_src,
+  fixup_c166_bit_dst,
+  fixup_c166_bit_low4,
+  fixup_c166_bit_high4,
 
   LastTargetFixupKind,
   NumTargetFixupKinds = LastTargetFixupKind - FirstTargetFixupKind

@@ -25,7 +25,7 @@ void banked_call(void) {
 
 // One coalescable near 16-register bank is shared by all handlers with the
 // same name, including handlers emitted by different translation units.
-// IR-DAG: @__c166_register_bank_FAST_BANK = weak addrspace(3) global [16 x i16] zeroinitializer, align 2
+// IR-DAG: @__c166_register_bank_FAST_BANK = weak addrspace(3) global [16 x i16] zeroinitializer, section ".c166.regbank", align 2
 // IR: @llvm.compiler.used = appending addrspace(2) global [3 x ptr addrspace(2)] [ptr addrspace(2) addrspacecast (ptr addrspace(3) @__c166_register_bank_FAST_BANK to ptr addrspace(2)),
 // IR-DAG: define{{.*}}cc129 void @banked_leaf(){{.*}}#[[LEAF:[0-9]+]]
 // IR-DAG: define{{.*}}cc129 void @banked_call(){{.*}}#[[CALL:[0-9]+]]

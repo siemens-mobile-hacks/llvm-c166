@@ -1,13 +1,13 @@
 ; RUN: not llvm-mc -triple=c166-none-elf %s -o /dev/null 2>&1 | FileCheck %s
 
-add r0, #-1
+add r0, #-32769
 ; CHECK: error: immediate must be in the range 0..7
 sub r0, #65536
 ; CHECK: error: immediate must be in the range 0..7
 addb rl0, #256
-; CHECK: error: immediate must be in the range 8..255
+; CHECK: error: immediate must be in the range -128..255
 
-movb rl0, #16
+movb rl0, #256
 ; CHECK: error: immediate must be in the range 0..15
 shl r0, #-1
 ; CHECK: error: immediate must be in the range 0..15
@@ -20,14 +20,14 @@ extp -1, #1
 ; CHECK: error: expected a 10-bit page or pag(expression)
 
 mov r0, [r0 + #65536]
-; CHECK: error: immediate must be in the range 0..65535
-mov r0, [r0 + #-1]
-; CHECK: error: immediate must be in the range 0..65535
+; CHECK: error: immediate must be in the range -32768..65535
+mov r0, [r0 + #-32769]
+; CHECK: error: immediate must be in the range -32768..65535
 
 mov r0, -1
 ; CHECK: error: immediate must be in the range 0..15
-mov 16384, r0
-; CHECK: error: expected a 14-bit page offset or pof(expression)
+mov 65536, r0
+; CHECK: error: expected a 16-bit absolute address
 
 jmps -1, 0
 ; CHECK: error: expected an 8-bit segment or seg(expression)

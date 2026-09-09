@@ -34,6 +34,7 @@ public:
 
 private:
   void printOperand(const MCInst *MI, unsigned OpNo, raw_ostream &OS);
+  void printShortRegister(const MCInst *MI, unsigned OpNo, raw_ostream &OS);
   void printImmediate(const MCInst *MI, unsigned OpNo, raw_ostream &OS);
   void printImmediate16(const MCInst *MI, unsigned OpNo, raw_ostream &OS);
   void printBitAddress(const MCInst *MI, unsigned OpNo, raw_ostream &OS);

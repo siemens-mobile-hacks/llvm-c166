@@ -22,6 +22,60 @@ LLVM emits its own little-endian ELF32 C166 format. Foreign object formats are
 not accepted as compatible inputs. C ABI compatibility refers to the machine
 state at a C function boundary, independently of the object-file container.
 
+## CPU Instruction Profile
+
+The CPU names `c166` (the default) and `generic` select the same instruction
+set. This profile includes `ATOMIC`, `EXTR`, `EXTP`, `EXTPR`, `EXTS`, and
+`EXTSR`, as provided by later C166-family devices such as C167. There is no
+separate first-generation SAB 8XC166(W) profile or per-device instruction
+filtering. Those first-generation devices lack these instructions and have
+a two-bit code segment number rather than the eight-bit segment field used
+by this target. Do not interpret `-mcpu=c166` as selecting those devices.
+
+These distinctions are described in the *C166 Family Instruction Set
+Manual*, version 2.0, sections 1 and 3.2–3.4. The memory model selects the C
+ABI, not the CPU instruction set. In particular, selecting Small does not
+disable extension instructions: explicitly qualified far or huge accesses
+may still require them. Peripheral registers and their side effects remain
+device-specific; accepting an instruction is not a check of a device's
+register map.
+
+## Assembly Sources
+
+Clang preprocesses `.S` inputs and assembles them with the integrated assembler.
+`__C166_MEMORY_MODEL__` is 1 for Large, 2 for Medium, and 3 for Small.
+Use the model's call/return class when hand-written assembly calls C functions.
+
+Direct memory operands accept `sof(symbol + addend)` for a full 16-bit segment
+offset, for example with `EXTS`:
+
+```asm
+exts #seg(object), #2
+mov r4, sof(object)
+mov sof(object+2), r4
+```
+
+The segment and offset expressions emit `R_C166_SEG8` and `R_C166_SOF16`.
+The assembler does not track extension-instruction lifetime: the caller must
+ensure each access uses the intended segment.
+
+SFR operands without architectural names can be written as `sfr(address)`.
+The short address must be an absolute constant in `0..239` defined before use;
+addresses `240..255` belong to GPRs and use their register names. The operand
+is available in the same instruction forms as named SFRs:
+
+```asm
+.equ control, 0xbd
+extr #1
+mov sfr(control), #1
+push sfr(control)
+```
+
+The instruction determines whether an SFR operand uses a short-register field
+or a long memory address. For example, `mov r4, sfr(control)` encodes a long
+source address (`0xfe00 + 2 * control`), which is not redirected by `EXTR`.
+This syntax does not imply that a particular device implements the register.
+
 ## Large, Medium, and Small C ABI
 
 The data model has 8-bit `char`, 16-bit `short` and `int`, 32-bit `long`, and
@@ -111,9 +165,43 @@ handler to select a named 16-register memory-mapped bank. Handlers using the
 same name share the bank. The attribute is rejected on non-interrupt
 functions.
 
+Bank storage is emitted in `.c166.regbank`, not ordinary near BSS. Place this
+section in the device's internal register RAM with a linker script, reserving
+it from the system stack and other contexts. LLD checks word alignment and the
+architectural address window `[0xF200, 0xFE00)`; the device may implement a
+smaller RAM range. For example, on a device with RAM available at `0xF600`:
+
+```ld
+.c166.regbank 0xF600 (NOLOAD) : { *(.c166.regbank) }
+```
+
+The entry sequence initializes the new bank's R0 from the interrupted context.
+Handlers that can interrupt each other must use distinct banks.
+
+## Assembly Bit Operands
+
+Bit instructions use a short word offset followed by a bit number from 0
+through 15. Use spaces around the dot for numeric offsets, for example
+`bset 0 . 7`; without spaces, `0.7` is a real-number token. Named operands
+use `r4.7`, `psw.11`, or `mdc.0`. Absolute constants may also name offsets
+and bit numbers. Use spaces around the dot when referring to forward-defined
+components, for example `bset WORD . BIT`; each component is range-checked
+independently. A packed operand `(word_offset << 4) | bit_number`
+or a BFLD word offset may also use a forward-defined absolute constant. These
+are assembler constants, not link-time addresses; unresolved or section-relative
+values are rejected. An explicitly
+defined dotted symbol is used as a whole symbol, before interpreting the dot
+as an offset/bit separator.
+
+Offsets `0x00..0x7f` select RAM words at `0xfd00 + 2 * offset`, not the lower
+SFR half. Offsets `0x80..0xef` select the upper SFR half (or ESFR under the
+corresponding extended-addressing mode); `0xf0..0xff` select GPRs. Lower SFR
+names such as DPP0, CSP, MDL, and SP are therefore invalid bit operands.
+They remain valid operands of ordinary word and byte instructions.
+
 ## ELF Linking
 
-LLVM uses RELA records for its C166 ELF objects. The object ABI defines 15
+LLVM uses RELA records for its C166 ELF objects. The object ABI defines 16
 value-bearing relocations for absolute, segmented, paged, DPP-relative,
 PC-relative, and same-segment code references, plus `R_C166_NONE` as a marker.
 LLD resolves local, global, weak, common, and section symbols using ordinary
@@ -136,14 +224,23 @@ function pointers. Clang emits `R_C166_PAGED32` for default Large/Medium and
 explicit `c166_far` pointer initializers, including pointers nested in
 aggregates and arrays.
 
-`R_C166_PC8_RELAX` marks a fixed-size branch slot beginning at a `JMPR`
-opcode. MC reserves four bytes for an unconditional branch and six bytes for
-a conditional branch whenever the final displacement is not known or does not
-fit the signed 8-bit word displacement. At final layout, LLD either fills the
-short displacement and keeps the NOP padding, or replaces the slot with
-`JMPS`; a conditional replacement first inverts the condition and skips the
-segmented jump. A manually emitted `R_C166_PC8` has no reserved replacement
-space and therefore retains strict range and alignment diagnostics.
+`R_C166_PC8_RELAX` marks a fixed-size slot beginning at a relative branch
+opcode. MC reserves four bytes for unconditional JMPR, six for invertible
+conditional JMPR, eight for JMPR NET or JB/JNB, and ten for JBC/JNBS when the
+displacement is unresolved or outside the signed 8-bit word range. LLD keeps
+the short form
+and NOP padding when the target is reachable within the current code segment;
+otherwise it emits JMPS. Invertible conditions skip JMPS using the opposite
+condition. NET has no inverse: `JMPR cc_net, 1; JMPR cc_uc, 2; JMPS seg, off`
+preserves its condition and flags. JBC/JNBS similarly retain the original bit
+operation followed by `JMPR cc_uc, 2; JMPS seg, off`: the bit branch skips
+JMPR when taken, preserving the bit writeback and flags on both paths. A
+replacement must fit within its code segment.
+
+Local short branches retain `R_C166_PC8` or `R_C166_BIT_PC8` so LLD can check
+the final segment without enlarging the instruction. These relocations have
+no replacement space and diagnose invalid segment, range, or alignment. Their
+displacements wrap with the 16-bit IP; they do not change CSP.
 
 `R_C166_NONE` carries no value or symbol semantics. The three published
 relocation numbers 253 through 255 are reserved and are not emitted or accepted

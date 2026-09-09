@@ -6,11 +6,13 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "MCTargetDesc/C166BitExpr.h"
 #include "MCTargetDesc/C166MCAsmInfo.h"
 #include "MCTargetDesc/C166MCTargetDesc.h"
 #include "MCTargetDesc/C166TargetStreamer.h"
 #include "TargetInfo/C166TargetInfo.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/StringSwitch.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
@@ -18,6 +20,7 @@
 #include "llvm/MC/MCParser/AsmLexer.h"
 #include "llvm/MC/MCParser/MCParsedAsmOperand.h"
 #include "llvm/MC/MCParser/MCTargetAsmParser.h"
+#include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCSymbol.h"
@@ -56,12 +59,14 @@ static C166::Specifier getC166Specifier(StringRef Name) {
 }
 
 class C166Operand : public MCParsedAsmOperand {
-  enum KindTy { Token, Register, Immediate } Kind;
+  enum KindTy { Token, Register, Immediate, ShortRegister } Kind;
 
   std::string TokenValue;
   MCRegister Reg;
   const MCExpr *Expr = nullptr;
   bool HasHash = false;
+  bool IsSFR = false;
+  bool IsWordRegister = false;
   SMLoc Start;
   SMLoc End;
 
@@ -75,13 +80,27 @@ public:
     return Op;
   }
 
-  static std::unique_ptr<C166Operand> createRegister(MCRegister Reg,
-                                                     SMLoc Start, SMLoc End) {
+  static std::unique_ptr<C166Operand>
+  createRegister(MCRegister Reg, SMLoc Start, SMLoc End,
+                 const MCRegisterInfo &MRI) {
     auto Op =
         std::unique_ptr<C166Operand>(new C166Operand(Register, Start, End));
     Op->Reg = Reg;
+    Op->IsSFR = MRI.getRegClass(C166::SFR16RegClassID).contains(Reg);
+    Op->IsWordRegister = MRI.getRegClass(C166::GR16RegClassID).contains(Reg);
     return Op;
   }
+
+  static std::unique_ptr<C166Operand>
+  createShortRegister(const MCExpr *Expr, SMLoc Start, SMLoc End) {
+    auto Op = std::unique_ptr<C166Operand>(
+        new C166Operand(ShortRegister, Start, End));
+    Op->Expr = Expr;
+    return Op;
+  }
+
+  bool isSFRShort() const { return Kind == ShortRegister || IsSFR; }
+  bool isPushPopReg() const { return isSFRShort() || IsWordRegister; }
 
   static std::unique_ptr<C166Operand> createImmediate(const MCExpr *Expr,
                                                       SMLoc Start, SMLoc End,
@@ -114,51 +133,81 @@ public:
            isUIntN(Bits, static_cast<uint64_t>(Value));
   }
 
-  bool isUImm3() const { return isUImm(3); }
-  bool isUImm4() const { return isUImm(4); }
-  bool isUImm8() const { return isUImm(8); }
-  bool isUImm8ALU() const {
+  bool isUImm3() const { return HasHash && isUImm(3); }
+  bool isUImm4() const { return HasHash && isUImm(4); }
+  bool isUImm7() const { return HasHash && isUImm(7); }
+  bool isUImm8() const { return HasHash && isUImm(8); }
+  bool isByteImmediate() const {
+    if (!isImm() || !HasHash || isa<MCSpecifierExpr>(Expr))
+      return false;
     int64_t Value;
-    return isImm() && HasHash && Expr->evaluateAsAbsolute(Value) &&
-           Value >= 8 && isUInt<8>(static_cast<uint64_t>(Value));
+    return !Expr->evaluateAsAbsolute(Value) || isInt<8>(Value) ||
+           isUInt<8>(Value);
+  }
+  bool isByteImmFull() const {
+    if (!isByteImmediate())
+      return false;
+    int64_t Value;
+    return !Expr->evaluateAsAbsolute(Value) || !isUInt<4>(Value);
+  }
+  bool isUImm8ALU() const {
+    if (!isByteImmediate())
+      return false;
+    int64_t Value;
+    return !Expr->evaluateAsAbsolute(Value) || !isUInt<3>(Value);
   }
   bool isUImm16() const {
-    if (!isImm())
+    if (!isImm() || isSpecifier(C166::S_PAGED32))
       return false;
     int64_t Value;
     return !Expr->evaluateAsAbsolute(Value) ||
            (Value >= 0 && isUInt<16>(static_cast<uint64_t>(Value)));
   }
   bool isUImm16Large() const {
-    if (!isImm() || !HasHash)
+    if (!isWord16() || !HasHash)
       return false;
     int64_t Value;
     // MOV reg,#data16 is the materialization form for every relocatable
     // 16-bit C166 address component.  Symbolic and modifier expressions can
     // only use this form; the compact four-bit MOV is for absolute 0..15.
-    return !Expr->evaluateAsAbsolute(Value) ||
-           (Value >= 16 && isUInt<16>(static_cast<uint64_t>(Value)));
+    return !Expr->evaluateAsAbsolute(Value) || !isUInt<4>(Value);
   }
-  bool isUImm16ALU() const {
-    if (!isImm() || !HasHash)
+  bool isWord16() const {
+    if (!isImm() || isSpecifier(C166::S_PAGED32))
       return false;
     int64_t Value;
-    return !Expr->evaluateAsAbsolute(Value) ||
-           (Value >= 8 && isUInt<16>(static_cast<uint64_t>(Value)));
+    return !Expr->evaluateAsAbsolute(Value) || isInt<16>(Value) ||
+           isUInt<16>(Value);
+  }
+  bool isImmediate16() const { return HasHash && isWord16(); }
+  bool isMemory16() const { return !HasHash && isUImm16(); }
+  bool isUImm16ALU() const {
+    if (!isWord16() || !HasHash)
+      return false;
+    int64_t Value;
+    return !Expr->evaluateAsAbsolute(Value) || !isUInt<3>(Value);
   }
   bool isSequenceCount() const {
     int64_t Value;
-    return isImm() && Expr->evaluateAsAbsolute(Value) && Value >= 1 &&
-           Value <= 4;
+    return isImm() && HasHash && Expr->evaluateAsAbsolute(Value) &&
+           Value >= 1 && Value <= 4;
   }
   bool isAtomicCount() const {
     int64_t Value;
-    return isImm() && Expr->evaluateAsAbsolute(Value) && Value >= 1 &&
-           Value <= 4;
+    return isImm() && HasHash && Expr->evaluateAsAbsolute(Value) &&
+           Value >= 1 && Value <= 4;
   }
-  bool isBitAddress() const { return isUImm(12); }
+  bool isBitConstant(unsigned Bits) const {
+    if (!isImm() || HasHash || isa<MCSpecifierExpr, MCTargetExpr>(Expr))
+      return false;
+    int64_t Value;
+    return !Expr->evaluateAsAbsolute(Value) || isUIntN(Bits, Value);
+  }
+  bool isBitAddress() const {
+    return isBitConstant(12) || (isImm() && !HasHash && isa<C166BitExpr>(Expr));
+  }
   bool isBitOffset() const {
-    return isUImm8() || (isReg() && getBitWordAddress(Reg).has_value());
+    return isBitConstant(8) || (isReg() && getBitWordAddress(Reg).has_value());
   }
 
   bool isSpecifier(C166::Specifier Specifier) const {
@@ -167,9 +216,18 @@ public:
     return SpecifierExpr && SpecifierExpr->getSpecifier() == Specifier;
   }
 
-  bool isSeg8() const { return isUImm8() || isSpecifier(C166::S_SEG); }
-  bool isSof16() const { return isUImm16() || isSpecifier(C166::S_SOF); }
-  bool isCof16() const { return isUImm16() || isSpecifier(C166::S_COF); }
+  bool isSeg8() const {
+    return !HasHash && (isUImm(8) || isSpecifier(C166::S_SEG));
+  }
+  bool isExtensionSegment8() const {
+    return isUImm(8) || isSpecifier(C166::S_SEG);
+  }
+  bool isAddress16(C166::Specifier Specifier) const {
+    return !HasHash && isUImm16() &&
+           (!isa<MCSpecifierExpr>(Expr) || isSpecifier(Specifier));
+  }
+  bool isSof16() const { return isAddress16(C166::S_SOF); }
+  bool isCof16() const { return isAddress16(C166::S_COF); }
   bool isPag10() const { return isUImm(10) || isSpecifier(C166::S_PAG); }
   bool isPof14() const {
     return !HasHash && (isUImm(14) || isSpecifier(C166::S_POF));
@@ -177,13 +235,13 @@ public:
   bool isAbs16() const {
     if (!isImm() || HasHash)
       return false;
-    // This operand exists for relocatable named register-bank storage.  Keep
-    // numeric direct memory operands and explicit DPP wrappers on their
-    // established POF14/DPP matcher paths, both for correct selector bits and
-    // for their precise range diagnostics.
+    // Direct addresses retain all 16 bits, including the DPP selector.
+    // SOF also supplies all 16 bits, for use under EXTS.
     int64_t Value;
-    if (Expr->evaluateAsAbsolute(Value) || isa<MCSpecifierExpr>(Expr))
-      return false;
+    if (Expr->evaluateAsAbsolute(Value))
+      return isUInt<16>(Value);
+    if (isa<MCSpecifierExpr>(Expr))
+      return isSpecifier(C166::S_SOF);
     if (const auto *Symbol = dyn_cast<MCSymbolRefExpr>(Expr)) {
       StringRef Name = Symbol->getSymbol().getName();
       if (Name.size() > 1 && (Name.front() == 'r' || Name.front() == 'R')) {
@@ -199,7 +257,7 @@ public:
   bool isDPP1Address() const { return !HasHash && isSpecifier(C166::S_DPP1); }
   bool isDPP2Address() const { return !HasHash && isSpecifier(C166::S_DPP2); }
   bool isBrTarget() const {
-    if (!isImm())
+    if (!isImm() || HasHash || isa<MCSpecifierExpr>(Expr))
       return false;
     int64_t Value;
     // A symbolic target is range-checked after layout by the PC8 fixup.  A
@@ -212,6 +270,26 @@ public:
   void addRegOperands(MCInst &Inst, unsigned N) const {
     assert(N == 1 && isReg());
     Inst.addOperand(MCOperand::createReg(Reg));
+  }
+
+  void addShortRegisterOperands(MCInst &Inst, unsigned N) const {
+    if (isReg()) {
+      addRegOperands(Inst, N);
+      return;
+    }
+    assert(N == 1 && Kind == ShortRegister);
+    Inst.addOperand(
+        MCOperand::createImm(cast<MCConstantExpr>(Expr)->getValue()));
+  }
+
+  void addSFRDirectOperands(MCInst &Inst, unsigned N) const {
+    if (isReg()) {
+      addRegOperands(Inst, N);
+      return;
+    }
+    assert(N == 1 && Kind == ShortRegister);
+    int64_t ShortAddress = cast<MCConstantExpr>(Expr)->getValue();
+    Inst.addOperand(MCOperand::createImm(0xfe00 + 2 * ShortAddress));
   }
 
   void addImmOperands(MCInst &Inst, unsigned N) const {
@@ -247,6 +325,10 @@ public:
       OS << "immediate ";
       MAI.printExpr(OS, *Expr);
       break;
+    case ShortRegister:
+      OS << "short register ";
+      MAI.printExpr(OS, *Expr);
+      break;
     }
   }
 };
@@ -260,6 +342,19 @@ class C166AsmParser : public MCTargetAsmParser {
   AsmLexer &getLexer() const { return Parser.getLexer(); }
 
   bool parseOperand(OperandVector &Operands);
+
+  std::optional<int64_t> getAbsoluteConstant(StringRef Name) const {
+    int64_t Value;
+    if (!Name.getAsInteger(10, Value))
+      return Value;
+    const MCSymbol *Symbol = Parser.getContext().lookupSymbol(Name);
+    if (Symbol && Symbol->isVariable() &&
+        Symbol->getVariableValue()->evaluateAsAbsolute(Value))
+      return Value;
+    return std::nullopt;
+  }
+
+  std::optional<int64_t> getBitWord(StringRef Name) const;
 
   bool matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
                                OperandVector &Operands, MCStreamer &Out,
@@ -281,6 +376,7 @@ public:
   enum C166MatchResultTy {
     Match_InvalidUImm3 = FIRST_TARGET_MATCH_RESULT_TY,
     Match_InvalidUImm4,
+    Match_InvalidUImm7,
     Match_InvalidUImm8,
     Match_InvalidUImm8ALU,
     Match_InvalidUImm16,
@@ -308,6 +404,7 @@ public:
                 const MCInstrInfo &MII)
       : MCTargetAsmParser(STI, MII), Parser(Parser) {
     MCAsmParserExtension::Initialize(Parser);
+    Parser.addAliasForDirective(".word", ".short");
     setAvailableFeatures(ComputeAvailableFeatures(STI.getFeatureBits()));
     StringRef Model = Parser.getContext().getTargetOptions().getABIName();
     if (Model == "large" || Model == "medium" || Model == "small") {
@@ -460,7 +557,14 @@ ParseStatus C166AsmParser::parseDirective(AsmToken DirectiveID) {
 
 static MCRegister MatchRegisterName(StringRef Name);
 
+std::optional<int64_t> C166AsmParser::getBitWord(StringRef Name) const {
+  if (auto Address = getBitWordAddress(MatchRegisterName(Name.lower())))
+    return *Address;
+  return getAbsoluteConstant(Name);
+}
+
 static std::optional<unsigned> getBitWordAddress(MCRegister Reg) {
+  // Unlike reg addressing, bitoff 0x00..0x7f selects RAM, not lower SFRs.
   switch (Reg.id()) {
   case C166::R0:
     return 0xf0;
@@ -494,28 +598,6 @@ static std::optional<unsigned> getBitWordAddress(MCRegister Reg) {
     return 0xfe;
   case C166::R15:
     return 0xff;
-  case C166::DPP0:
-    return 0x00;
-  case C166::DPP1:
-    return 0x01;
-  case C166::DPP2:
-    return 0x02;
-  case C166::DPP3:
-    return 0x03;
-  case C166::CSP:
-    return 0x04;
-  case C166::MDH:
-    return 0x06;
-  case C166::MDL:
-    return 0x07;
-  case C166::CP:
-    return 0x08;
-  case C166::SP:
-    return 0x09;
-  case C166::STKOV:
-    return 0x0a;
-  case C166::STKUN:
-    return 0x0b;
   case C166::MDC:
     return 0x87;
   case C166::PSW:
@@ -550,6 +632,25 @@ bool C166AsmParser::parseRegister(MCRegister &Reg, SMLoc &StartLoc,
 }
 
 bool C166AsmParser::parseOperand(OperandVector &Operands) {
+  if (getLexer().is(AsmToken::Identifier) &&
+      getLexer().getTok().getIdentifier().equals_insensitive("sfr") &&
+      getLexer().peekTok().is(AsmToken::LParen)) {
+    SMLoc Start = getLexer().getLoc();
+    Parser.Lex();
+    Parser.Lex();
+    const MCExpr *Expr;
+    if (Parser.parseExpression(Expr))
+      return true;
+    SMLoc End = getLexer().getLoc();
+    if (parseToken(AsmToken::RParen, "expected ')' after SFR address"))
+      return true;
+    int64_t Value;
+    if (!Expr->evaluateAsAbsolute(Value) || Value < 0 || Value > 0xef)
+      return Error(Start, "SFR address must be an absolute constant in 0..239");
+    Operands.push_back(C166Operand::createShortRegister(
+        MCConstantExpr::create(Value, Parser.getContext()), Start, End));
+    return false;
+  }
   if (getLexer().is(AsmToken::LBrac)) {
     SMLoc Loc = getLexer().getLoc();
     Operands.push_back(C166Operand::createToken("[", Loc));
@@ -566,21 +667,25 @@ bool C166AsmParser::parseOperand(OperandVector &Operands) {
     SMLoc End;
     if (parseRegister(Base, Start, End))
       return true;
-    Operands.push_back(C166Operand::createRegister(Base, Start, End));
+    Operands.push_back(C166Operand::createRegister(
+        Base, Start, End, *Parser.getContext().getRegisterInfo()));
 
-    if (getLexer().is(AsmToken::Plus)) {
+    if (getLexer().is(AsmToken::Plus) || getLexer().is(AsmToken::Minus)) {
+      bool Subtract = getLexer().is(AsmToken::Minus);
       Loc = getLexer().getLoc();
       Operands.push_back(C166Operand::createToken("+", Loc));
       Parser.Lex();
 
       // A trailing plus denotes the architectural post-increment form.
       // Otherwise the plus introduces an indexed displacement.
-      if (getLexer().isNot(AsmToken::RBrac)) {
+      if (Subtract || getLexer().isNot(AsmToken::RBrac)) {
         Start = getLexer().getLoc();
         (void)parseOptionalToken(AsmToken::Hash);
         const MCExpr *Disp;
         if (Parser.parseExpression(Disp))
-          return Error(Start, "expected displacement expression");
+          return true;
+        if (Subtract)
+          Disp = MCUnaryExpr::createMinus(Disp, Parser.getContext());
         End = getLexer().getLoc();
         Operands.push_back(C166Operand::createImmediate(Disp, Start, End));
       }
@@ -593,23 +698,37 @@ bool C166AsmParser::parseOperand(OperandVector &Operands) {
     return false;
   }
 
+  StringRef Mnemonic =
+      static_cast<const C166Operand &>(*Operands.front()).getToken();
+  unsigned BitOperands =
+      StringSwitch<unsigned>(Mnemonic)
+          .Cases({"bset", "bclr", "jb", "jnb", "jbc", "jnbs"}, 1)
+          .Cases({"bmov", "bmovn", "band", "bor", "bxor", "bcmp"}, 2)
+          .Default(0);
+  bool IsBitOperand = Operands.size() <= BitOperands;
+
   // MC's lexer keeps the canonical `psw.11` spelling in one identifier
   // token.  Split it here before the ordinary register/expression paths.
-  if (getLexer().is(AsmToken::Identifier)) {
+  if (IsBitOperand && getLexer().is(AsmToken::Identifier)) {
     StringRef Spelling = getLexer().getTok().getIdentifier();
     auto [Base, BitSpelling] = Spelling.rsplit('.');
-    uint64_t Bit;
-    MCRegister BitReg = MatchRegisterName(Base.lower());
-    std::optional<unsigned> Address = getBitWordAddress(BitReg);
-    if (!Base.empty() && Address && !BitSpelling.empty() &&
-        !BitSpelling.getAsInteger(10, Bit)) {
+    std::optional<int64_t> Address = getBitWord(Base);
+    std::optional<int64_t> Bit = getAbsoluteConstant(BitSpelling);
+    if (!Base.empty() && MatchRegisterName(Base.lower()) && !Address &&
+        !getAbsoluteConstant(Spelling))
+      return Error(getLexer().getLoc(),
+                   "expected a bit-addressable register or constant");
+    if (!Base.empty() && Address && !BitSpelling.empty() && Bit &&
+        !getAbsoluteConstant(Spelling)) {
       SMLoc Start = getLexer().getLoc();
       SMLoc End = getLexer().getTok().getEndLoc();
-      if (Bit > 15)
+      if (!isUInt<8>(*Address))
+        return Error(Start, "bit word address must be in the range 0..255");
+      if (!isUInt<4>(*Bit))
         return Error(Start, "bit number must be in the range 0..15");
       Parser.Lex();
       const MCExpr *Packed =
-          MCConstantExpr::create((*Address << 4) | Bit, Parser.getContext());
+          MCConstantExpr::create((*Address << 4) | *Bit, Parser.getContext());
       Operands.push_back(C166Operand::createImmediate(Packed, Start, End));
       return false;
     }
@@ -617,33 +736,48 @@ bool C166AsmParser::parseOperand(OperandVector &Operands) {
 
   // Direct bit operands use the architectural `word-address.bit` spelling.
   // Named GPRs occupy F0h..FFh while named SFRs use their short address.
-  if ((getLexer().is(AsmToken::Identifier) ||
+  if (IsBitOperand &&
+      (getLexer().is(AsmToken::Identifier) ||
        getLexer().is(AsmToken::Integer)) &&
       getLexer().peekTok().is(AsmToken::Dot)) {
     SMLoc Start = getLexer().getLoc();
-    uint64_t WordAddress;
+    const MCExpr *WordExpr;
     if (getLexer().is(AsmToken::Identifier)) {
-      MCRegister BitReg =
-          MatchRegisterName(getLexer().getTok().getIdentifier().lower());
-      std::optional<unsigned> Address = getBitWordAddress(BitReg);
-      if (!Address)
-        return Error(Start, "expected a bit-addressable direct register");
-      WordAddress = *Address;
+      std::optional<int64_t> Address =
+          getBitWord(getLexer().getTok().getIdentifier());
+      StringRef Name = getLexer().getTok().getIdentifier();
+      if (!Address && MatchRegisterName(Name.lower()))
+        return Error(Start, "expected a bit-addressable register or constant");
+      if (Address)
+        WordExpr = MCConstantExpr::create(*Address, Parser.getContext());
+      else
+        WordExpr = MCSymbolRefExpr::create(
+            Parser.getContext().getOrCreateSymbol(Name), Parser.getContext());
     } else {
-      WordAddress = getLexer().getTok().getIntVal();
+      WordExpr = MCConstantExpr::create(getLexer().getTok().getIntVal(),
+                                        Parser.getContext());
     }
     Parser.Lex();
     Parser.Lex(); // '.'
-    if (WordAddress > 0xff || !getLexer().is(AsmToken::Integer))
+    int64_t WordAddress;
+    bool WordKnown = WordExpr->evaluateAsAbsolute(WordAddress);
+    if (WordKnown && !isUInt<8>(WordAddress))
       return Error(Start, "bit word address must be in the range 0..255");
-    uint64_t Bit = getLexer().getTok().getIntVal();
-    SMLoc End = getLexer().getTok().getEndLoc();
-    if (Bit > 15)
+    const MCExpr *BitExpr;
+    if (Parser.parseExpression(BitExpr))
+      return true;
+    int64_t Bit;
+    SMLoc End = getLexer().getLoc();
+    bool BitKnown = BitExpr->evaluateAsAbsolute(Bit);
+    if (BitKnown && !isUInt<4>(Bit))
       return Error(getLexer().getLoc(),
                    "bit number must be in the range 0..15");
-    Parser.Lex();
-    const MCExpr *Packed =
-        MCConstantExpr::create((WordAddress << 4) | Bit, Parser.getContext());
+    const MCExpr *Packed;
+    if (WordKnown && BitKnown)
+      Packed =
+          MCConstantExpr::create((WordAddress << 4) | Bit, Parser.getContext());
+    else
+      Packed = C166BitExpr::create(WordExpr, BitExpr, Parser.getContext());
     Operands.push_back(C166Operand::createImmediate(Packed, Start, End));
     return false;
   }
@@ -663,15 +797,20 @@ bool C166AsmParser::parseOperand(OperandVector &Operands) {
   SMLoc Start;
   SMLoc End;
   if (!IsModifierCall && tryParseRegister(Reg, Start, End).isSuccess()) {
-    Operands.push_back(C166Operand::createRegister(Reg, Start, End));
+    Operands.push_back(C166Operand::createRegister(
+        Reg, Start, End, *Parser.getContext().getRegisterInfo()));
     return false;
   }
 
-  if (getLexer().is(AsmToken::Identifier) &&
+  bool IsCondition =
+      Operands.size() == 1 &&
+      (Mnemonic == "jmpr" || Mnemonic == "jmpa" || Mnemonic == "jmpi" ||
+       Mnemonic == "calla" || Mnemonic == "calli");
+  if (IsCondition && getLexer().is(AsmToken::Identifier) &&
       getLexer().getTok().getIdentifier().starts_with_insensitive("cc_")) {
     SMLoc Loc = getLexer().getLoc();
     StringRef Name = getLexer().getTok().getIdentifier();
-    Operands.push_back(C166Operand::createToken(Name, Loc));
+    Operands.push_back(C166Operand::createToken(Name.lower(), Loc));
     Parser.Lex();
     return false;
   }
@@ -745,21 +884,24 @@ bool C166AsmParser::matchAndEmitInstruction(SMLoc Loc, unsigned &Opcode,
   case Match_InvalidUImm4:
     return Error(Operands[ErrorInfo]->getStartLoc(),
                  "immediate must be in the range 0..15");
+  case Match_InvalidUImm7:
+    return Error(Operands[ErrorInfo]->getStartLoc(),
+                 "immediate must be in the range 0..127");
   case Match_InvalidUImm8:
     return Error(Operands[ErrorInfo]->getStartLoc(),
                  "immediate must be in the range 0..255");
   case Match_InvalidUImm8ALU:
     return Error(Operands[ErrorInfo]->getStartLoc(),
-                 "immediate must be in the range 8..255");
+                 "immediate must be in the range -128..255");
   case Match_InvalidUImm16:
     return Error(Operands[ErrorInfo]->getStartLoc(),
-                 "immediate must be in the range 0..65535");
+                 "immediate must be in the range -32768..65535");
   case Match_InvalidUImm16Large:
     return Error(Operands[ErrorInfo]->getStartLoc(),
-                 "immediate must be in the range 16..65535");
+                 "immediate must be in the range -32768..65535");
   case Match_InvalidUImm16ALU:
     return Error(Operands[ErrorInfo]->getStartLoc(),
-                 "immediate must be in the range 8..65535");
+                 "immediate must be in the range -32768..65535");
   case Match_InvalidSequenceCount:
     return Error(Operands[ErrorInfo]->getStartLoc(),
                  "instruction count must be in the range 1..4");

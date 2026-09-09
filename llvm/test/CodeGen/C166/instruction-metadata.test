@@ -1,0 +1,90 @@
+# RUN: llvm-tblgen -print-records %p/../../../lib/Target/C166/C166.td \
+# RUN:   -I %p/../../../lib/Target/C166 -I %p/../../../include | FileCheck %s
+
+# Direct bit operands may designate bit-addressable RAM or SFRs.  Keep their
+# memory effects explicit even when CodeGen reaches the opcode through a
+# register-oriented pseudo.
+
+# CHECK-LABEL: def BAND {
+# CHECK: bit mayLoad = 1;
+# CHECK-NEXT: bit mayStore = 1;
+# CHECK: bit hasSideEffects = 1;
+
+# CHECK-LABEL: def BCLR {
+# CHECK: bit mayLoad = 1;
+# CHECK-NEXT: bit mayStore = 1;
+# CHECK: bit hasSideEffects = 1;
+
+# CHECK-LABEL: def BCMP {
+# CHECK: bit mayLoad = 1;
+# CHECK-NEXT: bit mayStore = 0;
+# CHECK: bit hasSideEffects = 1;
+
+# CHECK-LABEL: def BFLDH {
+# CHECK: bit mayLoad = 1;
+# CHECK-NEXT: bit mayStore = 1;
+# CHECK: bit hasSideEffects = 1;
+
+# CHECK-LABEL: def BFLDL {
+# CHECK: bit mayLoad = 1;
+# CHECK-NEXT: bit mayStore = 1;
+# CHECK: bit hasSideEffects = 1;
+
+# CHECK-LABEL: def BMOV {
+# CHECK: bit mayLoad = 1;
+# CHECK-NEXT: bit mayStore = 1;
+# CHECK: bit hasSideEffects = 1;
+
+# CHECK-LABEL: def BMOVN {
+# CHECK: bit mayLoad = 1;
+# CHECK-NEXT: bit mayStore = 1;
+# CHECK: bit hasSideEffects = 1;
+
+# CHECK-LABEL: def BOR {
+# CHECK: bit mayLoad = 1;
+# CHECK-NEXT: bit mayStore = 1;
+# CHECK: bit hasSideEffects = 1;
+
+# CHECK-LABEL: def BSET {
+# CHECK: bit mayLoad = 1;
+# CHECK-NEXT: bit mayStore = 1;
+# CHECK: bit hasSideEffects = 1;
+
+# CHECK-LABEL: def BXOR {
+# CHECK: bit mayLoad = 1;
+# CHECK-NEXT: bit mayStore = 1;
+# CHECK: bit hasSideEffects = 1;
+
+# Unsigned conditions consume the separately tracked carry value.  Calls also
+# observe SP because they push their return address.
+
+# CHECK-LABEL: def CALLA_UGE {
+# CHECK: list<Register> Uses = [PSW, C, SP];
+# CHECK-LABEL: def CALLA_UGT {
+# CHECK: list<Register> Uses = [PSW, C, SP];
+# CHECK-LABEL: def CALLA_ULE {
+# CHECK: list<Register> Uses = [PSW, C, SP];
+# CHECK-LABEL: def CALLA_ULT {
+# CHECK: list<Register> Uses = [PSW, C, SP];
+
+# CHECK-LABEL: def CALLI_UGE {
+# CHECK: list<Register> Uses = [PSW, C, SP];
+# CHECK-LABEL: def CALLI_UGT {
+# CHECK: list<Register> Uses = [PSW, C, SP];
+# CHECK-LABEL: def CALLI_ULE {
+# CHECK: list<Register> Uses = [PSW, C, SP];
+# CHECK-LABEL: def CALLI_ULT {
+# CHECK: list<Register> Uses = [PSW, C, SP];
+
+# CHECK-LABEL: def JMPI_UGE {
+# CHECK: list<Register> Uses = [PSW, C];
+# CHECK-LABEL: def JMPI_UGT {
+# CHECK: list<Register> Uses = [PSW, C];
+# CHECK-LABEL: def JMPI_ULE {
+# CHECK: list<Register> Uses = [PSW, C];
+# CHECK-LABEL: def JMPI_ULT {
+# CHECK: list<Register> Uses = [PSW, C];
+
+# RETI restores every condition flag, including the separately tracked carry.
+# CHECK-LABEL: def RETI {
+# CHECK: list<Register> Defs = [SP, CSP, PSW, C];

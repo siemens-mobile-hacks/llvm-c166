@@ -24,8 +24,20 @@ extp 1024, #1
 extp 4, #5
 ; CHECK: error: instruction count must be in the range 1..4
 
-mov r4, 16384
+mov r4, 65536
 ; CHECK: error: immediate must be in the range 0..15
 
 mov r16, r0
-; CHECK: error: expected a 14-bit page offset or pof(expression)
+; CHECK: error: expected a 16-bit absolute address
+
+; Both operands of register-register ALU forms must have the same width.
+.irp op, add, addc, sub, subc, cmp, xor, and, or
+  \op r0, rl0
+  \op rl0, r0
+.endr
+.irp op, addb, addcb, subb, subcb, cmpb, xorb, andb, orb
+  \op rl0, r0
+  \op r0, rl0
+.endr
+; CHECK-COUNT-32: error:
+; CHECK-NOT: error:

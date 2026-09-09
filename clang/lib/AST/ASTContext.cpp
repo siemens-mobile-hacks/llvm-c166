@@ -13098,17 +13098,23 @@ QualType ASTContext::GetBuiltinType(unsigned Id,
     EI = EI.withNoReturn(true);
 
   // We really shouldn't be making a no-proto type here.
-  if (ArgTypes.empty() && Variadic && !getLangOpts().requiresStrictPrototypes())
-    return getFunctionNoProtoType(ResType, EI);
+  QualType BuiltinType;
+  if (ArgTypes.empty() && Variadic &&
+      !getLangOpts().requiresStrictPrototypes()) {
+    BuiltinType = getFunctionNoProtoType(ResType, EI);
+  } else {
+    FunctionProtoType::ExtProtoInfo EPI;
+    EPI.ExtInfo = EI;
+    EPI.Variadic = Variadic;
+    if (getLangOpts().CPlusPlus && BuiltinInfo.isNoThrow(Id))
+      EPI.ExceptionSpec.Type =
+          getLangOpts().CPlusPlus11 ? EST_BasicNoexcept : EST_DynamicNone;
+    BuiltinType = getFunctionType(ResType, ArgTypes, EPI);
+  }
 
-  FunctionProtoType::ExtProtoInfo EPI;
-  EPI.ExtInfo = EI;
-  EPI.Variadic = Variadic;
-  if (getLangOpts().CPlusPlus && BuiltinInfo.isNoThrow(Id))
-    EPI.ExceptionSpec.Type =
-        getLangOpts().CPlusPlus11 ? EST_BasicNoexcept : EST_DynamicNone;
-
-  return getFunctionType(ResType, ArgTypes, EPI);
+  if (auto AS = Target->getDefaultFunctionAddressSpace())
+    BuiltinType = getAddrSpaceQualType(BuiltinType, *AS);
+  return BuiltinType;
 }
 
 static GVALinkage basicGVALinkageForFunction(const ASTContext &Context,

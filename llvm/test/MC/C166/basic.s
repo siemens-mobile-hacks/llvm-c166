@@ -504,13 +504,13 @@ push r5
 jmpr cc_eq, .Lbranch_to
 ; ASM: jmpr cc_eq, .Lbranch_to{{.*}}encoding: [0x2d,A]
 ; ASM: fixup A - offset: 1, value: .Lbranch_to, kind: fixup_c166_pc8
-; DIS: 2d 01{{.*}}jmpr cc_eq, 1
+; DIS: 2d 00{{.*}}jmpr cc_eq, 0
 nop
 .Lbranch_to:
 jmpr cc_uc, .Lbranch_from
 ; ASM: jmpr cc_uc, .Lbranch_from{{.*}}encoding: [0x0d,A]
 ; ASM: fixup A - offset: 1, value: .Lbranch_from, kind: fixup_c166_pc8
-; DIS: 0d fd{{.*}}jmpr cc_uc, 253
+; DIS: 0d 00{{.*}}jmpr cc_uc, 0
 
 rets
 ; ASM: rets{{.*}}encoding: [0xdb,0x00]

@@ -1,8 +1,12 @@
 ; RUN: llvm-mc -triple=c166-none-elf -show-encoding %s | FileCheck %s
+; RUN: llvm-mc -triple=c166 %s | llvm-mc -triple=c166 -show-encoding | FileCheck %s
+; RUN: llvm-mc -triple=c166 -filetype=obj %s -o %t
+; RUN: llvm-objdump -d %t | FileCheck %s --check-prefix=ALU
+; RUN: llvm-mc -triple=c166-none-elf -mcpu=c166 -show-encoding %s | FileCheck %s
+; RUN: llvm-mc -triple=c166-none-elf -mcpu=generic -show-encoding %s | FileCheck %s
 
 ; Exact boundary encodings from the C166 Family Instruction Set Manual.
-; Together with basic.s and dpp-addressing.s this covers every concrete
-; instruction record currently exposed by the C166 MC layer.
+; Both CPU names support the extension and atomic instruction boundaries.
 
 ; Byte ALU records and the two ends of the byte-register encoding space.
 addb rl0, rh7
@@ -258,3 +262,62 @@ calli cc_uc, [r15]
 ; CHECK: calli cc_uc, [r15]{{.*}}encoding: [0xab,0x0f]
 ret
 ; CHECK: ret{{.*}}encoding: [0xcb,0x00]
+
+; Remaining compact ALU immediate/register boundaries.
+addc r0, #0
+; CHECK: addc r0, #0{{.*}}encoding: [0x18,0x00]
+; ALU: addc r0, #0
+addc r15, #7
+; CHECK: addc r15, #7{{.*}}encoding: [0x18,0xf7]
+; ALU: addc r15, #7
+subc r0, #0
+; CHECK: subc r0, #0{{.*}}encoding: [0x38,0x00]
+; ALU: subc r0, #0
+subc r15, #7
+; CHECK: subc r15, #7{{.*}}encoding: [0x38,0xf7]
+; ALU: subc r15, #7
+cmp r0, #0
+; CHECK: cmp r0, #0{{.*}}encoding: [0x48,0x00]
+; ALU: cmp r0, #0
+cmp r15, #7
+; CHECK: cmp r15, #7{{.*}}encoding: [0x48,0xf7]
+; ALU: cmp r15, #7
+xor r0, #0
+; CHECK: xor r0, #0{{.*}}encoding: [0x58,0x00]
+; ALU: xor r0, #0
+xor r15, #7
+; CHECK: xor r15, #7{{.*}}encoding: [0x58,0xf7]
+; ALU: xor r15, #7
+and r0, #0
+; CHECK: and r0, #0{{.*}}encoding: [0x68,0x00]
+; ALU: and r0, #0
+and r15, #7
+; CHECK: and r15, #7{{.*}}encoding: [0x68,0xf7]
+; ALU: and r15, #7
+or r0, #0
+; CHECK: or r0, #0{{.*}}encoding: [0x78,0x00]
+; ALU: or r0, #0
+or r15, #7
+; CHECK: or r15, #7{{.*}}encoding: [0x78,0xf7]
+; ALU: or r15, #7
+addcb rl0, #0
+; CHECK: addcb rl0, #0{{.*}}encoding: [0x19,0x00]
+; ALU: addcb rl0, #0
+addcb rh7, #7
+; CHECK: addcb rh7, #7{{.*}}encoding: [0x19,0xf7]
+; ALU: addcb rh7, #7
+subcb rl0, #0
+; CHECK: subcb rl0, #0{{.*}}encoding: [0x39,0x00]
+; ALU: subcb rl0, #0
+subcb rh7, #7
+; CHECK: subcb rh7, #7{{.*}}encoding: [0x39,0xf7]
+; ALU: subcb rh7, #7
+xorb rl0, #0
+; CHECK: xorb rl0, #0{{.*}}encoding: [0x59,0x00]
+; ALU: xorb rl0, #0
+andb rl0, #0
+; CHECK: andb rl0, #0{{.*}}encoding: [0x69,0x00]
+; ALU: andb rl0, #0
+orb rl0, #0
+; CHECK: orb rl0, #0{{.*}}encoding: [0x79,0x00]
+; ALU: orb rl0, #0

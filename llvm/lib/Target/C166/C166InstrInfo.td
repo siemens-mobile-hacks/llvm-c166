@@ -18,6 +18,12 @@ def UImm4AsmOperand : AsmOperandClass {
   let RenderMethod = "addImmOperands";
 }
 
+def UImm7AsmOperand : AsmOperandClass {
+  let Name = "UImm7";
+  let DiagnosticType = "InvalidUImm7";
+  let RenderMethod = "addImmOperands";
+}
+
 def UImm8AsmOperand : AsmOperandClass {
   let Name = "UImm8";
   let DiagnosticType = "InvalidUImm8";
@@ -31,9 +37,45 @@ def UImm8ALUAsmOperand : AsmOperandClass {
   let RenderMethod = "addImmOperands";
 }
 
+def ByteImmFullAsmOperand : AsmOperandClass {
+  let Name = "ByteImmFull";
+  let DiagnosticType = "InvalidUImm8ALU";
+  let RenderMethod = "addImmOperands";
+}
+
+def ByteImmediateAsmOperand : AsmOperandClass {
+  let Name = "ByteImmediate";
+  let DiagnosticType = "InvalidUImm8ALU";
+  let RenderMethod = "addImmOperands";
+}
+
+def ExtensionSegment8AsmOperand : AsmOperandClass {
+  let Name = "ExtensionSegment8";
+  let DiagnosticType = "InvalidSeg8";
+  let RenderMethod = "addImmOperands";
+}
+
 def UImm16AsmOperand : AsmOperandClass {
   let Name = "UImm16";
   let DiagnosticType = "InvalidUImm16";
+  let RenderMethod = "addImmOperands";
+}
+
+def Immediate16AsmOperand : AsmOperandClass {
+  let Name = "Immediate16";
+  let DiagnosticType = "InvalidUImm16";
+  let RenderMethod = "addImmOperands";
+}
+
+def Word16AsmOperand : AsmOperandClass {
+  let Name = "Word16";
+  let DiagnosticType = "InvalidUImm16";
+  let RenderMethod = "addImmOperands";
+}
+
+def Memory16AsmOperand : AsmOperandClass {
+  let Name = "Memory16";
+  let DiagnosticType = "InvalidAbs16";
   let RenderMethod = "addImmOperands";
 }
 
@@ -271,6 +313,11 @@ def SDT_C166FrameAddr
     : SDTypeProfile<1, 1, [SDTCisVT<0, i16>]>;
 def C166frameaddr : SDNode<"C166ISD::FRAMEADDR", SDT_C166FrameAddr>;
 
+def uimm7 : Operand<i16> {
+  let ParserMatchClass = UImm7AsmOperand;
+  let PrintMethod = "printImmediate";
+}
+
 def uimm8 : Operand<i16> {
   let ParserMatchClass = UImm8AsmOperand;
   let PrintMethod = "printImmediate";
@@ -280,6 +327,19 @@ def uimm8alu : Operand<i16>,
     ImmLeaf<i16, [{ return isUInt<8>(Imm) && !isUInt<3>(Imm); }]> {
   let ParserMatchClass = UImm8ALUAsmOperand;
   let PrintMethod = "printImmediate";
+  let EncoderMethod = "getByteImmediateOpValue";
+}
+
+def byteimmfull : Operand<i16> {
+  let ParserMatchClass = ByteImmFullAsmOperand;
+  let PrintMethod = "printImmediate";
+  let EncoderMethod = "getByteImmediateOpValue";
+}
+
+def immediate8 : Operand<i16> {
+  let ParserMatchClass = ByteImmediateAsmOperand;
+  let PrintMethod = "printImmediate";
+  let EncoderMethod = "getByteImmediateOpValue";
 }
 
 def uimm16 : Operand<i16>, ImmLeaf<i16, [{ return isUInt<16>(Imm); }]> {
@@ -290,6 +350,22 @@ def uimm16 : Operand<i16>, ImmLeaf<i16, [{ return isUInt<16>(Imm); }]> {
 def imm16full : Operand<i16>, ImmLeaf<i16, [{ return isUInt<16>(Imm); }]> {
   let ParserMatchClass = UImm16LargeAsmOperand;
   let PrintMethod = "printImmediate16";
+}
+
+def immediate16 : Operand<i16> {
+  let ParserMatchClass = Immediate16AsmOperand;
+  let PrintMethod = "printImmediate16";
+}
+
+def displacement16 : Operand<i16> {
+  let ParserMatchClass = Word16AsmOperand;
+  let PrintMethod = "printImmediate16";
+}
+
+def memory16 : Operand<i16> {
+  let ParserMatchClass = Memory16AsmOperand;
+  let PrintMethod = "printAddress";
+  let EncoderMethod = "getDirectAddressOpValue";
 }
 
 def imm16alu : Operand<i16>,
@@ -315,19 +391,39 @@ def atomic_count : Operand<i16> {
 def bit_address : Operand<i16> {
   let ParserMatchClass = BitAddressAsmOperand;
   let PrintMethod = "printBitAddress";
+  let EncoderMethod = "getBitAddressOpValue";
 }
 
 def bit_offset : Operand<i16> {
   let ParserMatchClass = BitOffsetAsmOperand;
   let PrintMethod = "printBitOffset";
+  let EncoderMethod = "getBitOffsetOpValue";
 }
 
 def directreg : RegisterOperand<GR16> {
   let EncoderMethod = "getDirectRegOpValue";
 }
 
+def SFRShortAsmOperand : AsmOperandClass {
+  let Name = "SFRShort";
+  let RenderMethod = "addShortRegisterOperands";
+}
+
+def SFRDirectAsmOperand : AsmOperandClass {
+  let Name = "SFRDirect";
+  let PredicateMethod = "isSFRShort";
+  let RenderMethod = "addSFRDirectOperands";
+}
+
+def PushPopRegAsmOperand : AsmOperandClass {
+  let Name = "PushPopReg";
+  let RenderMethod = "addShortRegisterOperands";
+}
+
 def pushpopreg : RegisterOperand<Direct16> {
   let EncoderMethod = "getDirectRegOpValue";
+  let ParserMatchClass = PushPopRegAsmOperand;
+  let PrintMethod = "printShortRegister";
 }
 
 def directbytereg : RegisterOperand<GR8> {
@@ -336,15 +432,19 @@ def directbytereg : RegisterOperand<GR8> {
 
 def sfrdirect : RegisterOperand<SFR16> {
   let EncoderMethod = "getSFRAddressOpValue";
+  let ParserMatchClass = SFRDirectAsmOperand;
 }
 
 def sfrshort : RegisterOperand<SFR16> {
   let EncoderMethod = "getSFRShortOpValue";
+  let ParserMatchClass = SFRShortAsmOperand;
+  let PrintMethod = "printShortRegister";
 }
 
 def address8 : Operand<i16> {
   let ParserMatchClass = Seg8AsmOperand;
   let PrintMethod = "printAddress";
+  let EncoderMethod = "getSegmentOpValue";
 }
 
 def address16 : Operand<i16> {
@@ -355,10 +455,16 @@ def address16 : Operand<i16> {
 def codeAddress16 : Operand<i16> {
   let ParserMatchClass = Cof16AsmOperand;
   let PrintMethod = "printAddress";
+  let EncoderMethod = "getCodeAddressOpValue";
 }
 
 def addressPag10 : Operand<i16> {
   let ParserMatchClass = Pag10AsmOperand;
+  let PrintMethod = "printAddress";
+}
+
+def extensionSegment8 : Operand<i16> {
+  let ParserMatchClass = ExtensionSegment8AsmOperand;
   let PrintMethod = "printAddress";
 }
 
@@ -370,6 +476,7 @@ def addressPof14 : Operand<i16> {
 def addressAbs16 : Operand<i16> {
   let ParserMatchClass = Abs16AsmOperand;
   let PrintMethod = "printAddress";
+  let EncoderMethod = "getDirectAddressOpValue";
 }
 
 def addressDPP1 : Operand<i16> {
@@ -1208,8 +1315,9 @@ class C166ByteALUri8<bits<8> Opcode, string Mnemonic>
   bits<8> dst;
   bits<8> src;
   let Inst{15-8} = dst;
+  let Inst{15-12} = 0xf;
   let Inst{23-16} = src;
-  let Inst{31-24} = 0;
+  // The last byte is unused; emit zero and accept any value when decoding.
   let Constraints = "$dst = $lhs";
   let DecoderMethod = "decodeByteALUri8";
 }
@@ -1221,9 +1329,9 @@ class C166ByteCompareri8<bits<8> Opcode, string Mnemonic>
   bits<8> dst;
   bits<8> src;
   let Inst{15-8} = dst;
+  let Inst{15-12} = 0xf;
   let Inst{23-16} = src;
-  let Inst{31-24} = 0;
-  let DecoderMethod = "decodeByteCompareri8";
+  let DecoderMethod = "decodeByteRegImmediate";
 }
 
 class C166ALUri16<bits<8> Opcode, string Mnemonic, SDPatternOperator Op>
@@ -1239,7 +1347,7 @@ class C166ALUri16<bits<8> Opcode, string Mnemonic, SDPatternOperator Op>
   let Pattern = [(set GR16:$dst, (Op GR16:$lhs, imm16alu:$src))];
 }
 
-class C166ALUSFR<bits<8> Opcode, dag Outs, dag Ins, string Mnemonic,
+class C166ALUDirect<bits<8> Opcode, dag Outs, dag Ins, string Mnemonic,
                  string Decoder>
     : C166Inst32<Opcode, Outs, Ins,
                   !strconcat(Mnemonic, "\t$dst, $src")> {
@@ -1249,6 +1357,19 @@ class C166ALUSFR<bits<8> Opcode, dag Outs, dag Ins, string Mnemonic,
   let Inst{11-8} = dst;
   let Inst{31-16} = src;
   let DecoderMethod = Decoder;
+}
+
+class C166MemorySFR<bits<8> Opcode, string Mnemonic>
+    : C166Inst32<Opcode, (outs),
+                 (ins addressAbs16:$dst, sfrshort:$src),
+                 !strconcat(Mnemonic, "\t$dst, $src")> {
+  bits<16> dst;
+  bits<8> src;
+  let Inst{15-8} = src;
+  let Inst{31-16} = dst;
+  let mayStore = 1;
+  let hasSideEffects = 1;
+  let DecoderMethod = "decodeMemorySFR";
 }
 
 class C166LoopCompareri4<bits<8> Opcode, string Mnemonic>
@@ -1262,9 +1383,9 @@ class C166LoopCompareri4<bits<8> Opcode, string Mnemonic>
   let Constraints = "$dst = $lhs";
 }
 
-class C166LoopCompareri16<bits<8> Opcode, string Mnemonic>
+class C166LoopCompareLong<bits<8> Opcode, string Mnemonic, Operand Source>
     : C166Inst32<Opcode, (outs GR16:$dst),
-                  (ins GR16:$lhs, imm16alu:$src),
+                  (ins GR16:$lhs, Source:$src),
                   !strconcat(Mnemonic, "\t$dst, $src")> {
   bits<4> dst;
   bits<16> src;
@@ -1340,6 +1461,214 @@ class C166ALUPostInc<bits<8> Opcode, dag Outs, dag Ins, string Mnemonic>
 }
 
 let Defs = [PSW, C] in {
+// Numeric and symbolic direct-memory sources use the same instruction as
+// named SFR sources, but do not model the address as an explicit register.
+class C166ALUMemory<bits<8> Opcode, string Mnemonic, RegisterClass Reg = GR16>
+    : C166ALUDirect<Opcode, (outs Reg:$dst),
+                    (ins Reg:$lhs, addressAbs16:$src), Mnemonic,
+                    !if(!eq(Reg, GR16), "decodeALUgsfr", "")> {
+  let Constraints = "$dst = $lhs";
+  let mayLoad = 1;
+  let isAsmParserOnly = !eq(Reg, GR16);
+}
+def ADDgm : C166ALUMemory<0x02, "add">;
+def SUBgm : C166ALUMemory<0x22, "sub">;
+def XORgm : C166ALUMemory<0x52, "xor">;
+def ANDgm : C166ALUMemory<0x62, "and">;
+def ORgm : C166ALUMemory<0x72, "or">;
+let Uses = [PSW, C] in {
+def ADDCgm : C166ALUMemory<0x12, "addc">;
+def SUBCgm : C166ALUMemory<0x32, "subc">;
+}
+def CMPgm : C166ALUDirect<0x42, (outs),
+                         (ins GR16:$dst, addressAbs16:$src), "cmp",
+                         "decodeCMPgsfr"> {
+  let mayLoad = 1;
+  let isAsmParserOnly = 1;
+}
+
+class C166SFRALU<bits<8> Opcode, string Mnemonic,
+                  DAGOperand Source = immediate16, bit Compare = 0>
+    : C166Inst32<Opcode, !if(Compare, (outs), (outs sfrshort:$dst)),
+                 !if(Compare, (ins sfrshort:$dst, Source:$src),
+                              (ins sfrshort:$lhs, Source:$src)),
+                 !strconcat(Mnemonic, "\t$dst, $src")> {
+  bits<8> dst;
+  bits<16> src;
+  let Inst{15-8} = dst;
+  let Inst{31-16} = src;
+  let Constraints = !if(Compare, "", "$dst = $lhs");
+  let hasSideEffects = 1;
+  let DecoderMethod = !if(Compare, "decodeSFRLongOperand<false>",
+                                  "decodeSFRLongOperand<true>");
+}
+def ADDsfri16 : C166SFRALU<0x06, "add">;
+def SUBsfri16 : C166SFRALU<0x26, "sub">;
+def XORsfri16 : C166SFRALU<0x56, "xor">;
+def ANDsfri16 : C166SFRALU<0x66, "and">;
+def ORsfri16 : C166SFRALU<0x76, "or">;
+let Uses = [PSW, C] in {
+def ADDCsfri16 : C166SFRALU<0x16, "addc">;
+def SUBCsfri16 : C166SFRALU<0x36, "subc">;
+}
+def CMPsfri16 : C166SFRALU<0x46, "cmp"> {
+  let OutOperandList = (outs);
+  let InOperandList = (ins sfrshort:$dst, immediate16:$src);
+  let Constraints = "";
+  let DecoderMethod = "decodeSFRLongOperand<false>";
+}
+
+// Named SFR sources use the same direct-memory encoding, while keeping their
+// register uses explicit. The memory forms remain the canonical decoder.
+let isAsmParserOnly = 1 in {
+def ADDsfrsfr : C166SFRALU<0x02, "add", sfrdirect>;
+def SUBsfrsfr : C166SFRALU<0x22, "sub", sfrdirect>;
+def XORsfrsfr : C166SFRALU<0x52, "xor", sfrdirect>;
+def ANDsfrsfr : C166SFRALU<0x62, "and", sfrdirect>;
+def ORsfrsfr : C166SFRALU<0x72, "or", sfrdirect>;
+def CMPsfrsfr : C166SFRALU<0x42, "cmp", sfrdirect> {
+  let OutOperandList = (outs);
+  let InOperandList = (ins sfrshort:$dst, sfrdirect:$src);
+  let Constraints = "";
+}
+let Uses = [PSW, C] in {
+def ADDCsfrsfr : C166SFRALU<0x12, "addc", sfrdirect>;
+def SUBCsfrsfr : C166SFRALU<0x32, "subc", sfrdirect>;
+}
+}
+
+class C166ALUMemoryDest<bits<8> Opcode, string Mnemonic,
+                        RegisterClass Reg = GR16>
+    : C166Inst32<Opcode, (outs),
+                 (ins addressAbs16:$dst, Reg:$src),
+                 !strconcat(Mnemonic, "\t$dst, $src")> {
+  bits<16> dst;
+  bits<4> src;
+  let Inst{15-12} = 0xf;
+  let Inst{11-8} = src;
+  let Inst{31-16} = dst;
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+def ADDmg : C166ALUMemoryDest<0x04, "add">;
+def SUBmg : C166ALUMemoryDest<0x24, "sub">;
+def XORmg : C166ALUMemoryDest<0x54, "xor">;
+def ANDmg : C166ALUMemoryDest<0x64, "and">;
+def ORmg : C166ALUMemoryDest<0x74, "or">;
+let Uses = [PSW, C] in {
+def ADDCmg : C166ALUMemoryDest<0x14, "addc">;
+def SUBCmg : C166ALUMemoryDest<0x34, "subc">;
+}
+
+let mayLoad = 1 in {
+def ADDsfrm : C166SFRALU<0x02, "add", addressAbs16>;
+def SUBsfrm : C166SFRALU<0x22, "sub", addressAbs16>;
+def XORsfrm : C166SFRALU<0x52, "xor", addressAbs16>;
+def ANDsfrm : C166SFRALU<0x62, "and", addressAbs16>;
+def ORsfrm : C166SFRALU<0x72, "or", addressAbs16>;
+def CMPsfrm : C166SFRALU<0x42, "cmp", addressAbs16> {
+  let OutOperandList = (outs);
+  let InOperandList = (ins sfrshort:$dst, addressAbs16:$src);
+  let Constraints = "";
+  let DecoderMethod = "decodeSFRLongOperand<false>";
+}
+def ADDmsfr : C166MemorySFR<0x04, "add">;
+def SUBmsfr : C166MemorySFR<0x24, "sub">;
+def XORmsfr : C166MemorySFR<0x54, "xor">;
+def ANDmsfr : C166MemorySFR<0x64, "and">;
+def ORmsfr : C166MemorySFR<0x74, "or">;
+let Uses = [PSW, C] in {
+def ADDCsfrm : C166SFRALU<0x12, "addc", addressAbs16>;
+def SUBCsfrm : C166SFRALU<0x32, "subc", addressAbs16>;
+def ADDCmsfr : C166MemorySFR<0x14, "addc">;
+def SUBCmsfr : C166MemorySFR<0x34, "subc">;
+}
+}
+
+multiclass C166ByteSFRALU<bits<8> Opcode, string Mnemonic, bit Compare = 0> {
+  def sfri8 : C166SFRALU<!add(Opcode, 7), Mnemonic, immediate8, Compare> {
+    // The fourth byte is unused, as in the GPR immediate form.
+    let Inst{31-24} = ?;
+    let DecoderMethod = !if(Compare, "decodeSFRLongOperand<false, 8>",
+                                    "decodeSFRLongOperand<true, 8>");
+  }
+  let mayLoad = 1 in
+  def sfrm : C166SFRALU<!add(Opcode, 3), Mnemonic, addressAbs16, Compare>;
+  let isAsmParserOnly = 1 in
+  def sfrsfr : C166SFRALU<!add(Opcode, 3), Mnemonic, sfrdirect, Compare>;
+  if !not(Compare) then {
+    let mayLoad = 1 in
+    def msfr : C166MemorySFR<!add(Opcode, 5), Mnemonic>;
+  }
+}
+defm ADDB : C166ByteSFRALU<0x00, "addb">;
+defm SUBB : C166ByteSFRALU<0x20, "subb">;
+defm CMPB : C166ByteSFRALU<0x40, "cmpb", 1>;
+defm XORB : C166ByteSFRALU<0x50, "xorb">;
+defm ANDB : C166ByteSFRALU<0x60, "andb">;
+defm ORB : C166ByteSFRALU<0x70, "orb">;
+let Uses = [PSW, C] in {
+defm ADDCB : C166ByteSFRALU<0x10, "addcb">;
+defm SUBCB : C166ByteSFRALU<0x30, "subcb">;
+}
+
+def ADDBgm : C166ALUMemory<0x03, "addb", GR8>;
+def SUBBgm : C166ALUMemory<0x23, "subb", GR8>;
+def XORBgm : C166ALUMemory<0x53, "xorb", GR8>;
+def ANDBgm : C166ALUMemory<0x63, "andb", GR8>;
+def ORBgm : C166ALUMemory<0x73, "orb", GR8>;
+def CMPBgm : C166ALUDirect<0x43, (outs),
+                          (ins GR8:$dst, addressAbs16:$src), "cmpb", ""> {
+  let mayLoad = 1;
+}
+def ADDBmg : C166ALUMemoryDest<0x05, "addb", GR8>;
+def SUBBmg : C166ALUMemoryDest<0x25, "subb", GR8>;
+def XORBmg : C166ALUMemoryDest<0x55, "xorb", GR8>;
+def ANDBmg : C166ALUMemoryDest<0x65, "andb", GR8>;
+def ORBmg : C166ALUMemoryDest<0x75, "orb", GR8>;
+multiclass C166ByteALUIndirect<bits<8> Opcode, string Mnemonic> {
+  def rm : C166ALUIndirect<Opcode, (outs GR8:$dst),
+                          (ins GR8:$lhs, GR16Indirect:$base), Mnemonic> {
+    let Constraints = "$dst = $lhs";
+  }
+  def rmPostInc
+      : C166ALUPostInc<Opcode, (outs GR8:$dst, GR16Indirect:$base_wb),
+                       (ins GR8:$lhs, GR16Indirect:$base), Mnemonic> {
+    let Constraints = "$dst = $lhs,$base_wb = $base";
+  }
+}
+defm ADDB : C166ByteALUIndirect<0x09, "addb">;
+defm SUBB : C166ByteALUIndirect<0x29, "subb">;
+defm XORB : C166ByteALUIndirect<0x59, "xorb">;
+defm ANDB : C166ByteALUIndirect<0x69, "andb">;
+defm ORB : C166ByteALUIndirect<0x79, "orb">;
+def CMPBrm : C166ALUIndirect<0x49, (outs),
+                             (ins GR8:$dst, GR16Indirect:$base), "cmpb">;
+def CMPBrmPostInc
+    : C166ALUPostInc<0x49, (outs GR16Indirect:$base_wb),
+                     (ins GR8:$dst, GR16Indirect:$base), "cmpb"> {
+  let Constraints = "$base_wb = $base";
+}
+
+let Uses = [PSW, C] in {
+def ADDCBgm : C166ALUMemory<0x13, "addcb", GR8>;
+def SUBCBgm : C166ALUMemory<0x33, "subcb", GR8>;
+def ADDCBmg : C166ALUMemoryDest<0x15, "addcb", GR8>;
+def SUBCBmg : C166ALUMemoryDest<0x35, "subcb", GR8>;
+
+multiclass C166ByteCarry<bits<8> RegisterOpcode, bits<8> CompactOpcode,
+                         bits<8> ImmediateOpcode, string Mnemonic>
+    : C166ByteALUIndirect<CompactOpcode, Mnemonic> {
+  def rr : C166ALURR<RegisterOpcode, GR8, Mnemonic, null_frag> {
+    let hasSideEffects = 0;
+  }
+  def ri3 : C166ByteALUri3<CompactOpcode, Mnemonic>;
+  def ri8 : C166ByteALUri8<ImmediateOpcode, Mnemonic>;
+}
+defm ADDCB : C166ByteCarry<0x11, 0x19, 0x17, "addcb">;
+defm SUBCB : C166ByteCarry<0x31, 0x39, 0x37, "subcb">;
+}
+
 def ADDrr : C166ALURR<0x00, GR16, "add", add> {
   let isCommutable = 1;
 }
@@ -1349,7 +1678,7 @@ def ADDCrr : C166ALURR<0x10, GR16, "addc", null_frag> {
 }
 def ADDri3 : C166ALUri3<0x08, "add", add>;
 def ADDri16 : C166ALUri16<0x06, "add", add>;
-def ADDgsfr : C166ALUSFR<0x02, (outs GR16:$dst),
+def ADDgsfr : C166ALUDirect<0x02, (outs GR16:$dst),
                          (ins GR16:$lhs, sfrdirect:$src), "add",
                          "decodeALUgsfr"> {
   let Constraints = "$dst = $lhs";
@@ -1357,7 +1686,7 @@ def ADDgsfr : C166ALUSFR<0x02, (outs GR16:$dst),
 let Uses = [PSW, C] in {
 def ADDCri3 : C166Carryri3<0x18, "addc">;
 def ADDCri16 : C166Carryri16<0x16, "addc">;
-def ADDCgsfr : C166ALUSFR<0x12, (outs GR16:$dst),
+def ADDCgsfr : C166ALUDirect<0x12, (outs GR16:$dst),
                           (ins GR16:$lhs, sfrdirect:$src), "addc",
                           "decodeALUgsfr"> {
   let Constraints = "$dst = $lhs";
@@ -1375,7 +1704,7 @@ def SUBCrr : C166ALURR<0x30, GR16, "subc", null_frag> {
 }
 def SUBri3 : C166ALUri3<0x28, "sub", sub>;
 def SUBri16 : C166ALUri16<0x26, "sub", sub>;
-def SUBgsfr : C166ALUSFR<0x22, (outs GR16:$dst),
+def SUBgsfr : C166ALUDirect<0x22, (outs GR16:$dst),
                          (ins GR16:$lhs, sfrdirect:$src), "sub",
                          "decodeALUgsfr"> {
   let Constraints = "$dst = $lhs";
@@ -1383,7 +1712,7 @@ def SUBgsfr : C166ALUSFR<0x22, (outs GR16:$dst),
 let Uses = [PSW, C] in {
 def SUBCri3 : C166Carryri3<0x38, "subc">;
 def SUBCri16 : C166Carryri16<0x36, "subc">;
-def SUBCgsfr : C166ALUSFR<0x32, (outs GR16:$dst),
+def SUBCgsfr : C166ALUDirect<0x32, (outs GR16:$dst),
                           (ins GR16:$lhs, sfrdirect:$src), "subc",
                           "decodeALUgsfr"> {
   let Constraints = "$dst = $lhs";
@@ -1422,6 +1751,23 @@ def CPLB : C166Inst16<0xb1, (outs GR8:$dst), (ins GR8:$src),
   let Inst{11-8} = 0;
   let Constraints = "$dst = $src";
 }
+let hasSideEffects = 0 in {
+def ROLrr : C166ALURR<0x0c, GR16, "rol", null_frag>;
+def RORrr : C166ALURR<0x2c, GR16, "ror", null_frag>;
+class C166RotateImmediate<bits<8> Opcode, string Mnemonic>
+    : C166Inst16<Opcode, (outs GR16:$dst),
+                 (ins GR16:$lhs, uimm4:$amount),
+                 !strconcat(Mnemonic, "\t$dst, $amount")> {
+  bits<4> dst;
+  bits<4> amount;
+  let Inst{15-12} = amount;
+  let Inst{11-8} = dst;
+  let Constraints = "$dst = $lhs";
+}
+def ROLri4 : C166RotateImmediate<0x1c, "rol">;
+def RORri4 : C166RotateImmediate<0x3c, "ror">;
+}
+
 def SHLrr : C166ALURR<0x4c, GR16, "shl", shl>;
 def SHLri4 : C166Inst16<0x5c, (outs GR16:$dst),
                         (ins GR16:$lhs, uimm4:$amount),
@@ -1463,7 +1809,7 @@ def CMPrr : C166RR<0x40, GR16, "cmp"> {
   let OutOperandList = (outs);
   let InOperandList = (ins GR16:$dst, GR16:$src);
 }
-def CMPgsfr : C166ALUSFR<0x42, (outs),
+def CMPgsfr : C166ALUDirect<0x42, (outs),
                          (ins GR16:$dst, sfrdirect:$src), "cmp",
                          "decodeCMPgsfr">;
 def CMPri3 : C166Inst16<0x48, (outs), (ins GR16:$dst, uimm3:$src),
@@ -1475,13 +1821,19 @@ def CMPri3 : C166Inst16<0x48, (outs), (ins GR16:$dst, uimm3:$src),
   let Inst{10-8} = src;
 }
 def CMPD1ri4 : C166LoopCompareri4<0xa0, "cmpd1">;
-def CMPD1ri16 : C166LoopCompareri16<0xa6, "cmpd1">;
+def CMPD1ri16 : C166LoopCompareLong<0xa6, "cmpd1", imm16full>;
 def CMPD2ri4 : C166LoopCompareri4<0xb0, "cmpd2">;
-def CMPD2ri16 : C166LoopCompareri16<0xb6, "cmpd2">;
+def CMPD2ri16 : C166LoopCompareLong<0xb6, "cmpd2", imm16full>;
 def CMPI1ri4 : C166LoopCompareri4<0x80, "cmpi1">;
-def CMPI1ri16 : C166LoopCompareri16<0x86, "cmpi1">;
+def CMPI1ri16 : C166LoopCompareLong<0x86, "cmpi1", imm16full>;
 def CMPI2ri4 : C166LoopCompareri4<0x90, "cmpi2">;
-def CMPI2ri16 : C166LoopCompareri16<0x96, "cmpi2">;
+def CMPI2ri16 : C166LoopCompareLong<0x96, "cmpi2", imm16full>;
+let mayLoad = 1 in {
+def CMPD1rm : C166LoopCompareLong<0xa2, "cmpd1", addressAbs16>;
+def CMPD2rm : C166LoopCompareLong<0xb2, "cmpd2", addressAbs16>;
+def CMPI1rm : C166LoopCompareLong<0x82, "cmpi1", addressAbs16>;
+def CMPI2rm : C166LoopCompareLong<0x92, "cmpi2", addressAbs16>;
+}
 def CMPBrr : C166RR<0x41, GR8, "cmpb"> {
   let OutOperandList = (outs);
   let InOperandList = (ins GR8:$dst, GR8:$src);
@@ -1493,7 +1845,7 @@ def XORrr : C166ALURR<0x50, GR16, "xor", xor> {
 }
 def XORri3 : C166ALUri3<0x58, "xor", xor>;
 def XORri16 : C166ALUri16<0x56, "xor", xor>;
-def XORgsfr : C166ALUSFR<0x52, (outs GR16:$dst),
+def XORgsfr : C166ALUDirect<0x52, (outs GR16:$dst),
                          (ins GR16:$lhs, sfrdirect:$src), "xor",
                          "decodeALUgsfr"> {
   let Constraints = "$dst = $lhs";
@@ -1508,7 +1860,7 @@ def ANDrr : C166ALURR<0x60, GR16, "and", and> {
 }
 def ANDri3 : C166ALUri3<0x68, "and", and>;
 def ANDri16 : C166ALUri16<0x66, "and", and>;
-def ANDgsfr : C166ALUSFR<0x62, (outs GR16:$dst),
+def ANDgsfr : C166ALUDirect<0x62, (outs GR16:$dst),
                          (ins GR16:$lhs, sfrdirect:$src), "and",
                          "decodeALUgsfr"> {
   let Constraints = "$dst = $lhs";
@@ -1523,7 +1875,7 @@ def ORrr : C166ALURR<0x70, GR16, "or", or> {
 }
 def ORri3 : C166ALUri3<0x78, "or", or>;
 def ORri16 : C166ALUri16<0x76, "or", or>;
-def ORgsfr : C166ALUSFR<0x72, (outs GR16:$dst),
+def ORgsfr : C166ALUDirect<0x72, (outs GR16:$dst),
                         (ins GR16:$lhs, sfrdirect:$src), "or",
                         "decodeALUgsfr"> {
   let Constraints = "$dst = $lhs";
@@ -1819,6 +2171,15 @@ def MOVri4 : C166RI4<0xe0, GR16, "mov"> {
   let isReMaterializable = 1;
 }
 def MOVBri4 : C166RI4<0xe1, GR8, "movb">;
+def MOVBri8 : C166Inst32<0xe7, (outs directbytereg:$dst),
+                        (ins byteimmfull:$src), "movb\t$dst, $src"> {
+  bits<8> dst;
+  bits<8> src;
+  let Inst{15-8} = dst;
+  let Inst{15-12} = 0xf;
+  let Inst{23-16} = src;
+  let DecoderMethod = "decodeByteRegImmediate";
+}
 def MOVrm : C166RM<0xa8, "mov">;
 }
 
@@ -1850,6 +2211,7 @@ class C166DIV<bits<8> Opcode, string Mnemonic>
   let Inst{11-8} = src;
   let Uses = [MDH, MDL, MDC];
   let Defs = [MDH, MDL, MDC, PSW, C];
+  let DecoderMethod = "decodeDIV";
 }
 
 def DIVr : C166DIV<0x4b, "div">;
@@ -1936,34 +2298,28 @@ def MOVBmr : C166Inst16<0xb9, (outs),
 }
 }
 
-def EXTPr : C166Inst16<0xdc, (outs),
-                       (ins GR16:$page, sequence_count:$count),
-                       "extp\t$page, $count"> {
-  bits<4> page;
+class C166EXTRegister<bits<2> Mode, string Mnemonic>
+    : C166Inst16<0xdc, (outs), (ins GR16:$value, sequence_count:$count),
+                 !strconcat(Mnemonic, "\t$value, $count")> {
+  bits<4> value;
   bits<2> count;
-  let Inst{15-14} = 0b01;
+  let Inst{15-14} = Mode;
   let Inst{13-12} = count;
-  let Inst{11-8} = page;
+  let Inst{11-8} = value;
   let hasSideEffects = 1;
-  let DecoderMethod = "decodeEXTP1r";
+  let DecoderMethod = "decodeEXTRegister";
 }
 
-def EXTSr : C166Inst16<0xdc, (outs),
-                       (ins GR16:$segment, sequence_count:$count),
-                       "exts\t$segment, $count"> {
-  bits<4> segment;
-  bits<2> count;
-  let Inst{15-14} = 0b00;
-  let Inst{13-12} = count;
-  let Inst{11-8} = segment;
-  let hasSideEffects = 1;
-  let DecoderMethod = "decodeEXTS1r";
-}
+def EXTPr : C166EXTRegister<0b01, "extp">;
+def EXTSr : C166EXTRegister<0b00, "exts">;
+def EXTPRr : C166EXTRegister<0b11, "extpr">;
+def EXTSRr : C166EXTRegister<0b10, "extsr">;
 
 let Defs = [PSW] in
-def MOVmrPreDec : C166Inst16<0x88, (outs GR16:$base_wb),
-                             (ins GR16:$base, GR16:$src),
-                             "mov\t[-$base], $src"> {
+class C166MOVPreDec<bits<8> Opcode, RegisterClass Reg, string Mnemonic>
+    : C166Inst16<Opcode, (outs GR16:$base_wb),
+                 (ins GR16:$base, Reg:$src),
+                 !strconcat(Mnemonic, "\t[-$base], $src")> {
   bits<4> base;
   bits<4> src;
   let Inst{15-12} = src;
@@ -1972,6 +2328,27 @@ def MOVmrPreDec : C166Inst16<0x88, (outs GR16:$base_wb),
   let mayStore = 1;
   let Pattern = [];
 }
+def MOVmrPreDec : C166MOVPreDec<0x88, GR16, "mov">;
+def MOVBmrPreDec : C166MOVPreDec<0x89, GR8, "movb">;
+
+let Defs = [PSW] in
+class C166MOVDirectIndirect<bits<8> Opcode, string Mnemonic, bit ToIndirect>
+    : C166Inst32<Opcode, (outs),
+                 (ins GR16:$base, addressAbs16:$address),
+                 !strconcat(Mnemonic, !if(ToIndirect, "\t[$base], $address",
+                                                     "\t$address, [$base]"))> {
+  bits<4> base;
+  bits<16> address;
+  let Inst{15-12} = 0;
+  let Inst{11-8} = base;
+  let Inst{31-16} = address;
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+def MOVindm : C166MOVDirectIndirect<0x84, "mov", 1>;
+def MOVmind : C166MOVDirectIndirect<0x94, "mov", 0>;
+def MOVBindm : C166MOVDirectIndirect<0xa4, "movb", 1>;
+def MOVBmind : C166MOVDirectIndirect<0xb4, "movb", 0>;
 
 let Defs = [PSW] in
 def MOVrmPostInc : C166Inst16<0x98, (outs GR16:$dst, GR16:$base_wb),
@@ -2044,19 +2421,24 @@ def NOP : C166Inst16<0xcc, (outs), (ins), "nop"> {
   let Inst{15-8} = 0;
 }
 
-def ATOMIC : C166Inst16<0xd1, (outs), (ins atomic_count:$count),
-                         "atomic\t$count"> {
+class C166Sequence<bits<2> Mode, Operand Count, string Mnemonic>
+    : C166Inst16<0xd1, (outs), (ins Count:$count),
+                 !strconcat(Mnemonic, "\t$count")> {
   bits<2> count;
-  let Inst{15-14} = 0;
+  let Inst{15-14} = Mode;
   let Inst{13-12} = count;
   let Inst{11-8} = 0;
   let hasSideEffects = 1;
-  let DecoderMethod = "decodeATOMIC";
+  let DecoderMethod = "decodeSequenceCount";
 }
+
+def ATOMIC : C166Sequence<0b00, atomic_count, "atomic">;
+def EXTR : C166Sequence<0b10, sequence_count, "extr">;
 
 // Direct bit operations encode the eight-bit word address in the second byte
 // and the bit number in the high nibble of the opcode byte.
-let Defs = [PSW, C], hasSideEffects = 1 in {
+let Defs = [PSW, C], mayLoad = 1, mayStore = 1,
+    hasSideEffects = 1 in {
 def BCLR : C166Inst16<0x0e, (outs), (ins bit_address:$address),
                        "bclr\t$address"> {
   bits<12> address;
@@ -2073,7 +2455,8 @@ def BSET : C166Inst16<0x0f, (outs), (ins bit_address:$address),
 }
 
 // BFLDL encodes mask before data, while BFLDH swaps the two immediate bytes.
-let Defs = [PSW, C], hasSideEffects = 1 in {
+let Defs = [PSW, C], mayLoad = 1, mayStore = 1,
+    hasSideEffects = 1 in {
 def BFLDL : C166Inst32<0x0a, (outs),
                        (ins bit_offset:$address, uimm8:$mask, uimm8:$data),
                        "bfldl\t$address, $mask, $data"> {
@@ -2109,7 +2492,8 @@ class C166BitBinary<bits<8> Opcode, string Mnemonic>
   let Inst{31-28} = src{3-0};
 }
 
-let Defs = [PSW, C], hasSideEffects = 1 in {
+let Defs = [PSW, C], mayLoad = 1, mayStore = 1,
+    hasSideEffects = 1 in {
 def BMOV : C166BitBinary<0x4a, "bmov">;
 def BMOVN : C166BitBinary<0x3a, "bmovn">;
 def BAND : C166BitBinary<0x6a, "band">;
@@ -2117,7 +2501,8 @@ def BOR : C166BitBinary<0x5a, "bor">;
 def BXOR : C166BitBinary<0x7a, "bxor">;
 }
 
-let Defs = [PSW, C] in
+let Defs = [PSW, C], mayLoad = 1, mayStore = 0,
+    hasSideEffects = 1 in
 def BCMP : C166BitBinary<0x2a, "bcmp">;
 
 class C166BitBranch<bits<8> Opcode, string Mnemonic>
@@ -2138,6 +2523,10 @@ class C166BitBranch<bits<8> Opcode, string Mnemonic>
 
 def JB : C166BitBranch<0x8a, "jb">;
 def JNB : C166BitBranch<0x9a, "jnb">;
+let Defs = [PSW, C], mayStore = 1 in {
+def JBC : C166BitBranch<0xaa, "jbc">;
+def JNBS : C166BitBranch<0xba, "jnbs">;
+}
 
 let Defs = [SP, PSW], Uses = [SP] in
 def PUSH : C166Inst16<0xec, (outs), (ins pushpopreg:$src), "push\t$src"> {
@@ -2173,7 +2562,30 @@ def RET : C166Inst16<0xcb, (outs), (ins), "ret"> {
   let Pattern = [(C166nearret)];
 }
 
-let Defs = [SP, CSP, PSW], Uses = [SP] in
+let Defs = [SP, PSW], Uses = [SP] in
+def RETP : C166Inst16<0xeb, (outs pushpopreg:$dst), (ins), "retp\t$dst"> {
+  bits<8> dst;
+  let Inst{15-8} = dst;
+  let isReturn = 1;
+  let isTerminator = 1;
+  let isBarrier = 1;
+  let mayLoad = 1;
+  let hasSideEffects = 1;
+  let DecoderMethod = "decodePUSH";
+}
+
+let Defs = [SP, CSP], Uses = [SP, CSP, PSW] in
+def TRAP : C166Inst16<0x9b, (outs), (ins uimm7:$vector),
+                     "trap\t$vector"> {
+  bits<7> vector;
+  let Inst{15-9} = vector;
+  let Inst{8} = 0;
+  let isCall = 1;
+  let mayStore = 1;
+  let hasSideEffects = 1;
+}
+
+let Defs = [SP, CSP, PSW, C], Uses = [SP] in
 def RETI : C166Inst16<0xfb, (outs), (ins), "reti"> {
   let Inst{15-8} = 0x88;
   let isReturn = 1;
@@ -2182,13 +2594,10 @@ def RETI : C166Inst16<0xfb, (outs), (ins), "reti"> {
   let Pattern = [(C166interruptret)];
 }
 
-// Save the interrupted multiply/divide state and initialize MDC before the
-// handler executes any MD-unit instruction or ordinary C call. The ABI
-// The optimized interrupt frame uses exactly `SCXT MDC,#10h`.
 let Defs = [SP], Uses = [SP] in
-def SCXTri16 : C166Inst32<0xc6, (outs pushpopreg:$dst),
-                          (ins pushpopreg:$old, uimm16:$src),
-                          "scxt\t$dst, $src"> {
+class C166SCXT<bits<8> Opcode, Operand Source>
+    : C166Inst32<Opcode, (outs pushpopreg:$dst),
+                 (ins pushpopreg:$old, Source:$src), "scxt\t$dst, $src"> {
   bits<8> dst;
   bits<16> src;
   let Inst{15-8} = dst;
@@ -2196,15 +2605,30 @@ def SCXTri16 : C166Inst32<0xc6, (outs pushpopreg:$dst),
   let Constraints = "$dst = $old";
   let mayStore = 1;
   let hasSideEffects = 1;
-  let DecoderMethod = "decodeSCXTri16";
+  let DecoderMethod = "decodeSCXT";
 }
 
-// C166 Family Instruction Set Manual, DISWDT format A5 5A A5 A5.
-def DISWDT : C166Inst32<0xa5, (outs), (ins), "diswdt"> {
-  let Inst{15-8} = 0x5a;
-  let Inst{23-16} = 0xa5;
-  let Inst{31-24} = 0xa5;
+def SCXTri16 : C166SCXT<0xc6, immediate16>;
+def SCXTrm : C166SCXT<0xd6, memory16> {
+  let mayLoad = 1;
+}
+
+class C166ProtectedInst<bits<8> Opcode, string Mnemonic>
+    : C166Inst32<Opcode, (outs), (ins), Mnemonic> {
+  let Inst{15-8} = !xor(Opcode, 0xff);
+  let Inst{23-16} = Opcode;
+  let Inst{31-24} = Opcode;
   let hasSideEffects = 1;
+}
+
+def DISWDT : C166ProtectedInst<0xa5, "diswdt">;
+def EINIT : C166ProtectedInst<0xb5, "einit">;
+def IDLE : C166ProtectedInst<0x87, "idle">;
+def PWRDN : C166ProtectedInst<0x97, "pwrdn">;
+def SRVWDT : C166ProtectedInst<0xa7, "srvwdt">;
+def SRST : C166ProtectedInst<0xb7, "srst"> {
+  let isTerminator = 1;
+  let isBarrier = 1;
 }
 
 let Defs = [PSW] in
@@ -2236,31 +2660,60 @@ def CMPri16 : C166Inst32<0x46, (outs), (ins GR16:$dst, imm16alu:$src),
 // startup code can initialize CP, stack limits, DPPs and PSW without raw byte
 // directives.
 let Defs = [PSW] in
-def MOVsfri16 : C166Inst32<0xe6, (outs sfrshort:$dst), (ins uimm16:$src),
+def MOVsfri16 : C166Inst32<0xe6, (outs sfrshort:$dst), (ins immediate16:$src),
                             "mov\t$dst, $src"> {
   bits<8> dst;
   bits<16> src;
   let Inst{15-8} = dst;
   let Inst{31-16} = src;
-  let DecoderMethod = "decodeMOVsfri16";
+  let DecoderMethod = "decodeSFRLongOperand<false>";
   let hasSideEffects = 1;
 }
 
-def EXTPp : C166Inst32<0xd7, (outs),
-                       (ins addressPag10:$page, sequence_count:$count),
-                       "extp\t$page, $count"> {
-  bits<10> page;
+class C166EXTImmediate<bits<2> Mode, Operand Source, string Mnemonic>
+    : C166Inst32<0xd7, (outs), (ins Source:$value, sequence_count:$count),
+                 !strconcat(Mnemonic, "\t$value, $count")> {
+  bits<10> value;
   bits<2> count;
-  let Inst{15-14} = 0b01;
+  let Inst{15-14} = Mode;
   let Inst{13-12} = count;
   let Inst{11-8} = 0;
-  let Inst{25-16} = page;
+  let Inst{25-16} = value;
   let Inst{31-26} = 0;
   let hasSideEffects = 1;
-  let DecoderMethod = "decodeEXTP1p";
+  let DecoderMethod = "decodeEXTImmediate";
+}
+
+def EXTPp : C166EXTImmediate<0b01, addressPag10, "extp">;
+def EXTPRp : C166EXTImmediate<0b11, addressPag10, "extpr">;
+let Inst{25-24} = 0 in {
+def EXTSs : C166EXTImmediate<0b00, extensionSegment8, "exts">;
+def EXTSRs : C166EXTImmediate<0b10, extensionSegment8, "extsr">;
 }
 
 let Defs = [PSW] in {
+def MOVBsfri8 : C166SFRALU<0xe7, "movb", immediate8> {
+  let Inst{31-24} = ?;
+  let DecoderMethod = "decodeSFRLongOperand<true, 8>";
+}
+def MOVBsfrm : C166SFRALU<0xf3, "movb", addressAbs16> {
+  let mayLoad = 1;
+}
+def MOVBsfrsfr : C166SFRALU<0xf3, "movb", sfrdirect> {
+  let isAsmParserOnly = 1;
+}
+def MOVBmsfr : C166MemorySFR<0xf7, "movb">;
+def MOVBabsgd : C166Inst32<0xf3, (outs GR8:$dst),
+                            (ins addressAbs16:$address),
+                            "movb\t$dst, $address"> {
+  bits<4> dst;
+  bits<16> address;
+  let Inst{15-12} = 0xf;
+  let Inst{11-8} = dst;
+  let Inst{31-16} = address;
+  let mayLoad = 1;
+}
+
 def MOVgd : C166Inst32<0xf2, (outs GR16:$dst),
                         (ins addressPof14:$address),
                         "mov\t$dst, $address"> {
@@ -2316,6 +2769,40 @@ def MOVsfrsfr : C166Inst32<0xf2, (outs sfrshort:$dst),
   let DecoderMethod = "decodeMOVsfrsfr";
 }
 
+class C166SFRMemoryLoad<bits<8> Opcode, string Mnemonic>
+    : C166Inst32<Opcode, (outs sfrshort:$dst),
+                 (ins addressAbs16:$src), !strconcat(Mnemonic, "\t$dst, $src")> {
+  bits<8> dst;
+  bits<16> src;
+  let Inst{15-8} = dst;
+  let Inst{31-16} = src;
+  let mayLoad = 1;
+  let hasSideEffects = 1;
+  let DecoderMethod = "decodeSFRLongOperand<false>";
+}
+def MOVsfrm : C166SFRMemoryLoad<0xf2, "mov"> {
+  let isAsmParserOnly = 1;
+}
+def MOVBSsfrm : C166SFRMemoryLoad<0xd2, "movbs">;
+def MOVBZsfrm : C166SFRMemoryLoad<0xc2, "movbz">;
+
+class C166MOVExtendStore<bits<8> Opcode, string Mnemonic>
+    : C166Inst32<Opcode, (outs), (ins addressAbs16:$address, GR8:$src),
+                 !strconcat(Mnemonic, "\t$address, $src")> {
+  bits<4> src;
+  bits<16> address;
+  let Inst{15-12} = 0xf;
+  let Inst{11-8} = src;
+  let Inst{31-16} = address;
+  let mayStore = 1;
+}
+def MOVBSmg : C166MOVExtendStore<0xd5, "movbs">;
+def MOVBZmg : C166MOVExtendStore<0xc5, "movbz">;
+def MOVBSmsfr : C166MemorySFR<0xd5, "movbs">;
+def MOVBZmsfr : C166MemorySFR<0xc5, "movbz">;
+
+def MOVmsfr : C166MemorySFR<0xf6, "mov">;
+
 def MOVsfrg : C166Inst32<0xf6, (outs sfrdirect:$dst),
                           (ins GR16:$src),
                           "mov\t$dst, $src"> {
@@ -2361,10 +2848,11 @@ def MOVBZgd : C166Inst32<0xc2, (outs directreg:$dst),
   bits<8> dst;
   bits<14> address;
   let Inst{15-8} = dst;
+  let Inst{15-12} = 0xf;
   let Inst{29-16} = address;
   let Inst{31-30} = 0;
   let mayLoad = 1;
-  let DecoderMethod = "decodeMOVBZgd";
+  let DecoderMethod = "decodeMOVBZgd<14>";
 }
 
 def MOVBZabsgd : C166Inst32<0xc2, (outs directreg:$dst),
@@ -2373,10 +2861,10 @@ def MOVBZabsgd : C166Inst32<0xc2, (outs directreg:$dst),
   bits<8> dst;
   bits<16> address;
   let Inst{15-8} = dst;
+  let Inst{15-12} = 0xf;
   let Inst{31-16} = address;
   let mayLoad = 1;
-  let DecoderMethod = "decodeMOVBZgd";
-  let isAsmParserOnly = 1;
+  let DecoderMethod = "decodeMOVBZgd<16>";
 }
 
 def MOVBSgd : C166Inst32<0xd2, (outs directreg:$dst),
@@ -2385,10 +2873,11 @@ def MOVBSgd : C166Inst32<0xd2, (outs directreg:$dst),
   bits<8> dst;
   bits<14> address;
   let Inst{15-8} = dst;
+  let Inst{15-12} = 0xf;
   let Inst{29-16} = address;
   let Inst{31-30} = 0;
   let mayLoad = 1;
-  let DecoderMethod = "decodeMOVBSgd";
+  let DecoderMethod = "decodeMOVBZgd<14>";
 }
 
 def MOVBSabsgd : C166Inst32<0xd2, (outs directreg:$dst),
@@ -2397,10 +2886,10 @@ def MOVBSabsgd : C166Inst32<0xd2, (outs directreg:$dst),
   bits<8> dst;
   bits<16> address;
   let Inst{15-8} = dst;
+  let Inst{15-12} = 0xf;
   let Inst{31-16} = address;
   let mayLoad = 1;
-  let DecoderMethod = "decodeMOVBSgd";
-  let isAsmParserOnly = 1;
+  let DecoderMethod = "decodeMOVBZgd<16>";
 }
 
 def MOVBdg : C166Inst32<0xf7, (outs),
@@ -2409,10 +2898,11 @@ def MOVBdg : C166Inst32<0xf7, (outs),
   bits<8> src;
   bits<14> address;
   let Inst{15-8} = src;
+  let Inst{15-12} = 0xf;
   let Inst{29-16} = address;
   let Inst{31-30} = 0;
   let mayStore = 1;
-  let DecoderMethod = "decodeMOVBdg";
+  let DecoderMethod = "decodeMOVBdg<14>";
 }
 
 def MOVBabsdg : C166Inst32<0xf7, (outs),
@@ -2422,10 +2912,10 @@ def MOVBabsdg : C166Inst32<0xf7, (outs),
   bits<8> src;
   bits<16> address;
   let Inst{15-8} = src;
+  let Inst{15-12} = 0xf;
   let Inst{31-16} = address;
   let mayStore = 1;
-  let DecoderMethod = "decodeMOVBdg";
-  let isAsmParserOnly = 1;
+  let DecoderMethod = "decodeMOVBdg<16>";
 }
 
 multiclass C166MOVgdDPP<bits<2> Selector, Operand AddressOperand,
@@ -2467,10 +2957,11 @@ multiclass C166MOVBLoadDPP<bits<8> Opcode, bits<2> Selector,
     bits<8> dst;
     bits<14> address;
     let Inst{15-8} = dst;
+    let Inst{15-12} = 0xf;
     let Inst{29-16} = address;
     let Inst{31-30} = Selector;
     let mayLoad = 1;
-    let DecoderMethod = "decodeMOVBZgd";
+    let DecoderMethod = "decodeMOVBZgd<14>";
   }
 }
 
@@ -2483,10 +2974,11 @@ multiclass C166MOVBStoreDPP<bits<2> Selector, Operand AddressOperand,
     bits<8> src;
     bits<14> address;
     let Inst{15-8} = src;
+    let Inst{15-12} = 0xf;
     let Inst{29-16} = address;
     let Inst{31-30} = Selector;
     let mayStore = 1;
-    let DecoderMethod = "decodeMOVBdg";
+    let DecoderMethod = "decodeMOVBdg<14>";
   }
 }
 
@@ -2504,7 +2996,7 @@ defm MOVBdg : C166MOVBStoreDPP<0b10, addressDPP2, "DPP2">;
 
 let Defs = [PSW] in {
 def MOVrm16 : C166Inst32<0xd4, (outs GR16:$dst),
-                         (ins GR16:$base, uimm16:$disp),
+                         (ins GR16:$base, displacement16:$disp),
                          "mov\t$dst, [$base + $disp]"> {
   bits<4> dst;
   bits<4> base;
@@ -2516,7 +3008,7 @@ def MOVrm16 : C166Inst32<0xd4, (outs GR16:$dst),
 }
 
 def MOVmr16 : C166Inst32<0xc4, (outs),
-                         (ins GR16:$base, uimm16:$disp, GR16:$src),
+                         (ins GR16:$base, displacement16:$disp, GR16:$src),
                          "mov\t[$base + $disp], $src"> {
   bits<4> base;
   bits<4> src;
@@ -2528,7 +3020,7 @@ def MOVmr16 : C166Inst32<0xc4, (outs),
 }
 
 def MOVBrm16 : C166Inst32<0xf4, (outs GR8:$dst),
-                          (ins GR16:$base, uimm16:$disp),
+                          (ins GR16:$base, displacement16:$disp),
                           "movb\t$dst, [$base + $disp]"> {
   bits<4> dst;
   bits<4> base;
@@ -2540,7 +3032,7 @@ def MOVBrm16 : C166Inst32<0xf4, (outs GR8:$dst),
 }
 
 def MOVBmr16 : C166Inst32<0xe4, (outs),
-                          (ins GR16:$base, uimm16:$disp, GR8:$src),
+                          (ins GR16:$base, displacement16:$disp, GR8:$src),
                           "movb\t[$base + $disp], $src"> {
   bits<4> base;
   bits<4> src;
@@ -2563,8 +3055,11 @@ class C166JMPR<bits<8> Opcode, string CCName>
 
 def JMPR_UC  : C166JMPR<0x0d, "cc_uc">  { let isBarrier = 1; }
 let Uses = [PSW] in {
+def JMPR_NET : C166JMPR<0x1d, "cc_net">;
 def JMPR_EQ  : C166JMPR<0x2d, "cc_eq">;
 def JMPR_NE  : C166JMPR<0x3d, "cc_ne">;
+def JMPR_V   : C166JMPR<0x4d, "cc_v">;
+def JMPR_NV  : C166JMPR<0x5d, "cc_nv">;
 def JMPR_N   : C166JMPR<0x6d, "cc_n">;
 def JMPR_NN  : C166JMPR<0x7d, "cc_nn">;
 def JMPR_SGT : C166JMPR<0xad, "cc_sgt">;
@@ -2591,11 +3086,23 @@ def PseudoJMPRRelaxUC : C166Pseudo<(outs), (ins brtarget:$target)> {
   let Size = 4;
 }
 
+// NET has no inverse condition; its replacement needs two short branches.
+def PseudoJMPRRelaxNET
+    : C166Pseudo<(outs), (ins uimm8:$opcode, brtarget:$target)> {
+  let Size = 8;
+}
+
 def PseudoBitBranchRelax
     : C166Pseudo<(outs),
                   (ins uimm8:$opcode, bit_address:$address,
                        bitbrtarget:$target)> {
   let Size = 8;
+}
+def PseudoBitBranchWritebackRelax
+    : C166Pseudo<(outs),
+                  (ins uimm8:$opcode, bit_address:$address,
+                       bitbrtarget:$target)> {
+  let Size = 10;
 }
 
 def JMPS : C166Inst32<0xfa, (outs),
@@ -2625,8 +3132,11 @@ def JMPA : C166JMPA<0x0, "cc_uc"> {
   let isBarrier = 1;
 }
 let Uses = [PSW] in {
+def JMPA_NET : C166JMPA<0x1, "cc_net">;
 def JMPA_EQ  : C166JMPA<0x2, "cc_eq">;
 def JMPA_NE  : C166JMPA<0x3, "cc_ne">;
+def JMPA_V   : C166JMPA<0x4, "cc_v">;
+def JMPA_NV  : C166JMPA<0x5, "cc_nv">;
 def JMPA_N   : C166JMPA<0x6, "cc_n">;
 def JMPA_NN  : C166JMPA<0x7, "cc_nn">;
 def JMPA_SGT : C166JMPA<0xa, "cc_sgt">;
@@ -2662,17 +3172,23 @@ def TAILJMPA : C166Inst32<0xea, (outs),
 }
 }
 
-def JMPI : C166Inst16<0x9c, (outs), (ins GR16:$offset),
-                      "jmpi\tcc_uc, [$offset]"> {
+class C166JMPI<bits<4> Condition, string CCName>
+    : C166Inst16<0x9c, (outs), (ins GR16:$offset),
+                  "jmpi\t" # CCName # ", [$offset]"> {
   bits<4> offset;
-  let Inst{15-12} = 0;
+  let Inst{15-12} = Condition;
   let Inst{11-8} = offset;
   let isBranch = 1;
   let isIndirectBranch = 1;
   let isTerminator = 1;
-  let isBarrier = 1;
 }
 
+def JMPI : C166JMPI<0, "cc_uc"> { let isBarrier = 1; }
+
+// Calls observe the system stack pointer. The call/return pair restores it, so
+// model it as a dependency rather than a caller-visible definition. CALLS also
+// observes CSP because it saves the current code segment in the return frame.
+let Uses = [SP, CSP] in
 def CALLS : C166Inst32<0xda, (outs),
                        (ins address8:$segment, address16:$offset,
                             variable_ops),
@@ -2684,19 +3200,94 @@ def CALLS : C166Inst32<0xda, (outs),
   let isCall = 1;
 }
 
-def CALLA : C166Inst32<0xca, (outs),
-                       (ins codeAddress16:$offset, variable_ops),
-                       "calla\tcc_uc, $offset"> {
+// Both forms use an IP-only return address; PCALL also saves its register.
+let Uses = [SP] in
+def CALLR : C166Inst16<0xbb, (outs), (ins brtarget:$target),
+                       "callr\t$target"> {
+  bits<8> target;
+  let Inst{15-8} = target;
+  let isCall = 1;
+}
+
+let Defs = [SP, PSW], Uses = [SP] in
+def PCALL : C166Inst32<0xe2, (outs),
+                       (ins pushpopreg:$src, codeAddress16:$offset),
+                       "pcall\t$src, $offset"> {
+  bits<8> src;
   bits<16> offset;
-  let Inst{15-8} = 0;
+  let Inst{15-8} = src;
+  let Inst{31-16} = offset;
+  let isCall = 1;
+  let mayStore = 1;
+  let hasSideEffects = 1;
+  let DecoderMethod = "decodePCALL";
+}
+
+class C166CALLA<bits<4> Condition, string CCName>
+    : C166Inst32<0xca, (outs),
+                       (ins codeAddress16:$offset, variable_ops),
+                       "calla\t" # CCName # ", $offset"> {
+  bits<16> offset;
+  let Inst{15-12} = Condition;
+  let Inst{11-8} = 0;
   let Inst{31-16} = offset;
   let isCall = 1;
 }
 
-def CALLI : C166Inst16<0xab, (outs), (ins GR16:$offset, variable_ops),
-                       "calli\tcc_uc, [$offset]"> {
+class C166CALLI<bits<4> Condition, string CCName>
+    : C166Inst16<0xab, (outs), (ins GR16:$offset, variable_ops),
+                  "calli\t" # CCName # ", [$offset]"> {
   bits<4> offset;
-  let Inst{15-12} = 0;
+  let Inst{15-12} = Condition;
   let Inst{11-8} = offset;
   let isCall = 1;
 }
+
+let Uses = [SP] in {
+def CALLA : C166CALLA<0, "cc_uc">;
+def CALLI : C166CALLI<0, "cc_uc">;
+}
+
+multiclass C166ConditionalTransfer<bits<4> Condition, string CCName,
+                                   list<Register> ConditionUses = [PSW]> {
+  let Uses = ConditionUses in
+  def "JMPI_" # NAME : C166JMPI<Condition, CCName>;
+  let Uses = !listconcat(ConditionUses, [SP]) in {
+    def "CALLA_" # NAME : C166CALLA<Condition, CCName>;
+    def "CALLI_" # NAME : C166CALLI<Condition, CCName>;
+  }
+}
+
+defm NET : C166ConditionalTransfer<0x1, "cc_net">;
+defm EQ : C166ConditionalTransfer<0x2, "cc_eq">;
+defm NE : C166ConditionalTransfer<0x3, "cc_ne">;
+defm V : C166ConditionalTransfer<0x4, "cc_v">;
+defm NV : C166ConditionalTransfer<0x5, "cc_nv">;
+defm N : C166ConditionalTransfer<0x6, "cc_n">;
+defm NN : C166ConditionalTransfer<0x7, "cc_nn">;
+defm ULT : C166ConditionalTransfer<0x8, "cc_ult", [PSW, C]>;
+defm UGE : C166ConditionalTransfer<0x9, "cc_uge", [PSW, C]>;
+defm SGT : C166ConditionalTransfer<0xa, "cc_sgt">;
+defm SLE : C166ConditionalTransfer<0xb, "cc_sle">;
+defm SLT : C166ConditionalTransfer<0xc, "cc_slt">;
+defm SGE : C166ConditionalTransfer<0xd, "cc_sge">;
+defm UGT : C166ConditionalTransfer<0xe, "cc_ugt", [PSW, C]>;
+defm ULE : C166ConditionalTransfer<0xf, "cc_ule", [PSW, C]>;
+
+multiclass C166ConditionAlias<string Alias, string Suffix> {
+  def : InstAlias<"jmpr\t" # Alias # ", $target",
+                  (!cast<Instruction>("JMPR_" # Suffix) brtarget:$target), 0>;
+  def : InstAlias<"jmpa\t" # Alias # ", $offset",
+                  (!cast<Instruction>("JMPA_" # Suffix) codeAddress16:$offset), 0>;
+  def : InstAlias<"jmpi\t" # Alias # ", [$offset]",
+                  (!cast<Instruction>("JMPI_" # Suffix) GR16:$offset), 0>;
+  def : InstAlias<"calla\t" # Alias # ", $offset",
+                  (!cast<Instruction>("CALLA_" # Suffix) codeAddress16:$offset), 0>;
+  def : InstAlias<"calli\t" # Alias # ", [$offset]",
+                  (!cast<Instruction>("CALLI_" # Suffix) GR16:$offset), 0>;
+}
+
+defm : C166ConditionAlias<"cc_z", "EQ">;
+defm : C166ConditionAlias<"cc_nz", "NE">;
+defm : C166ConditionAlias<"cc_c", "ULT">;
+defm : C166ConditionAlias<"cc_nc", "UGE">;

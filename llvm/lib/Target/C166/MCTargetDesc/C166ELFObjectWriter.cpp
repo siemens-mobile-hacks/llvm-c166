@@ -47,6 +47,8 @@ protected:
       if (Target.getSpecifier() == C166::S_SOF)
         return ELF::R_C166_SOF16;
       return ELF::R_C166_16;
+    case C166::fixup_c166_address16:
+      return ELF::R_C166_16;
     case FK_Data_4:
       if (Target.getSpecifier() == C166::S_PAGED32)
         return ELF::R_C166_PAGED32;

@@ -1,4 +1,5 @@
 # RUN: llvm-mc -triple=c166-none-elf -show-encoding %s | FileCheck %s
+# RUN: llvm-mc -triple=c166 %s | llvm-mc -triple=c166 -show-encoding | FileCheck %s
 # RUN: llvm-mc -triple=c166-none-elf -filetype=obj %s -o - \
 # RUN:   | llvm-objdump -d - | FileCheck %s --check-prefix=DIS
 

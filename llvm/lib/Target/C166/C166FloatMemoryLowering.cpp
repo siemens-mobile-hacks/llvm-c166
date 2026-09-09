@@ -16,8 +16,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "C166.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/Dominators.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instructions.h"
@@ -26,7 +29,6 @@
 #include "llvm/IR/Module.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
-#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Transforms/Utils/PromoteMemToReg.h"
 
@@ -328,6 +330,7 @@ bool llvm::prepareC166FloatMemory(Module &M) {
 
 bool llvm::lowerC166FloatMemory(Module &M) {
   bool Changed = encodeFloatGlobals(M);
+  SmallPtrSet<AllocaInst *, 16> StorageSlots;
 
   SmallVector<LoadInst *, 16> Loads;
   SmallVector<StoreInst *, 16> Stores;
@@ -364,7 +367,8 @@ bool llvm::lowerC166FloatMemory(Module &M) {
     Type *FloatTy = VAArg->getType();
     unsigned Width = FloatTy->isFloatTy() ? 32 : 64;
     IntegerType *IntTy = Builder.getIntNTy(Width);
-    PointerType *DataPtrTy = Builder.getPtrTy();
+    PointerType *DataPtrTy =
+        Builder.getPtrTy(M.getDataLayout().getDefaultGlobalsAddressSpace());
 
     // Type legalization softens a floating VAARG to integer VAARG nodes before
     // target DAG lowering, losing the target's different word order for
@@ -425,11 +429,29 @@ bool llvm::lowerC166FloatMemory(Module &M) {
   }
 
   for (IntrinsicInst *Store : StorageStores) {
+    if (auto *Slot = dyn_cast<AllocaInst>(Store->getArgOperand(1)))
+      StorageSlots.insert(Slot);
     auto *Alignment = cast<ConstantInt>(Store->getArgOperand(2));
     createFloatStore(*Store, Store->getArgOperand(0), Store->getArgOperand(1),
                      Align(Alignment->getZExtValue()));
     Store->eraseFromParent();
     Changed = true;
+  }
+
+  // Expanding a storage intrinsic can make a previously opaque local slot
+  // promotable. Remove that storage before instruction selection.
+  for (Function &F : M) {
+    if (F.isDeclaration() || F.hasOptNone())
+      continue;
+    SmallVector<AllocaInst *, 4> Promotable;
+    for (Instruction &I : F.getEntryBlock())
+      if (auto *Slot = dyn_cast<AllocaInst>(&I);
+          Slot && StorageSlots.contains(Slot) && isAllocaPromotable(Slot))
+        Promotable.push_back(Slot);
+    if (!Promotable.empty()) {
+      DominatorTree DT(F);
+      PromoteMemToReg(Promotable, DT);
+    }
   }
 
   return Changed;

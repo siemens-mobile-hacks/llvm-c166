@@ -1557,6 +1557,20 @@ public:
           Amount && Amount->getZExtValue() >= 1 &&
           Amount->getZExtValue() <= 31) {
         SDLoc DL(Node);
+        if (Amount->getZExtValue() == 16) {
+          SDValue Value = Node->getOperand(0);
+          SDValue Low =
+              CurDAG->getTargetExtractSubreg(sub_hi16, DL, MVT::i16, Value);
+          SDValue High =
+              CurDAG->getTargetExtractSubreg(sub_lo16, DL, MVT::i16, Value);
+          SDValue Ops[] = {
+              CurDAG->getTargetConstant(C166::GR32RegClassID, DL, MVT::i32),
+              Low, CurDAG->getTargetConstant(sub_lo16, DL, MVT::i32), High,
+              CurDAG->getTargetConstant(sub_hi16, DL, MVT::i32)};
+          ReplaceNode(Node, CurDAG->getMachineNode(TargetOpcode::REG_SEQUENCE,
+                                                   DL, MVT::i32, Ops));
+          return;
+        }
         SDValue TargetAmount =
             CurDAG->getTargetConstant(Amount->getZExtValue(), DL, MVT::i16);
         SDNode *Rotate =

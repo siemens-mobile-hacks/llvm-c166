@@ -20,10 +20,17 @@ define i16 @clz16(i16 %value) {
 
 define i16 @clz16_defined(i16 %value) {
 ; CHECK-LABEL: clz16_defined:
-; CHECK: prior
+; PRIOR returns zero for a zero source; defined ctlz must return 16 instead.
+; CHECK: cmp r12, #0
+; CHECK-NEXT: jmpr cc_eq, [[ZERO:\.LBB[0-9]+_[0-9]+]]
+; CHECK: prior r4, r12
 ; CHECK-NOT: ___clzsi2
 ; HUGE: rets
 ; NEAR: ret
+; CHECK: [[ZERO]]:
+; CHECK-NEXT: mov r4, #16
+; HUGE-NEXT: rets
+; NEAR-NEXT: ret
   %result = call i16 @llvm.ctlz.i16(i16 %value, i1 false)
   ret i16 %result
 }

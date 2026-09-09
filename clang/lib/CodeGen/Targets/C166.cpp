@@ -106,6 +106,7 @@ public:
           /*InsertBefore=*/nullptr, llvm::GlobalVariable::NotThreadLocal,
           /*AddressSpace=*/llvm::C166::NearAddressSpace);
       BankStorage->setAlignment(llvm::Align(2));
+      BankStorage->setSection(".c166.regbank");
       // Banks with the same name coalesce in near memory.
       CGM.addCompilerUsedGlobal(BankStorage);
     }

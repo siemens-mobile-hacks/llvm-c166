@@ -2,6 +2,10 @@
 // RUN: %clang_cc1 -triple c166-none-elf -mcmodel=small -fsyntax-only -verify %s
 
 typedef int __attribute__((c166_xnear)) xnear_int; // expected-error {{'c166_xnear' is only available in the Medium and Large memory models}}
+// expected-error@+1 {{'c166_xnear' is only available in the Medium and Large memory models}}
+int __attribute__((c166_xnear)) xnear_object;
+// expected-error@+1 {{'c166_xnear' is only available in the Medium and Large memory models}}
+void use_xnear(int __attribute__((c166_xnear)) *p);
 
 typedef int __attribute__((c166_near)) near_int;
 typedef int __attribute__((c166_far)) far_int;
