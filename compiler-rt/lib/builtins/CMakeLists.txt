@@ -944,8 +944,8 @@ set(c166_SOURCES
   c166/fp64_limbs.c
   c166/fp64_mul.c
   c166/fp64_sub.c
-  c166/fp_width.c
   c166/extendsfdf2.S
+  c166/truncdfsf2.S
   c166/icall.S
   c166/lshrsi3.c
   c166/memory.c
