@@ -922,7 +922,7 @@ set(c166_SOURCES
   c166/ashlsi3.c
   c166/ashrsi3.c
   c166/clzsi2.c
-  c166/cmpdf2.c
+  c166/cmpdf2.S
   c166/comparedf2.c
   c166/comparesf2.c
   c166/divsf3.c
@@ -945,6 +945,7 @@ set(c166_SOURCES
   c166/fp64_mul.c
   c166/fp64_sub.c
   c166/fp_width.c
+  c166/extendsfdf2.S
   c166/icall.S
   c166/lshrsi3.c
   c166/memory.c

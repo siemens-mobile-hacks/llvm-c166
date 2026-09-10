@@ -34,48 +34,6 @@ enum {
   binary32SubnormalShiftBase = binary64ExponentBias + 52 - 149,
 };
 
-COMPILER_RT_ABI double __extendsfdf2(float value) {
-  // bit_cast preserves object bytes, whose word order is opposite to integers.
-  const su_int object = __builtin_bit_cast(su_int, value);
-  const su_int source = (object << 16) | (object >> 16);
-  const uint16_t sourceHigh = (uint16_t)(source >> 16);
-  const uint16_t sourceSign = sourceHigh & UINT16_C(0x8000);
-  const uint16_t sourceExponent = (sourceHigh >> 7) & UINT16_C(0xff);
-  uint16_t sourceFractionLow = (uint16_t)source;
-  uint16_t sourceFractionHigh = sourceHigh & UINT16_C(0x7f);
-
-  uint16_t destinationExponent;
-
-  if (sourceExponent >= 1 && sourceExponent < 0xff) {
-    destinationExponent = sourceExponent + exponentBiasDelta;
-  } else if (sourceExponent == 0xff) {
-    destinationExponent = 0x7ff;
-  } else if ((sourceFractionHigh | sourceFractionLow) != 0) {
-    const int scale = sourceFractionHigh != 0
-                          ? __builtin_clz((unsigned int)sourceFractionHigh) - 8
-                          : __builtin_clz((unsigned int)sourceFractionLow) + 8;
-    destinationExponent = exponentBiasDelta - scale + 1;
-    if (scale < 16) {
-      sourceFractionHigh =
-          sourceFractionHigh << scale | sourceFractionLow >> (16 - scale);
-      sourceFractionLow <<= scale;
-    } else {
-      sourceFractionHigh = sourceFractionLow << (scale - 16);
-      sourceFractionLow = 0;
-    }
-    // The packing expressions below discard the normalized implicit bit.
-  } else {
-    destinationExponent = 0;
-  }
-
-  const c166_width_rep destination = {
-      .word = {0, (uint16_t)(sourceFractionLow << 13),
-               (uint16_t)(sourceFractionLow >> 3 | sourceFractionHigh << 13),
-               (uint16_t)(sourceSign | destinationExponent << 4 |
-                          (sourceFractionHigh >> 3 & 0xf))}};
-  return fromRep(destination.all);
-}
-
 // SelectionDAG softens the result of FPROUND to its i32 representation before
 // making this libcall.  Consequently this compiler-private entry point returns
 // the logical binary32 bits in the integer R4:R5 convention; a public C float
