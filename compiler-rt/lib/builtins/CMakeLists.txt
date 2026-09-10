@@ -939,9 +939,11 @@ set(c166_SOURCES
   c166/floatunsisf.c
   c166/fp32_round.c
   c166/fp64_add.c
-  c166/fp64_add_impl.c
+  c166/fp64_add_impl.S
   c166/fp64_div.c
   c166/fp64_limbs.c
+  c166/fp64_round_pack.S
+  c166/fp64_unpack.S
   c166/fp64_mul.c
   c166/fp64_sub.c
   c166/extendsfdf2.S
