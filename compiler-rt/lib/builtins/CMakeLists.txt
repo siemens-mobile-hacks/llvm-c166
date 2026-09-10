@@ -928,9 +928,9 @@ set(c166_SOURCES
   c166/divsf3.c
   c166/divsi3.c
   c166/fixdfsi.c
-  c166/fixsfsi.c
+  c166/fixsfsi.S
   c166/fixunsdfsi.c
-  c166/fixunssfsi.c
+  c166/fixunssfsi.S
   c166/floatsisf.c
   c166/floatsidf.c
   c166/floatsidf_direct.c
