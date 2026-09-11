@@ -44,7 +44,7 @@ C166RegisterInfo::getCallPreservedMask(const MachineFunction &,
              : CSR_C166_CallPreserved_RegMask;
 }
 
-BitVector C166RegisterInfo::getReservedRegs(const MachineFunction &) const {
+BitVector C166RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   BitVector Reserved(getNumRegs());
   // R0 is the user-stack pointer. Its directly addressable
   // byte lanes belong to GR8, so reserve them explicitly as well; marking
@@ -70,6 +70,13 @@ BitVector C166RegisterInfo::getReservedRegs(const MachineFunction &) const {
         C166::DPP3, C166::CSP, C166::MDH, C166::MDL, C166::CP, C166::SP,
         C166::STKOV, C166::STKUN, C166::MDC, C166::PSW})
     markSuperRegs(Reserved, Reg);
+  const auto *TFI = MF.getSubtarget<C166Subtarget>().getFrameLowering();
+  if (TFI->hasFP(MF)) {
+    Reserved.set(C166::RL6);
+    Reserved.set(C166::RH6);
+    Reserved.set(C166::R6);
+    markSuperRegs(Reserved, C166::R6);
+  }
   return Reserved;
 }
 
@@ -87,7 +94,10 @@ bool C166RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   const C166InstrInfo &TII = *MF.getSubtarget<C166Subtarget>().getInstrInfo();
 
   int FI = MI.getOperand(FIOperandNum).getIndex();
-  int64_t Offset = MFI.getObjectOffset(FI) + MFI.getStackSize() + SPAdj;
+  const Register FrameReg = getFrameRegister(MF);
+  int64_t Offset = MFI.getObjectOffset(FI) + MFI.getStackSize();
+  if (FrameReg == C166::R0)
+    Offset += SPAdj;
   if (FIOperandNum + 1 < MI.getNumOperands() &&
       MI.getOperand(FIOperandNum + 1).isImm())
     Offset += MI.getOperand(FIOperandNum + 1).getImm();
@@ -111,7 +121,7 @@ bool C166RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     // Keep the byte-access pseudo until post-RA expansion, where the
     // allocated word register determines the addressable RL/RH subregister.
     // The frame index itself is already fully resolved to the C166 user
-    // stack pointer here.
+    // fixed-frame base here.
     unsigned Opcode;
     switch (MI.getOpcode()) {
     case C166::FRAMELOAD8Z:
@@ -135,11 +145,12 @@ bool C166RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     MI.setDesc(TII.get(Opcode));
     // FRAMELOAD32 is allocated while its address is still a frame index, so
     // it does not need an early-clobber constraint.  NEARLOAD32 does; once
-    // the frame index becomes reserved R0, mark the already allocated result
+    // the frame index becomes a reserved physical register, mark the already
+    // allocated result
     // consistently with the replacement instruction descriptor.
     if (Opcode == C166::NEARLOAD32)
       MI.getOperand(0).setIsEarlyClobber(true);
-    MI.getOperand(FIOperandNum).ChangeToRegister(C166::R0, false);
+    MI.getOperand(FIOperandNum).ChangeToRegister(FrameReg, false);
     MI.getOperand(FIOperandNum + 1).setImm(Offset);
     return false;
   }
@@ -159,10 +170,10 @@ bool C166RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
           .addImm(Offset);
       BuildMI(MBB, II, MI.getDebugLoc(), TII.get(C166::ADDrr), Low)
           .addReg(Low)
-          .addReg(C166::R0);
+          .addReg(FrameReg);
     } else {
       BuildMI(MBB, II, MI.getDebugLoc(), TII.get(C166::MOVrr), Low)
-          .addReg(C166::R0);
+          .addReg(FrameReg);
     }
     if (Offset && (Offset < 8 || Offset > 15))
       BuildMI(MBB, II, MI.getDebugLoc(),
@@ -190,12 +201,12 @@ bool C166RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
           .addImm(Offset);
       BuildMI(MBB, II, MI.getDebugLoc(), TII.get(C166::ADDrr), Dst)
           .addReg(Dst)
-          .addReg(C166::R0);
+          .addReg(FrameReg);
       MI.eraseFromParent();
       return true;
     }
     MI.setDesc(TII.get(C166::MOVrr));
-    MI.getOperand(FIOperandNum).ChangeToRegister(C166::R0, false);
+    MI.getOperand(FIOperandNum).ChangeToRegister(FrameReg, false);
     MI.removeOperand(FIOperandNum + 1);
 
     if (Offset) {
@@ -212,7 +223,7 @@ bool C166RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   bool IsByteStore = MI.getOpcode() == C166::MOVBfiStore;
   bool IsByteLoad = MI.getOpcode() == C166::MOVBfi;
   if (IsByteStore || IsByteLoad) {
-    MI.getOperand(FIOperandNum).ChangeToRegister(C166::R0, false);
+    MI.getOperand(FIOperandNum).ChangeToRegister(FrameReg, false);
     if (Offset == 0) {
       MI.setDesc(TII.get(IsByteStore ? C166::MOVBmr : C166::MOVBrm));
       MI.removeOperand(FIOperandNum + 1);
@@ -226,7 +237,7 @@ bool C166RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   bool IsStore = MI.getOpcode() == C166::MOVfiStore;
   assert((IsStore || MI.getOpcode() == C166::MOVfi) &&
          "unexpected C166 frame-index instruction");
-  MI.getOperand(FIOperandNum).ChangeToRegister(C166::R0, false);
+  MI.getOperand(FIOperandNum).ChangeToRegister(FrameReg, false);
   if (Offset == 0) {
     MI.setDesc(TII.get(IsStore ? C166::MOVmr : C166::MOVrm));
     MI.removeOperand(FIOperandNum + 1);
@@ -237,6 +248,7 @@ bool C166RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   return false;
 }
 
-Register C166RegisterInfo::getFrameRegister(const MachineFunction &) const {
-  return C166::R0;
+Register C166RegisterInfo::getFrameRegister(const MachineFunction &MF) const {
+  const auto *TFI = MF.getSubtarget<C166Subtarget>().getFrameLowering();
+  return TFI->hasFP(MF) ? C166::R6 : C166::R0;
 }

@@ -37,6 +37,18 @@ static bool hasNamedRegisterBank(const MachineFunction &MF) {
          MF.getFunction().hasFnAttribute("c166-register-bank");
 }
 
+bool C166FrameLowering::hasFPImpl(const MachineFunction &MF) const {
+  return MF.getFrameInfo().hasVarSizedObjects();
+}
+
+void C166FrameLowering::determineCalleeSaves(MachineFunction &MF,
+                                             BitVector &SavedRegs,
+                                             RegScavenger *RS) const {
+  TargetFrameLowering::determineCalleeSaves(MF, SavedRegs, RS);
+  if (hasFP(MF))
+    SavedRegs.set(C166::R6);
+}
+
 void C166FrameLowering::orderFrameObjects(
     const MachineFunction &MF, SmallVectorImpl<int> &ObjectsToAllocate) const {
   if (ObjectsToAllocate.size() < 2)
@@ -100,7 +112,8 @@ static void hoistEntryFixedStackLoad(MachineFunction &MF,
   static constexpr unsigned MaxInstructions = 32;
 
   MachineFrameInfo &MFI = MF.getFrameInfo();
-  if (MF.needsFrameMoves() || isInterruptHandler(MF) || !MFI.getStackSize())
+  if (MF.needsFrameMoves() || isInterruptHandler(MF) || !MFI.getStackSize() ||
+      MF.getSubtarget().getFrameLowering()->hasFP(MF))
     return;
 
   MachineBasicBlock &MBB = MF.front();
@@ -970,11 +983,32 @@ void C166FrameLowering::emitPrologue(MachineFunction &MF,
   else
     emitR0CFI(MF, MBB, I, DL, TII, CSSize, MachineInstr::FrameSetup);
 
+  const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
+  Register FrameReg = TRI.getFrameRegister(MF);
+  if (hasFP(MF)) {
+    BuildMI(MBB, I, DL, TII.get(C166::MOVrr), FrameReg)
+        .addReg(C166::R0)
+        .setMIFlag(MachineInstr::FrameSetup);
+    for (MachineBasicBlock &Block : llvm::drop_begin(MF))
+      Block.addLiveIn(FrameReg);
+
+    if (MF.needsFrameMoves()) {
+      const MCRegisterInfo *MRI = MF.getContext().getRegisterInfo();
+      unsigned DwarfR0 = MRI->getDwarfRegNum(C166::R0, true);
+      unsigned DwarfFrameReg = MRI->getDwarfRegNum(FrameReg, true);
+      C166CFI::build(
+          MBB, I, DL, TII,
+          C166CFI::createUserStackValue(DwarfR0, StackSize, DwarfFrameReg),
+          MachineInstr::FrameSetup);
+    }
+  }
+
   if (!MF.needsFrameMoves() || IsInterrupt)
     return;
 
   const MCRegisterInfo *MRI = MF.getContext().getRegisterInfo();
   const unsigned DwarfDPP1 = MRI->getDwarfRegNum(C166::DPP1, true);
+  const unsigned DwarfFrameReg = MRI->getDwarfRegNum(FrameReg, true);
   ArrayRef<CalleeSavedInfo> CSI = MF.getFrameInfo().getCalleeSavedInfo();
   for (auto [Index, Info] : llvm::enumerate(CSI)) {
     if (Info.isSpilledToReg())
@@ -983,7 +1017,8 @@ void C166FrameLowering::emitPrologue(MachineFunction &MF,
     int64_t Offset = LocalSize + 2 * (CSI.size() - Index - 1);
     C166CFI::build(
         MBB, I, DL, TII,
-        C166CFI::createUserStackLocation(DwarfReg, Offset, DwarfDPP1),
+        C166CFI::createUserStackLocation(DwarfReg, Offset, DwarfDPP1,
+                                         DwarfFrameReg),
         MachineInstr::FrameSetup);
   }
 }
@@ -1021,6 +1056,11 @@ void C166FrameLowering::emitEpilogue(MachineFunction &MF,
       }
       I = FirstRestore;
     }
+
+    if (hasFP(MF))
+      BuildMI(MBB, I, DL, TII.get(C166::MOVrr), C166::R0)
+          .addReg(MF.getSubtarget().getRegisterInfo()->getFrameRegister(MF))
+          .setMIFlag(MachineInstr::FrameDestroy);
 
     if (LocalSize)
       adjustUserStack(MF, MBB, I, DL, TII, LocalSize, false, CSSize);

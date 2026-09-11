@@ -21,15 +21,6 @@ typedef int extended_vector __attribute__((ext_vector_type(2))); // expected-err
 _Float16 unsupported_float16; // expected-error {{_Float16 is not supported on this target}}
 __int128 unsupported_int128; // expected-error {{__int128 is not supported on this target}}
 
-int vla(int count) {
-  int values[count]; // expected-error {{variable length arrays are not supported for the current target}}
-  return values[0];
-}
-
-void *dynamic_alloca(unsigned count) {
-  return __builtin_alloca(count); // expected-error {{builtin is not supported on this target}}
-}
-
 void invalid_immediate_constraint(void) {
   __asm__ volatile("" : : "I"(16)); // expected-error {{value '16' out of range for constraint 'I'}}
 }

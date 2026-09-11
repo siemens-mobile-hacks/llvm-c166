@@ -80,8 +80,6 @@ public:
 
   bool supportsFixedSizeVectorTypes() const override { return false; }
 
-  bool supportsBuiltinAlloca() const override { return false; }
-
   CallingConvCheckResult checkCallingConvention(CallingConv CC) const override {
     return CC == CC_C || CC == CC_C166StackParm ? CCCR_OK : CCCR_Warning;
   }

@@ -25,6 +25,8 @@ public:
   orderFrameObjects(const MachineFunction &MF,
                     SmallVectorImpl<int> &ObjectsToAllocate) const override;
   bool needsFrameIndexResolution(const MachineFunction &MF) const override;
+  void determineCalleeSaves(MachineFunction &MF, BitVector &SavedRegs,
+                            RegScavenger *RS = nullptr) const override;
   void processFunctionBeforeFrameFinalized(
       MachineFunction &MF, RegScavenger *RS = nullptr) const override;
   void processFunctionBeforeFrameIndicesReplaced(
@@ -49,7 +51,7 @@ public:
                                 MachineBasicBlock::iterator I) const override;
 
 protected:
-  bool hasFPImpl(const MachineFunction &MF) const override { return false; }
+  bool hasFPImpl(const MachineFunction &MF) const override;
 };
 
 } // namespace llvm

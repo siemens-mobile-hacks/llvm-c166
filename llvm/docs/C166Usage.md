@@ -139,6 +139,14 @@ the remaining argument registers, that argument and all following arguments
 are passed on the user stack. The caller removes outgoing stack arguments.
 `R6` through `R9` are callee-saved.
 
+Variable-length arrays and the `__builtin_alloca` family allocate from the
+same user stack. A function containing a runtime-sized stack object preserves
+`R6` and uses it as a stable base for fixed locals while `R0` moves. Leaving a
+VLA scope restores its saved `R0` value, and every function exit restores the
+fixed frame before loading callee-saved registers. Dynamic allocations must
+fit in the remaining DPP1 user-stack page; the compiler does not insert stack
+overflow checks or probing.
+
 An `int` result is returned in `R4`; a `long`, default pointer, or `float`
 result is returned low word first in `R4:R5`. Aggregate and `double` results
 use a caller-reserved user-stack block, whose near address is returned in
@@ -431,8 +439,7 @@ not restore the original bank.
   classes are implemented. Small currently uses the default linear DPP map I.
 - The public C data model has no 64-bit integer type. Private
   compiler-rt `_BitInt(64)` containers do not create a public 64-bit ABI.
-- Variable-length arrays and dynamic allocation on the user stack are not
-  supported. C11 atomics are always non-lock-free and use the C166 runtime
+- C11 atomics are always non-lock-free and use the C166 runtime
   critical-section contract; lock-free queries conservatively return false.
 - C++ ABI support, exceptions, RTTI, TLS, PIC/PIE, shared objects, and dynamic
   linking are outside the initial target scope.

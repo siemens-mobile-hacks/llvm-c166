@@ -34,8 +34,6 @@ C166TargetInfo::C166TargetInfo(const llvm::Triple &Triple,
     : TargetInfo(Triple), IsMediumModel(Opts.CodeModel == "medium"),
       IsSmallModel(Opts.CodeModel == "small") {
   TLSSupported = false;
-  // The backend has no dynamic user-stack adjustment.
-  VLASupported = false;
   HasMustTail = false;
   UserLabelPrefix = "_";
   AddrSpaceMap =

@@ -92,6 +92,10 @@ C166TargetLowering::C166TargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::BR_JT, MVT::Other, Custom);
   setOperationAction(ISD::VAEND, MVT::Other, Expand);
   setOperationAction(ISD::VACOPY, MVT::Other, Custom);
+  for (MVT VT : {MVT::i16, MVT::i32})
+    setOperationAction(ISD::DYNAMIC_STACKALLOC, VT, Custom);
+  setOperationAction(ISD::STACKSAVE, MVT::Other, Custom);
+  setOperationAction(ISD::STACKRESTORE, MVT::Other, Custom);
   for (MVT VT : {MVT::i8, MVT::i16})
     setIndexedLoadAction(ISD::POST_INC, VT, Legal);
   setTargetDAGCombine({ISD::INTRINSIC_WO_CHAIN, ISD::OR, ISD::FSHL, ISD::FSHR,
@@ -612,6 +616,12 @@ SDValue C166TargetLowering::LowerOperation(SDValue Op,
     return LowerVAARG(Op, DAG);
   case ISD::VACOPY:
     return LowerVACOPY(Op, DAG);
+  case ISD::DYNAMIC_STACKALLOC:
+    return LowerDYNAMIC_STACKALLOC(Op, DAG);
+  case ISD::STACKSAVE:
+    return LowerSTACKSAVE(Op, DAG);
+  case ISD::STACKRESTORE:
+    return LowerSTACKRESTORE(Op, DAG);
   case ISD::BR_JT:
     return LowerBRJT(Op, DAG);
   case ISD::BR_CC:
@@ -1984,6 +1994,7 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
   CLI.IsTailCall = RequestedTailCall && !CLI.IsVarArg && DirectCallee &&
                    CallFrameBytes == 0 &&
                    (!SRetDestination || ForwardStackTail) && !NeedsBankSwitch &&
+                   !MF.getFrameInfo().hasVarSizedObjects() &&
                    CallerBank == 0 && CalleeBank == 0 &&
                    CLI.CallConv == MF.getFunction().getCallingConv() &&
                    EmitNearCall == CallerReturnsNear;
@@ -2158,6 +2169,75 @@ SDValue C166TargetLowering::LowerVACOPY(SDValue Op, SelectionDAG &DAG) const {
                   MachinePointerInfo(Src), Align(2));
   return DAG.getStore(Cursor.getValue(1), Loc, Cursor, Op.getOperand(1),
                       MachinePointerInfo(Dst), Align(2));
+}
+
+static std::pair<SDValue, SDValue>
+getUserStackAddress(SelectionDAG &DAG, const SDLoc &DL, SDValue Chain,
+                    SDValue StackPointer, EVT AddressVT) {
+  if (AddressVT == MVT::i16)
+    return {StackPointer, Chain};
+
+  assert(AddressVT == MVT::i32 && "unexpected C166 stack address type");
+  SDValue Offset = DAG.getNode(ISD::AND, DL, MVT::i16, StackPointer,
+                               DAG.getConstant(0x3fff, DL, MVT::i16));
+  SDValue Page = DAG.getCopyFromReg(Chain, DL, C166::DPP1, MVT::i16);
+  SDValue Address = DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i32, Offset, Page);
+  return {Address, Page.getValue(1)};
+}
+
+SDValue
+C166TargetLowering::LowerDYNAMIC_STACKALLOC(SDValue Op,
+                                             SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  SDValue Chain = Op.getOperand(0);
+  SDValue Size = Op.getOperand(1);
+  if (Size.getValueType() == MVT::i32)
+    Size = DAG.getNode(C166ISD::LOWORD, DL, MVT::i16, Size);
+  assert(Size.getValueType() == MVT::i16 &&
+         "unexpected C166 dynamic allocation size");
+
+  SDValue StackPointer =
+      DAG.getCopyFromReg(Chain, DL, C166::R0, MVT::i16);
+  SDValue NewStackPointer = DAG.getNode(ISD::SUB, DL, MVT::i16, StackPointer,
+                                        Size);
+  uint64_t Alignment = cast<ConstantSDNode>(Op.getOperand(2))->getZExtValue();
+  if (Alignment > 2)
+    NewStackPointer = DAG.getNode(
+        ISD::AND, DL, MVT::i16, NewStackPointer,
+        DAG.getSignedConstant(-static_cast<int64_t>(Alignment), DL,
+                              MVT::i16));
+
+  Chain = DAG.getCopyToReg(StackPointer.getValue(1), DL, C166::R0,
+                           NewStackPointer);
+  auto [Address, AddressChain] = getUserStackAddress(
+      DAG, DL, Chain, NewStackPointer, Op.getValueType());
+  return DAG.getMergeValues({Address, AddressChain}, DL);
+}
+
+SDValue C166TargetLowering::LowerSTACKSAVE(SDValue Op,
+                                           SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  SDValue StackPointer =
+      DAG.getCopyFromReg(Op.getOperand(0), DL, C166::R0, MVT::i16);
+  auto [Address, Chain] =
+      getUserStackAddress(DAG, DL, StackPointer.getValue(1), StackPointer,
+                          Op.getValueType());
+  return DAG.getMergeValues({Address, Chain}, DL);
+}
+
+SDValue C166TargetLowering::LowerSTACKRESTORE(SDValue Op,
+                                              SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  SDValue StackPointer = Op.getOperand(1);
+  if (StackPointer.getValueType() == MVT::i32) {
+    StackPointer =
+        DAG.getNode(C166ISD::LOWORD, DL, MVT::i16, StackPointer);
+    StackPointer = DAG.getNode(ISD::OR, DL, MVT::i16, StackPointer,
+                               DAG.getConstant(0x4000, DL, MVT::i16));
+  }
+  assert(StackPointer.getValueType() == MVT::i16 &&
+         "unexpected C166 stack restore address");
+  return DAG.getCopyToReg(Op.getOperand(0), DL, C166::R0, StackPointer);
 }
 
 SDValue C166TargetLowering::LowerVAARG(SDValue Op, SelectionDAG &DAG) const {

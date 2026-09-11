@@ -53,31 +53,33 @@ static MCCFIInstruction createExpressionCFI(uint8_t Opcode,
 }
 
 MCCFIInstruction C166CFI::createUserStackValue(unsigned DwarfRegister,
-                                               int64_t Offset) {
+                                               int64_t Offset,
+                                               unsigned DwarfBaseRegister) {
   SmallString<8> Expression;
   raw_svector_ostream OS(Expression);
-  // R0 is the 16-bit C166 user-stack pointer. A val-expression is used
-  // because the caller's R0 value, rather than memory at that address, is the
-  // quantity being recovered.
-  emitBReg(OS, /*R0=*/0, Offset);
+  // A val-expression is used because the caller's R0 value, rather than
+  // memory at that address, is the quantity being recovered. The base is R0
+  // for a fixed frame and the frame-pointer register for a dynamic frame.
+  emitBReg(OS, DwarfBaseRegister, Offset);
   return createExpressionCFI(dwarf::DW_CFA_val_expression, DwarfRegister,
                              Expression, "caller R0 from C166 user stack");
 }
 
 MCCFIInstruction C166CFI::createUserStackLocation(unsigned DwarfRegister,
                                                   int64_t Offset,
-                                                  unsigned DwarfDPP1) {
+                                                  unsigned DwarfDPP1,
+                                                  unsigned DwarfBaseRegister) {
   SmallString<24> Expression;
   raw_svector_ostream OS(Expression);
 
-  // Large-model automatic data is addressed as DPP1:(R0 & 0x3fff).  DWARF
+  // Automatic data is addressed through the DPP1 user-stack page. DWARF
   // memory locations are always 32-bit linear byte addresses, so make the
-  // page calculation explicit instead of treating the 16-bit R0 as a flat
-  // address.
+  // page calculation explicit instead of treating the 16-bit frame base as
+  // a flat address.
   emitBReg(OS, DwarfDPP1, 0);
   OS << static_cast<uint8_t>(dwarf::DW_OP_lit0 + 14)
      << static_cast<uint8_t>(dwarf::DW_OP_shl);
-  emitBReg(OS, /*R0=*/0, Offset);
+  emitBReg(OS, DwarfBaseRegister, Offset);
   OS << static_cast<uint8_t>(dwarf::DW_OP_constu);
   encodeULEB128(0x3fff, OS);
   OS << static_cast<uint8_t>(dwarf::DW_OP_and)

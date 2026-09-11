@@ -23,10 +23,12 @@ void build(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
            const MCCFIInstruction &Inst,
            MachineInstr::MIFlag Flag = MachineInstr::NoFlags);
 
-MCCFIInstruction createUserStackValue(unsigned DwarfRegister, int64_t Offset);
+MCCFIInstruction createUserStackValue(unsigned DwarfRegister, int64_t Offset,
+                                      unsigned DwarfBaseRegister = 0);
 
 MCCFIInstruction createUserStackLocation(unsigned DwarfRegister, int64_t Offset,
-                                         unsigned DwarfDPP1);
+                                         unsigned DwarfDPP1,
+                                         unsigned DwarfBaseRegister = 0);
 
 MCCFIInstruction createNearReturnAddress(unsigned DwarfRA, unsigned DwarfCSP);
 

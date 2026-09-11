@@ -389,6 +389,10 @@ static void emitDynamicUserStackCFI(MachineInstr &MI, const C166InstrInfo &TII,
 
   const MCRegisterInfo *MRI = MF.getContext().getRegisterInfo();
   const TargetFrameLowering *TFI = MF.getSubtarget().getFrameLowering();
+  // Dynamic frames use a stable frame register. Their unwind expressions do
+  // not change when R0 moves for an allocation or an outgoing call area.
+  if (TFI->hasFP(MF))
+    return;
   const uint64_t FixedOffset = MF.getFrameInfo().getStackSize();
   const unsigned DwarfR0 = MRI->getDwarfRegNum(C166::R0, true);
   C166CFI::build(
