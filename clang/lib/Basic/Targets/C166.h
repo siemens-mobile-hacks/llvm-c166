@@ -91,7 +91,9 @@ public:
   uint64_t getPointerWidthV(LangAS AddrSpace) const override {
     unsigned TargetAS = getTargetAddressSpace(AddrSpace);
     return TargetAS == llvm::C166::NearAddressSpace ||
-                   TargetAS == llvm::C166::XNearDataAddressSpace
+                   TargetAS == llvm::C166::XNearDataAddressSpace ||
+                   TargetAS == llvm::C166::SFRAddressSpace ||
+                   TargetAS == llvm::C166::ESFRAddressSpace
                ? 16
                : 32;
   }

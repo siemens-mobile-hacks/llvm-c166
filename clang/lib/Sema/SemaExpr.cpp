@@ -15061,6 +15061,12 @@ QualType Sema::CheckAddressOfOperand(ExprResult &OrigOp, SourceLocation OpLoc) {
   }
   ValueDecl *dcl = getPrimaryDecl(op);
 
+  if (const auto *VD = dyn_cast_or_null<VarDecl>(dcl);
+      VD && VD->hasAttr<C166SFRBitAttr>()) {
+    Diag(OpLoc, diag::err_c166_sfrbit_address_of);
+    return QualType();
+  }
+
   if (auto *FD = dyn_cast_or_null<FunctionDecl>(dcl))
     if (!checkAddressOfFunctionIsAvailable(FD, /*Complain=*/true,
                                            op->getBeginLoc()))

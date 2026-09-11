@@ -152,7 +152,9 @@ static void diagnoseBadTypeAttribute(Sema &S, const ParsedAttr &attr,
   case ParsedAttr::AT_C166Near:                                                \
   case ParsedAttr::AT_C166XNear:                                               \
   case ParsedAttr::AT_C166Huge:                                                \
-  case ParsedAttr::AT_C166SHuge
+  case ParsedAttr::AT_C166SHuge:                                               \
+  case ParsedAttr::AT_C166SFR:                                                 \
+  case ParsedAttr::AT_C166ESFR
 
 #define C166_FUNCTION_ADDRESS_ATTRS_CASELIST                                   \
   case ParsedAttr::AT_C166Near:                                                \

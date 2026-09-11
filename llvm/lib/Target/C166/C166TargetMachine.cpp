@@ -30,6 +30,7 @@ extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void LLVMInitializeC166Target() {
   initializeC166FarPointerLoweringPass(PR);
   initializeC166F64LoweringPass(PR);
   initializeC166FloatMemoryLoweringPass(PR);
+  initializeC166SFRBitfieldLoweringPass(PR);
   initializeC166UnsupportedFeaturesPass(PR);
   initializeC166ArgumentLoadSinkingPass(PR);
   initializeC166PostISelPass(PR);
@@ -119,6 +120,15 @@ public:
                               : PreservedAnalyses::all();
   }
 };
+
+class C166SFRBitfieldEarlyPass
+    : public OptionalPassInfoMixin<C166SFRBitfieldEarlyPass> {
+public:
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &) {
+    return lowerC166SFRBitfields(F) ? PreservedAnalyses::none()
+                                    : PreservedAnalyses::all();
+  }
+};
 } // namespace
 
 void C166TargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
@@ -143,6 +153,7 @@ void C166TargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
         // later optimization passes.
         MPM.addPass(C166FloatMemoryEarlyPass());
         FunctionPassManager FPM;
+        FPM.addPass(C166SFRBitfieldEarlyPass());
         FPM.addPass(C166FarPointerEarlyPass());
         MPM.addPass(createModuleToFunctionPassAdaptor(std::move(FPM)));
       });
@@ -165,6 +176,7 @@ public:
     addPass(createC166AtomicLoweringPass());
     addPass(createC166F64LoweringPass());
     addPass(createC166FloatMemoryLoweringPass());
+    addPass(createC166SFRBitfieldLoweringPass());
     // Keep the generic pass as a structural safety net for any future atomic
     // IR operation which the target-local lowering does not recognize.
     addPass(createAtomicExpandLegacyPass());

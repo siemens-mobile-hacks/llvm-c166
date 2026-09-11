@@ -76,6 +76,50 @@ or a long memory address. For example, `mov r4, sfr(control)` encodes a long
 source address (`0xfe00 + 2 * control`), which is not redirected by `EXTR`.
 This syntax does not imply that a particular device implements the register.
 
+## Special-Function Registers in C
+
+Clang defines `__near`, `__xnear`, `__far`, `__huge`, `__shuge`, `__sfr`, and
+`__esfr` as named aliases for the corresponding C166 address-space attributes.
+Device headers can use the register qualifiers with physical byte addresses:
+
+```c
+typedef unsigned short u16;
+
+typedef union {
+  u16 value;
+  struct {
+    unsigned reserved0 : 11;
+    unsigned ien : 1;
+    unsigned reserved1 : 4;
+  };
+} psw_type;
+
+#define PSW (*(volatile __sfr psw_type *)0xff10U)
+```
+
+Pointers into either address space are 16 bits wide. A volatile one-bit field
+assignment to a bit-addressable SFR is lowered to the corresponding `BSET`,
+`BCLR`, or `BMOV` instruction. ESFR bit updates include the required `EXTR`
+prefix. Word accesses use direct physical addresses. SFR addresses must be
+even and lie in `0xfe00..0xffde`; ESFR addresses must be even and lie in
+`0xf000..0xf1de`. Only their upper halves (`0xff00..0xffde` and
+`0xf100..0xf1de`) support architectural bit instructions; bit-field accesses
+outside those ranges retain ordinary volatile read-modify-write semantics.
+
+An individual bit can instead be declared without defining a union:
+
+```c
+extern unsigned int IEN __attribute__((c166_sfrbit(0xff10, 11)));
+extern unsigned int T7IR __attribute__((c166_esfrbit(0xf17a, 7)));
+```
+
+These attributes are valid only on external `unsigned int` declarations. The
+first argument is an even physical address in the bit-addressable upper half
+of the corresponding register area, and the second is a bit number from 0 to
+15. A read produces zero or one. Assigning zero clears the bit and assigning
+any nonzero value sets it. Accesses are implicitly volatile, the declarations
+allocate no storage, and their addresses cannot be taken.
+
 ## Large, Medium, and Small C ABI
 
 The data model has 8-bit `char`, 16-bit `short` and `int`, 32-bit `long`, and
@@ -117,9 +161,9 @@ the ordinary direct or `__icall` path. Banked functions always reserve a
 hidden two-byte bank word at `[R0]`, so their first public stack argument is at
 `[R0+2]` regardless of the dynamic route.
 
-Clang spells the data-address classes as the type attributes
-`c166_near`, `c166_xnear`, `c166_far`, `c166_huge`, and `c166_shuge`. For
-example, `unsigned char __attribute__((c166_near)) *` is a near data pointer.
+The underlying data-address class attributes are `c166_near`, `c166_xnear`,
+`c166_far`, `c166_huge`, and `c166_shuge`. For example,
+`unsigned char __near *` is a near data pointer.
 `c166_near` and `c166_xnear` pointers are 16-bit values addressed through
 DPP2 and DPP1 respectively, and therefore use one ABI word. `c166_far` is the
 default Large data-pointer representation described above. `c166_huge` and

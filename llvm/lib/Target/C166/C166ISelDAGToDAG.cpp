@@ -316,6 +316,31 @@ class C166DAGToDAGISel : public SelectionDAGISel {
     Offset = CurDAG->getTargetConstant(Displacement, SDLoc(Address), MVT::i16);
   }
 
+  static bool isSFRAddressSpace(unsigned AddressSpace) {
+    return AddressSpace == C166::SFRAddressSpace ||
+           AddressSpace == C166::ESFRAddressSpace;
+  }
+
+  static bool getSFRPhysicalAddress(SDValue Pointer, unsigned AddressSpace,
+                                    uint16_t &Address) {
+    auto *Constant = dyn_cast<ConstantSDNode>(Pointer);
+    if (!Constant || !Constant->getAPIntValue().isIntN(16))
+      return false;
+    Address = static_cast<uint16_t>(Constant->getZExtValue());
+    uint16_t Base = AddressSpace == C166::ESFRAddressSpace ? 0xf000 : 0xfe00;
+    return Address >= Base && Address <= Base + 2 * 0xef &&
+           ((Address - Base) & 1) == 0;
+  }
+
+  static unsigned getSFRBitAddress(uint16_t Address, bool IsESFR,
+                                   unsigned Bit) {
+    uint16_t Base = IsESFR ? 0xf000 : 0xfe00;
+    unsigned Word = (Address - Base) / 2;
+    assert(Word >= 0x80 && Word <= 0xef && Bit < 16 &&
+           "invalid C166 bit-addressable SFR");
+    return (Word << 4) | Bit;
+  }
+
   SDValue extendWordToI32(SDLoc DL, SDValue Low, bool IsSigned) {
     return SDValue(
         CurDAG->getMachineNode(IsSigned ? C166::SEXT16_32 : C166::ZEXT16_32, DL,
@@ -678,6 +703,104 @@ public:
     if (Node->isMachineOpcode()) {
       Node->setNodeId(-1);
       return;
+    }
+
+    if (Node->getOpcode() == ISD::INTRINSIC_VOID &&
+        isa<ConstantSDNode>(Node->getOperand(1)) &&
+        cast<ConstantSDNode>(Node->getOperand(1))->getZExtValue() ==
+            Intrinsic::c166_sfr_bit_write) {
+      auto *Address = cast<ConstantSDNode>(Node->getOperand(2));
+      auto *Bit = cast<ConstantSDNode>(Node->getOperand(3));
+      auto *IsESFR = cast<ConstantSDNode>(Node->getOperand(5));
+      bool Extended = IsESFR->isOne();
+      unsigned BitAddress =
+          getSFRBitAddress(static_cast<uint16_t>(Address->getZExtValue()),
+                           Extended, Bit->getZExtValue());
+      SDLoc DL(Node);
+      SDValue Chain = Node->getOperand(0);
+      SDValue TargetAddress =
+          CurDAG->getTargetConstant(BitAddress, DL, MVT::i16);
+      SDValue Value = Node->getOperand(4);
+      if (auto *Constant = dyn_cast<ConstantSDNode>(Value);
+          Constant && Constant->getZExtValue() <= 1) {
+        unsigned Opcode = Constant->isZero()
+                              ? (Extended ? C166::BCLResfr : C166::BCLR)
+                              : (Extended ? C166::BSETesfr : C166::BSET);
+        ReplaceNode(Node, CurDAG->getMachineNode(Opcode, DL, MVT::Other,
+                                                 TargetAddress, Chain));
+      } else {
+        SDValue SourceBit = CurDAG->getTargetConstant(0, DL, MVT::i16);
+        unsigned Opcode = Extended ? C166::BMOVesfrreg : C166::BMOVsfrreg;
+        SDValue Operands[] = {TargetAddress, Value, SourceBit, Chain};
+        ReplaceNode(
+            Node, CurDAG->getMachineNode(Opcode, DL, MVT::Other, Operands));
+      }
+      return;
+    }
+
+    if (Node->getOpcode() == ISD::INTRINSIC_W_CHAIN &&
+        isa<ConstantSDNode>(Node->getOperand(1)) &&
+        cast<ConstantSDNode>(Node->getOperand(1))->getZExtValue() ==
+            Intrinsic::c166_sfr_bit_read) {
+      auto *Address = cast<ConstantSDNode>(Node->getOperand(2));
+      auto *Bit = cast<ConstantSDNode>(Node->getOperand(3));
+      auto *IsESFR = cast<ConstantSDNode>(Node->getOperand(4));
+      bool Extended = IsESFR->isOne();
+      unsigned BitAddress =
+          getSFRBitAddress(static_cast<uint16_t>(Address->getZExtValue()),
+                           Extended, Bit->getZExtValue());
+      SDLoc DL(Node);
+      SDValue Zero = SDValue(CurDAG->getMachineNode(
+                                 C166::MOVri4, DL, MVT::i16,
+                                 CurDAG->getTargetConstant(0, DL, MVT::i16)),
+                             0);
+      SDValue Operands[] = {
+          Zero, CurDAG->getTargetConstant(0, DL, MVT::i16),
+          CurDAG->getTargetConstant(BitAddress, DL, MVT::i16),
+          Node->getOperand(0)};
+      unsigned Opcode = Extended ? C166::BMOVregesfr : C166::BMOVregsfr;
+      ReplaceNode(Node, CurDAG->getMachineNode(Opcode, DL,
+                                               {MVT::i16, MVT::Other},
+                                               Operands));
+      return;
+    }
+
+    if (auto *Load = dyn_cast<LoadSDNode>(Node);
+        Load && Load->getExtensionType() == ISD::NON_EXTLOAD &&
+        Load->getMemoryVT() == MVT::i16 && Load->getValueType(0) == MVT::i16 &&
+        isSFRAddressSpace(Load->getAddressSpace())) {
+      uint16_t Address;
+      if (getSFRPhysicalAddress(Load->getBasePtr(), Load->getAddressSpace(),
+                                Address)) {
+        SDValue TargetAddress =
+            CurDAG->getTargetConstant(Address, SDLoc(Node), MVT::i16);
+        SDNode *Selected =
+            CurDAG->getMachineNode(C166::MOVabsgd, SDLoc(Node), MVT::i16,
+                                   MVT::Other, TargetAddress, Load->getChain());
+        CurDAG->setNodeMemRefs(cast<MachineSDNode>(Selected),
+                               {Load->getMemOperand()});
+        ReplaceNode(Node, Selected);
+        return;
+      }
+    }
+
+    if (auto *Store = dyn_cast<StoreSDNode>(Node);
+        Store && !Store->isTruncatingStore() &&
+        Store->getMemoryVT() == MVT::i16 &&
+        isSFRAddressSpace(Store->getAddressSpace())) {
+      uint16_t Address;
+      if (getSFRPhysicalAddress(Store->getBasePtr(), Store->getAddressSpace(),
+                                Address)) {
+        SDValue TargetAddress =
+            CurDAG->getTargetConstant(Address, SDLoc(Node), MVT::i16);
+        SDNode *Selected = CurDAG->getMachineNode(
+            C166::MOVabsdg, SDLoc(Node), MVT::Other, TargetAddress,
+            Store->getValue(), Store->getChain());
+        CurDAG->setNodeMemRefs(cast<MachineSDNode>(Selected),
+                               {Store->getMemOperand()});
+        ReplaceNode(Node, Selected);
+        return;
+      }
     }
 
     if (selectShiftedSignMask(Node))

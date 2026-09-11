@@ -3626,6 +3626,25 @@ def C166SHuge : DeclOrTypeAttr, TargetSpecificAttr<TargetC166> {
   let Documentation = [C166SHugeDocs];
 }
 
+def C166SFR : DeclOrTypeAttr, TargetSpecificAttr<TargetC166> {
+  let Spellings = [Clang<"c166_sfr">];
+  let Documentation = [C166SFRDocs];
+}
+
+def C166ESFR : DeclOrTypeAttr, TargetSpecificAttr<TargetC166> {
+  let Spellings = [Clang<"c166_esfr">];
+  let Documentation = [C166ESFRDocs];
+}
+
+def C166SFRBit : InheritableAttr, TargetSpecificAttr<TargetC166> {
+  let Spellings = [Clang<"c166_sfrbit">, Clang<"c166_esfrbit">];
+  let Accessors = [Accessor<"isSFR", [Clang<"c166_sfrbit">]>,
+                   Accessor<"isESFR", [Clang<"c166_esfrbit">]>];
+  let Subjects = SubjectList<[ExternalGlobalVar], ErrorDiag>;
+  let Args = [UnsignedArgument<"Address">, UnsignedArgument<"Bit">];
+  let Documentation = [C166SFRBitDocs];
+}
+
 def C166Interrupt : InheritableAttr, TargetSpecificAttr<TargetC166> {
   let Spellings = [GCC<"interrupt">];
   let Subjects = SubjectList<[Function], ErrorDiag>;

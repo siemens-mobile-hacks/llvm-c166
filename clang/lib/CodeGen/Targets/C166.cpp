@@ -14,6 +14,8 @@
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
+#include "llvm/IR/Instructions.h"
+#include "llvm/IR/Metadata.h"
 #include "llvm/TargetParser/C166TargetParser.h"
 
 using namespace clang;
@@ -76,6 +78,22 @@ public:
 
   void setTargetAttributes(const Decl *D, llvm::GlobalValue *GV,
                            CodeGenModule &CGM) const override {
+    if (const auto *VD = dyn_cast_or_null<VarDecl>(D)) {
+      if (const auto *Bit = VD->getAttr<C166SFRBitAttr>()) {
+        llvm::LLVMContext &Ctx = CGM.getLLVMContext();
+        auto Int = [&](unsigned Value) {
+          return llvm::ConstantAsMetadata::get(
+              llvm::ConstantInt::get(llvm::Type::getInt16Ty(Ctx), Value));
+        };
+        auto Extended = llvm::ConstantAsMetadata::get(
+            llvm::ConstantInt::get(llvm::Type::getInt1Ty(Ctx), Bit->isESFR()));
+        cast<llvm::GlobalVariable>(GV)->setMetadata(
+            llvm::C166::SFRBitMetadataName,
+            llvm::MDNode::get(Ctx, {Int(Bit->getAddress()), Int(Bit->getBit()),
+                                    Extended}));
+      }
+    }
+
     if (GV->isDeclaration())
       return;
     const auto *FD = dyn_cast_or_null<FunctionDecl>(D);
@@ -112,10 +130,24 @@ public:
     }
   }
 
+  bool isTargetDeclVolatile(const VarDecl *D) const override {
+    return D->hasAttr<C166SFRBitAttr>();
+  }
+
   unsigned getDwarfCallingConvention(const Decl *D,
                                      unsigned DefaultCC) const override {
     const auto *FD = dyn_cast_or_null<FunctionDecl>(D);
     return FD && FD->hasAttr<C166InterruptAttr>() ? 0x65 : DefaultCC;
+  }
+
+  void setTargetBitFieldStoreMetadata(CodeGenFunction &CGF,
+                                      llvm::StoreInst &Store) const override {
+    unsigned AddressSpace = Store.getPointerAddressSpace();
+    if (AddressSpace != llvm::C166::SFRAddressSpace &&
+        AddressSpace != llvm::C166::ESFRAddressSpace)
+      return;
+    Store.setMetadata(llvm::C166::SFRBitfieldMetadataName,
+                      llvm::MDNode::get(CGF.getLLVMContext(), {}));
   }
 };
 

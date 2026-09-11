@@ -28,6 +28,7 @@
 namespace llvm {
 class Constant;
 class GlobalValue;
+class StoreInst;
 class Type;
 class Value;
 }
@@ -35,6 +36,7 @@ class Value;
 namespace clang {
 class CXXRecordDecl;
 class Decl;
+class VarDecl;
 
 /// Collapses a clang sync scope onto the target-neutral llvm::AtomicScope.
 inline llvm::AtomicScope getAtomicScope(SyncScope S) {
@@ -112,6 +114,10 @@ public:
   /// target-specific attributes for the given global.
   virtual void setTargetAttributes(const Decl *D, llvm::GlobalValue *GV,
                                    CodeGen::CodeGenModule &M) const {}
+
+  /// Return whether accesses to this declaration have target-defined volatile
+  /// semantics even though volatile is not part of its C type.
+  virtual bool isTargetDeclVolatile(const VarDecl *D) const { return false; }
 
   /// Let targets override a declaration's DWARF calling convention when it
   /// is selected by a declaration attribute rather than by the function type.
@@ -383,6 +389,10 @@ public:
                                        llvm::Instruction &AtomicInst,
                                        const AtomicExpr *Expr = nullptr) const {
   }
+
+  /// Allow a target to identify stores produced for C bit-field assignments.
+  virtual void setTargetBitFieldStoreMetadata(CodeGenFunction &CGF,
+                                               llvm::StoreInst &Store) const {}
 
   /// Interface class for filling custom fields of a block literal for OpenCL.
   class TargetOpenCLBlockHelper {

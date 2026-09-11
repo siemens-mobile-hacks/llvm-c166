@@ -2999,6 +2999,8 @@ static bool mergeDeclAttribute(Sema &S, NamedDecl *D,
     NewAttr = S.mergeBTFDeclTagAttr(D, *BTFA);
   else if (const auto *CBA = dyn_cast<C166RegisterBankAttr>(Attr))
     NewAttr = S.C166().mergeRegisterBankAttr(D, *CBA);
+  else if (const auto *SBA = dyn_cast<C166SFRBitAttr>(Attr))
+    NewAttr = S.C166().mergeSFRBitAttr(D, *SBA);
   else if (const auto *NT = dyn_cast<HLSLNumThreadsAttr>(Attr))
     NewAttr = S.HLSL().mergeNumThreadsAttr(D, *NT, NT->getX(), NT->getY(),
                                            NT->getZ());
@@ -14095,6 +14097,12 @@ void Sema::AddInitializerToDecl(Decl *RealDecl, Expr *Init, bool DirectInit) {
     assert(!isa<FieldDecl>(RealDecl) && "field init shouldn't get here");
     Diag(RealDecl->getLocation(), diag::err_illegal_initializer);
     RealDecl->setInvalidDecl();
+    return;
+  }
+
+  if (const auto *Bit = VDecl->getAttr<C166SFRBitAttr>()) {
+    Diag(Bit->getLocation(), diag::err_c166_sfrbit_type) << Bit;
+    VDecl->setInvalidDecl();
     return;
   }
 

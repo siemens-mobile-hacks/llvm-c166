@@ -1100,6 +1100,57 @@ def BANDreg : C166RegisterBitBinaryUpdate;
 def BORreg : C166RegisterBitBinaryUpdate;
 def BXORreg : C166RegisterBitBinaryUpdate;
 
+def BMOVsfrreg : C166Pseudo<(outs),
+                            (ins bit_address:$dst, GR16:$src,
+                                 uimm4:$src_bit)> {
+  let Size = 4;
+  let Defs = [PSW, C];
+  let mayLoad = 1;
+  let mayStore = 1;
+  let hasSideEffects = 1;
+}
+
+def BMOVregsfr : C166Pseudo<(outs GR16:$dst),
+                            (ins GR16:$old_dst, uimm4:$dst_bit,
+                                 bit_address:$src)> {
+  let Constraints = "$dst = $old_dst";
+  let Size = 4;
+  let Defs = [PSW, C];
+  let mayLoad = 1;
+  let hasSideEffects = 1;
+}
+
+class C166ESFRBitUpdate : C166Pseudo<(outs), (ins bit_address:$address)> {
+  let Size = 4;
+  let Defs = [PSW, C];
+  let mayLoad = 1;
+  let mayStore = 1;
+  let hasSideEffects = 1;
+}
+
+def BCLResfr : C166ESFRBitUpdate;
+def BSETesfr : C166ESFRBitUpdate;
+
+def BMOVesfrreg : C166Pseudo<(outs),
+                             (ins bit_address:$dst, GR16:$src,
+                                  uimm4:$src_bit)> {
+  let Size = 6;
+  let Defs = [PSW, C];
+  let mayLoad = 1;
+  let mayStore = 1;
+  let hasSideEffects = 1;
+}
+
+def BMOVregesfr : C166Pseudo<(outs GR16:$dst),
+                             (ins GR16:$old_dst, uimm4:$dst_bit,
+                                  bit_address:$src)> {
+  let Constraints = "$dst = $old_dst";
+  let Size = 6;
+  let Defs = [PSW, C];
+  let mayLoad = 1;
+  let hasSideEffects = 1;
+}
+
 def BMOVPSWreg : C166Pseudo<(outs GR16:$dst),
                              (ins GR16:$old_dst, uimm4:$dst_bit,
                                   uimm4:$psw_bit)> {

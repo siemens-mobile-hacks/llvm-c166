@@ -451,6 +451,14 @@ def err_c166_xnear_memory_model : Error<
   "'c166_xnear' is only available in the Medium and Large memory models">;
 def err_c166_register_bank_requires_interrupt : Error<
   "'c166_register_bank' attribute requires a C166 interrupt handler">;
+def err_c166_sfrbit_type : Error<
+  "%0 attribute requires an external 'unsigned int' declaration without an initializer">;
+def err_c166_sfrbit_address : Error<
+  "%0 attribute address must be an even value in the bit-addressable range %1 to %2">;
+def err_c166_sfrbit_bit : Error<
+  "%0 attribute bit number must be in the range 0 to 15">;
+def err_c166_sfrbit_address_of : Error<
+  "cannot take the address of a C166 special-function register bit">;
 def warn_interrupt_signal_attribute_invalid
     : Warning<"%select{MIPS|MSP430|RISC-V|AVR}0 '%select{interrupt|signal}1' "
               "attribute only applies to functions that have "

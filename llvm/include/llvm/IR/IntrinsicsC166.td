@@ -57,6 +57,22 @@ let TargetPrefix = "c166" in {
                                     [IntrNoMem, IntrSpeculatable,
                                      IntrWillReturn, ImmArg<ArgIndex<0>>]>;
 
+  // Update one bit in the architectural SFR or ESFR address space. The
+  // address and bit are immediate physical coordinates; the final immediate
+  // selects ESFR addressing. It remains side-effecting through optimization.
+  def int_c166_sfr_bit_write
+      : Intrinsic<[], [llvm_i16_ty, llvm_i16_ty, llvm_i16_ty, llvm_i1_ty],
+                  [IntrHasSideEffects, IntrWillReturn,
+                   ImmArg<ArgIndex<0>>, ImmArg<ArgIndex<1>>,
+                   ImmArg<ArgIndex<3>>]>;
+
+  // Read one directly addressable SFR or ESFR bit and return zero or one.
+  def int_c166_sfr_bit_read
+      : Intrinsic<[llvm_i16_ty], [llvm_i16_ty, llvm_i16_ty, llvm_i1_ty],
+                  [IntrHasSideEffects, IntrWillReturn,
+                   ImmArg<ArgIndex<0>>, ImmArg<ArgIndex<1>>,
+                   ImmArg<ArgIndex<2>>]>;
+
   // Execute the architectural unsigned 32-by-16 division. The low result
   // word is the quotient and the high result word is the remainder.
   def int_c166_divlu : Intrinsic<[llvm_i32_ty], [llvm_i32_ty, llvm_i16_ty],

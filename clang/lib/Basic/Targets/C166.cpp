@@ -88,6 +88,13 @@ void C166TargetInfo::getTargetDefines(const LangOptions &Opts,
                                       MacroBuilder &Builder) const {
   Builder.defineMacro("__c166__");
   Builder.defineMacro("__C166__");
+  Builder.defineMacro("__near", "__attribute__((c166_near))");
+  Builder.defineMacro("__xnear", "__attribute__((c166_xnear))");
+  Builder.defineMacro("__far", "__attribute__((c166_far))");
+  Builder.defineMacro("__huge", "__attribute__((c166_huge))");
+  Builder.defineMacro("__shuge", "__attribute__((c166_shuge))");
+  Builder.defineMacro("__sfr", "__attribute__((c166_sfr))");
+  Builder.defineMacro("__esfr", "__attribute__((c166_esfr))");
 
   Builder.defineMacro("__C166_MEMORY_MODEL__", IsMediumModel  ? "2"
                                                : IsSmallModel ? "3"

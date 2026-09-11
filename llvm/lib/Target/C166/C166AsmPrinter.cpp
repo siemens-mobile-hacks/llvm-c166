@@ -220,6 +220,8 @@ public:
         MI->getOpcode() == C166::BANDreg || MI->getOpcode() == C166::BORreg ||
         MI->getOpcode() == C166::BXORreg;
     const bool IsPSWBitMove = MI->getOpcode() == C166::BMOVPSWreg;
+    const bool IsSFRBitWrite = MI->getOpcode() == C166::BMOVsfrreg;
+    const bool IsSFRBitRead = MI->getOpcode() == C166::BMOVregsfr;
     const bool IsRegisterBitCompare = MI->getOpcode() == C166::BCMPreg;
     unsigned MCOpcode = MI->getOpcode();
     if (IsRegisterBitBranch)
@@ -228,10 +230,13 @@ public:
       MCOpcode = MI->getOpcode() == C166::BCLRreg ? C166::BCLR : C166::BSET;
     else if (IsRegisterBitFieldUpdate)
       MCOpcode = MI->getOpcode() == C166::BFLDLreg ? C166::BFLDL : C166::BFLDH;
-    else if (IsRegisterBitBinary || IsPSWBitMove) {
+    else if (IsRegisterBitBinary || IsPSWBitMove || IsSFRBitWrite ||
+             IsSFRBitRead) {
       switch (MI->getOpcode()) {
       case C166::BMOVreg:
       case C166::BMOVPSWreg:
+      case C166::BMOVsfrreg:
+      case C166::BMOVregsfr:
         MCOpcode = C166::BMOV;
         break;
       case C166::BMOVNreg:
@@ -310,7 +315,8 @@ public:
       return C166::S_None;
     };
     unsigned FirstOperand = 0;
-    if (IsRegisterBitBinary || IsRegisterBitCompare || IsPSWBitMove) {
+    if (IsRegisterBitBinary || IsRegisterBitCompare || IsPSWBitMove ||
+        IsSFRBitWrite || IsSFRBitRead) {
       const MCRegisterInfo *MRI = OutContext.getRegisterInfo();
       auto AddBitAddress = [&](unsigned RegisterOperand, unsigned BitOperand) {
         unsigned WordAddress =
@@ -328,6 +334,17 @@ public:
         unsigned WordAddress = MRI->getEncodingValue(C166::PSW);
         unsigned Bit = MI->getOperand(3).getImm();
         Out.addOperand(MCOperand::createImm((WordAddress << 4) | Bit));
+        FirstOperand = 4;
+      } else if (IsSFRBitWrite) {
+        Out.addOperand(MCOperand::createImm(MI->getOperand(0).getImm()));
+        unsigned WordAddress =
+            0xf0 | MRI->getEncodingValue(MI->getOperand(1).getReg());
+        unsigned Bit = MI->getOperand(2).getImm();
+        Out.addOperand(MCOperand::createImm((WordAddress << 4) | Bit));
+        FirstOperand = 3;
+      } else if (IsSFRBitRead) {
+        AddBitAddress(1, 2);
+        Out.addOperand(MCOperand::createImm(MI->getOperand(3).getImm()));
         FirstOperand = 4;
       } else {
         AddBitAddress(0, 2);

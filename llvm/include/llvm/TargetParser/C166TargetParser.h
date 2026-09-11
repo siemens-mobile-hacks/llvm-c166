@@ -22,20 +22,27 @@ inline constexpr unsigned NearAddressSpace = 3;
 inline constexpr unsigned XNearDataAddressSpace = 4;
 inline constexpr unsigned HugeDataAddressSpace = 5;
 inline constexpr unsigned SHugeDataAddressSpace = 6;
+inline constexpr unsigned SFRAddressSpace = 7;
+inline constexpr unsigned ESFRAddressSpace = 8;
+inline constexpr StringLiteral SFRBitfieldMetadataName = "c166.sfr.bitfield";
+inline constexpr StringLiteral SFRBitMetadataName = "c166.sfr.bit";
 
 inline StringRef getDataLayout(MemoryModel Model) {
   switch (Model) {
   case MemoryModel::Large:
     return "e-m:u-P1-G2-A2-p:32:16-p1:32:16-p2:32:16:16:32-p3:16:16-"
-           "p4:16:16-p5:32:16:16:32-p6:32:16:16:32-i32:16-i64:16-"
+           "p4:16:16-p5:32:16:16:32-p6:32:16:16:32-p7:16:16-p8:16:16-"
+           "i32:16-i64:16-"
            "f32:16-f64:16-a:0:16-n8:16-S16-ni:2";
   case MemoryModel::Medium:
     return "e-m:u-P3-G2-A2-p:32:16-p1:32:16-p2:32:16:16:32-p3:16:16-"
-           "p4:16:16-p5:32:16:16:32-p6:32:16:16:32-i32:16-i64:16-"
+           "p4:16:16-p5:32:16:16:32-p6:32:16:16:32-p7:16:16-p8:16:16-"
+           "i32:16-i64:16-"
            "f32:16-f64:16-a:0:16-n8:16-S16-ni:2";
   case MemoryModel::Small:
     return "e-m:u-P1-G3-A3-p:32:16-p1:32:16-p2:32:16:16:32-p3:16:16-"
-           "p4:16:16-p5:32:16:16:32-p6:32:16:16:32-i32:16-i64:16-"
+           "p4:16:16-p5:32:16:16:32-p6:32:16:16:32-p7:16:16-p8:16:16-"
+           "i32:16-i64:16-"
            "f32:16-f64:16-a:0:16-n8:16-S16-ni:2";
   }
   llvm_unreachable("invalid C166 memory model");

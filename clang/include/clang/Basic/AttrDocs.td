@@ -3958,6 +3958,43 @@ representation.  The attribute cannot be applied to a function type.
   }];
 }
 
+def C166SFRDocs : Documentation {
+  let Category = DocCatType;
+  let Content = [{
+On C166 targets, ``c166_sfr`` qualifies an object in the special-function
+register address space. Pointers to qualified objects are 16 bits wide.
+Volatile accesses use the architectural SFR instruction forms.
+  }];
+}
+
+def C166ESFRDocs : Documentation {
+  let Category = DocCatType;
+  let Content = [{
+On C166 targets, ``c166_esfr`` qualifies an object in the extended
+special-function register address space. Pointers to qualified objects are
+16 bits wide. Volatile bit accesses use an ``EXTR`` sequence.
+  }];
+}
+
+def C166SFRBitDocs : Documentation {
+  let Category = DocCatVariable;
+  let Content = [{
+On C166 targets, ``c166_sfrbit(address, bit)`` and
+``c166_esfrbit(address, bit)`` declare an external unsigned integer as a
+directly addressable bit in the SFR or ESFR area. The address is the physical
+word address and the bit number is in the range 0 through 15. For example:
+
+.. code-block:: c
+
+  extern unsigned int IEN __attribute__((c166_sfrbit(0xff10, 11)));
+  extern unsigned int T7IR __attribute__((c166_esfrbit(0xf17a, 7)));
+
+Reads produce zero or one. Assigning zero clears the bit and assigning a
+nonzero value sets it. Accesses are volatile, no storage is allocated for the
+declaration, and its address cannot be taken.
+  }];
+}
+
 def C166RegisterBankDocs : Documentation {
   let Category = DocCatCallingConvs;
   let Content = [{

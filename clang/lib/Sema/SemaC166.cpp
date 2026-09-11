@@ -171,6 +171,14 @@ SemaC166::handleDataAddressAttr(QualType Type, ParsedAttr &AL) {
     TargetAS = llvm::C166::SHugeDataAddressSpace;
     TypeAttr = ::new (getASTContext()) C166SHugeAttr(getASTContext(), AL);
     break;
+  case ParsedAttr::AT_C166SFR:
+    TargetAS = llvm::C166::SFRAddressSpace;
+    TypeAttr = ::new (getASTContext()) C166SFRAttr(getASTContext(), AL);
+    break;
+  case ParsedAttr::AT_C166ESFR:
+    TargetAS = llvm::C166::ESFRAddressSpace;
+    TypeAttr = ::new (getASTContext()) C166ESFRAttr(getASTContext(), AL);
+    break;
   default:
     llvm_unreachable("not a C166 data address-class attribute");
   }
@@ -270,6 +278,53 @@ void SemaC166::handleRegisterBankAttr(Decl *D, const ParsedAttr &AL) {
                   C166RegisterBankAttr(getASTContext(), AL, Name));
 }
 
+void SemaC166::handleSFRBitAttr(Decl *D, const ParsedAttr &AL) {
+  if (!AL.diagnoseAppertainsTo(SemaRef, D) ||
+      !AL.checkExactlyNumArgs(SemaRef, 2))
+    return;
+
+  auto *VD = cast<VarDecl>(D);
+  if (!VD->hasExternalStorage() || VD->hasInit() ||
+      VD->getType().getUnqualifiedType() != getASTContext().UnsignedIntTy) {
+    Diag(AL.getLoc(), diag::err_c166_sfrbit_type) << AL;
+    return;
+  }
+
+  uint32_t Address;
+  uint32_t Bit;
+  if (!SemaRef.checkUInt32Argument(AL, AL.getArgAsExpr(0), Address, 0) ||
+      !SemaRef.checkUInt32Argument(AL, AL.getArgAsExpr(1), Bit, 1))
+    return;
+
+  const bool IsESFR = AL.getAttrName()->getName() == "c166_esfrbit";
+  const uint32_t First = IsESFR ? 0xf100 : 0xff00;
+  const uint32_t Last = IsESFR ? 0xf1de : 0xffde;
+  if (Address < First || Address > Last || (Address & 1)) {
+    Diag(AL.getLoc(), diag::err_c166_sfrbit_address)
+        << AL << First << Last;
+    return;
+  }
+  if (Bit >= 16) {
+    Diag(AL.getLoc(), diag::err_c166_sfrbit_bit) << AL;
+    return;
+  }
+
+  if (const auto *Existing = VD->getAttr<C166SFRBitAttr>()) {
+    if (Existing->getAddress() != Address || Existing->getBit() != Bit ||
+        Existing->isESFR() != IsESFR) {
+      Diag(AL.getLoc(), diag::err_attributes_are_not_compatible)
+          << AL << Existing
+          << (AL.isRegularKeywordAttribute() ||
+              Existing->isRegularKeywordAttribute());
+      Diag(Existing->getLocation(), diag::note_conflicting_attribute);
+    }
+    return;
+  }
+
+  VD->addAttr(::new (getASTContext())
+                  C166SFRBitAttr(getASTContext(), AL, Address, Bit));
+}
+
 void SemaC166::checkRegisterBankAttr(Decl *D) {
   const auto *Bank = D->getAttr<C166RegisterBankAttr>();
   if (!Bank || D->hasAttr<C166InterruptAttr>())
@@ -282,6 +337,23 @@ C166RegisterBankAttr *
 SemaC166::mergeRegisterBankAttr(Decl *D, const C166RegisterBankAttr &AL) {
   if (const auto *Current = D->getAttr<C166RegisterBankAttr>()) {
     if (Current->getName() != AL.getName()) {
+      Diag(Current->getLocation(), diag::err_attributes_are_not_compatible)
+          << Current << &AL
+          << (Current->isRegularKeywordAttribute() ||
+              AL.isRegularKeywordAttribute());
+      Diag(AL.getLocation(), diag::note_conflicting_attribute);
+    }
+    return nullptr;
+  }
+  return AL.clone(getASTContext());
+}
+
+C166SFRBitAttr *SemaC166::mergeSFRBitAttr(Decl *D,
+                                          const C166SFRBitAttr &AL) {
+  if (const auto *Current = D->getAttr<C166SFRBitAttr>()) {
+    if (Current->getAddress() != AL.getAddress() ||
+        Current->getBit() != AL.getBit() ||
+        Current->isESFR() != AL.isESFR()) {
       Diag(Current->getLocation(), diag::err_attributes_are_not_compatible)
           << Current << &AL
           << (Current->isRegularKeywordAttribute() ||

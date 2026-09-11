@@ -36,6 +36,7 @@ add_llvm_target(C166CodeGen
   C166PostISel.cpp
   C166PostRA.cpp
   C166RegisterInfo.cpp
+  C166SFRBitfieldLowering.cpp
   C166SelectionDAGInfo.cpp
   C166Subtarget.cpp
   C166TargetMachine.cpp

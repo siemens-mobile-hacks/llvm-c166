@@ -1534,6 +1534,38 @@ bool C166InstrInfo::expandBranchPseudo(MachineInstr &MI) const {
 }
 
 bool C166InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
+  if (MI.getOpcode() == C166::BCLResfr ||
+      MI.getOpcode() == C166::BSETesfr ||
+      MI.getOpcode() == C166::BMOVesfrreg ||
+      MI.getOpcode() == C166::BMOVregesfr) {
+    MachineBasicBlock &MBB = *MI.getParent();
+    BuildMI(MBB, MI, MI.getDebugLoc(), get(C166::EXTR)).addImm(1);
+
+    MachineInstrBuilder Bit;
+    if (MI.getOpcode() == C166::BMOVesfrreg) {
+      Bit = BuildMI(MBB, MI, MI.getDebugLoc(), get(C166::BMOVsfrreg))
+                .add(MI.getOperand(0))
+                .add(MI.getOperand(1))
+                .add(MI.getOperand(2));
+    } else if (MI.getOpcode() == C166::BMOVregesfr) {
+      Bit = BuildMI(MBB, MI, MI.getDebugLoc(), get(C166::BMOVregsfr))
+                .add(MI.getOperand(0))
+                .add(MI.getOperand(1))
+                .add(MI.getOperand(2))
+                .add(MI.getOperand(3));
+    } else {
+      unsigned Opcode =
+          MI.getOpcode() == C166::BCLResfr ? C166::BCLR : C166::BSET;
+      Bit = BuildMI(MBB, MI, MI.getDebugLoc(), get(Opcode))
+                .add(MI.getOperand(0));
+    }
+    Bit.cloneMemRefs(MI);
+    copyImplicitRegisterLiveness(*Bit, MI);
+    Bit->setFlags(MI.getFlags());
+    MI.eraseFromParent();
+    return true;
+  }
+
   if (expandBranchPseudo(MI))
     return true;
 

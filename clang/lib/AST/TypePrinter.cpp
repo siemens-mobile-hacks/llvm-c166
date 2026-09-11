@@ -2150,6 +2150,12 @@ void TypePrinter::printAttributedAfter(const AttributedType *T,
   case attr::C166SHuge:
     OS << "c166_shuge";
     break;
+  case attr::C166SFR:
+    OS << "c166_sfr";
+    break;
+  case attr::C166ESFR:
+    OS << "c166_esfr";
+    break;
   case attr::C166Bank:
     OS << "c166_bank(" << cast<C166BankAttr>(T->getAttr())->getNumber() << ')';
     break;

@@ -16,6 +16,7 @@
 
 namespace clang {
 class C166RegisterBankAttr;
+class C166SFRBitAttr;
 class ParsedAttr;
 
 class SemaC166 : public SemaBase {
@@ -36,9 +37,11 @@ public:
                                                             ParsedAttr &AL);
   void handleInterruptAttr(Decl *D, const ParsedAttr &AL);
   void handleRegisterBankAttr(Decl *D, const ParsedAttr &AL);
+  void handleSFRBitAttr(Decl *D, const ParsedAttr &AL);
   void checkRegisterBankAttr(Decl *D);
   C166RegisterBankAttr *mergeRegisterBankAttr(Decl *D,
                                               const C166RegisterBankAttr &AL);
+  C166SFRBitAttr *mergeSFRBitAttr(Decl *D, const C166SFRBitAttr &AL);
 };
 } // namespace clang
 

@@ -8176,6 +8176,9 @@ ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D, const ParsedAttr &AL,
   case ParsedAttr::AT_C166RegisterBank:
     S.C166().handleRegisterBankAttr(D, AL);
     break;
+  case ParsedAttr::AT_C166SFRBit:
+    S.C166().handleSFRBitAttr(D, AL);
+    break;
   case ParsedAttr::AT_DeviceKernel:
     handleDeviceKernelAttr(S, D, AL);
     break;

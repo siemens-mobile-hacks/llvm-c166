@@ -3108,6 +3108,7 @@ void CodeGenFunction::EmitStoreThroughBitfieldLValue(RValue Src, LValue Dst,
 
   // Write the new value back out.
   auto *I = Builder.CreateStore(SrcVal, Ptr, Dst.isVolatileQualified());
+  getTargetHooks().setTargetBitFieldStoreMetadata(*this, *I);
   addInstToCurrentSourceAtom(I, SrcVal);
 
   // Return the new value of the bit-field, if requested.
@@ -3504,6 +3505,8 @@ static LValue EmitGlobalVarDeclLValue(CodeGenFunction &CGF,
       CGF.EmitLoadOfReferenceLValue(Addr, VD->getType(),
                                     AlignmentSource::Decl) :
       CGF.MakeAddrLValue(Addr, T, AlignmentSource::Decl);
+  if (CGF.getTargetHooks().isTargetDeclVolatile(VD))
+    LV.getQuals().addVolatile();
   setObjCGCLValueClass(CGF.getContext(), E, LV);
   return LV;
 }
