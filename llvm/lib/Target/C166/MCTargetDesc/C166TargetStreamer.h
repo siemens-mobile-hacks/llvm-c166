@@ -10,7 +10,7 @@
 #define LLVM_LIB_TARGET_C166_MCTARGETDESC_C166TARGETSTREAMER_H
 
 #include "llvm/MC/MCStreamer.h"
-#include "llvm/Support/CodeGen.h"
+#include "llvm/TargetParser/C166TargetParser.h"
 
 namespace llvm {
 
@@ -31,7 +31,7 @@ class C166TargetStreamer : public MCTargetStreamer {
 public:
   explicit C166TargetStreamer(MCStreamer &S) : MCTargetStreamer(S) {}
 
-  virtual void emitMemoryModel(CodeModel::Model Model) {}
+  virtual void emitMemoryModel(C166::MemoryModel Model) {}
   virtual void emitFunctionClass(MCSymbol &Symbol, bool IsNear) {}
   virtual void emitDataClass(MCSymbol &Symbol, C166DataClass Class) {}
 };

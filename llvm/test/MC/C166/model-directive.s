@@ -6,10 +6,18 @@
 ; RUN: llvm-readobj --file-headers %t.medium.o | FileCheck %s --check-prefix=MEDIUM
 ; RUN: llvm-mc -filetype=obj -triple=c166-none-elf %t/small.s -o %t.small.o
 ; RUN: llvm-readobj --file-headers %t.small.o | FileCheck %s --check-prefix=SMALL
+; RUN: llvm-mc -filetype=obj -triple=c166-none-elf %t/tiny.s -o %t.tiny.o
+; RUN: llvm-readobj --file-headers %t.tiny.o | FileCheck %s --check-prefix=TINY
+; RUN: llvm-mc -filetype=obj -triple=c166-none-elf %t/huge.s -o %t.huge.o
+; RUN: llvm-readobj --file-headers %t.huge.o | FileCheck %s --check-prefix=HUGE
 ; RUN: llvm-mc -filetype=obj -triple=c166-none-elf -target-abi=medium %t/default.s -o %t.target-medium.o
 ; RUN: llvm-readobj --file-headers %t.target-medium.o | FileCheck %s --check-prefix=MEDIUM
 ; RUN: llvm-mc -filetype=obj -triple=c166-none-elf -target-abi=small %t/default.s -o %t.target-small.o
 ; RUN: llvm-readobj --file-headers %t.target-small.o | FileCheck %s --check-prefix=SMALL
+; RUN: llvm-mc -filetype=obj -triple=c166-none-elf -target-abi=tiny %t/default.s -o %t.target-tiny.o
+; RUN: llvm-readobj --file-headers %t.target-tiny.o | FileCheck %s --check-prefix=TINY
+; RUN: llvm-mc -filetype=obj -triple=c166-none-elf -target-abi=huge %t/default.s -o %t.target-huge.o
+; RUN: llvm-readobj --file-headers %t.target-huge.o | FileCheck %s --check-prefix=HUGE
 ; RUN: llvm-readobj --symbols %t.medium.o | FileCheck %s --check-prefix=SYMBOL
 ; RUN: llvm-mc -filetype=asm -triple=c166-none-elf %t/medium.s | FileCheck %s --check-prefix=ASM
 ; RUN: llvm-mc -filetype=null -triple=c166-none-elf %t/medium.s
@@ -33,6 +41,16 @@
 ; SMALL-NEXT: EF_C166_CODE_HUGE (0x100)
 ; SMALL-NEXT: EF_C166_CORE_8X166 (0x1)
 ; SMALL-NEXT: EF_C166_DATA_NEAR (0x10)
+
+; TINY: Flags [ (0x211)
+; TINY-NEXT: EF_C166_CODE_NEAR (0x200)
+; TINY-NEXT: EF_C166_CORE_8X166 (0x1)
+; TINY-NEXT: EF_C166_DATA_NEAR (0x10)
+
+; HUGE: Flags [ (0x141)
+; HUGE-NEXT: EF_C166_CODE_HUGE (0x100)
+; HUGE-NEXT: EF_C166_CORE_8X166 (0x1)
+; HUGE-NEXT: EF_C166_DATA_HUGE (0x40)
 
 ; ASM: .c166_model medium
 ; ASM: .c166_function near, near_function
@@ -59,7 +77,7 @@
 ; SYMBOL: Name: shuge_data
 ; SYMBOL: Other [ (0xA0)
 ; SYMBOL-NEXT: STO_C166_DATA_SHUGE (0xA0)
-; INVALID: error: unsupported C166 memory model 'tiny'
+; INVALID: error: unsupported C166 memory model 'bogus'
 ; CONFLICT: error: conflicting C166 memory model directives
 ; FUNCTION-CONFLICT: error: conflicting C166 function class directives for 'function'
 ; DATA-CONFLICT: error: conflicting C166 data class directives for 'data'
@@ -114,8 +132,16 @@ shuge_data:
 .c166_model small
 rets
 
-;--- invalid.s
+;--- tiny.s
 .c166_model tiny
+ret
+
+;--- huge.s
+.c166_model huge
+rets
+
+;--- invalid.s
+.c166_model bogus
 ret
 
 ;--- conflict.s

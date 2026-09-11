@@ -26,9 +26,14 @@ static constexpr LangASMap C166NearDataAddrSpaceMap = {
     {LangAS::Default, llvm::C166::NearAddressSpace},
 };
 
+static constexpr LangASMap C166HugeDataAddrSpaceMap = {
+    {LangAS::Default, llvm::C166::HugeDataAddressSpace},
+};
+
 class LLVM_LIBRARY_VISIBILITY C166TargetInfo : public TargetInfo {
-  bool IsMediumModel = false;
-  bool IsSmallModel = false;
+  llvm::C166::MemoryModel MemoryModel;
+
+  void setMemoryModel(llvm::C166::MemoryModel Model);
 
 public:
   C166TargetInfo(const llvm::Triple &Triple, const TargetOptions &);
@@ -52,6 +57,12 @@ public:
   }
 
   bool setCPU(StringRef Name) override { return isValidCPUName(Name); }
+
+  StringRef getABI() const override {
+    return llvm::C166::getMemoryModelName(MemoryModel);
+  }
+
+  bool setABI(const std::string &Name) override;
 
   ArrayRef<const char *> getGCCRegNames() const override;
 
@@ -101,7 +112,7 @@ public:
   uint64_t getMaxPointerWidth() const override { return 32; }
 
   std::optional<LangAS> getDefaultFunctionAddressSpace() const override {
-    return getLangASFromTargetAS(IsMediumModel
+    return getLangASFromTargetAS(llvm::C166::hasNearCode(MemoryModel)
                                      ? llvm::C166::NearAddressSpace
                                      : llvm::C166::HugeCodeAddressSpace);
   }

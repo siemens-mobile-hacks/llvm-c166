@@ -10,7 +10,7 @@
         .section .c166.icall,"ax",@progbits
         .globl  __icall
         .type   __icall,@function
-#if __C166_MEMORY_MODEL__ == 2
+#if __C166_MEMORY_MODEL__ == 2 || __C166_MEMORY_MODEL__ == 4
         .c166_function near, __icall
 #else
         .c166_function huge, __icall
@@ -22,7 +22,7 @@ __icall:
         // returns with RETS and therefore requires an IP:CSP return frame.
         // Convert the caller's near frame before synthesizing the target
         // address. R1 and R2 are caller-clobbered registers.
-#if __C166_MEMORY_MODEL__ == 2
+#if __C166_MEMORY_MODEL__ == 2 || __C166_MEMORY_MODEL__ == 4
         mov     r2, csp
         atomic  #3
         pop     r1

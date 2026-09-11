@@ -21,6 +21,11 @@ using namespace clang;
 
 SemaC166::SemaC166(Sema &S) : SemaBase(S) {}
 
+static llvm::C166::MemoryModel getMemoryModel(const ASTContext &Context) {
+  const TargetOptions &Opts = Context.getTargetInfo().getTargetOpts();
+  return llvm::C166::getMemoryModel(Opts.ABI, Opts.CodeModel);
+}
+
 static bool hasAttributedType(QualType Type, attr::Kind Kind) {
   for (;;) {
     if (const auto *TT = dyn_cast<TypedefType>(Type)) {
@@ -44,6 +49,13 @@ SemaC166::handleFunctionAddressAttr(QualType Type, ParsedAttr &AL) {
   }
 
   const bool IsNear = AL.getKind() == ParsedAttr::AT_C166Near;
+  llvm::C166::MemoryModel Model = getMemoryModel(getASTContext());
+  if (!IsNear && Model == llvm::C166::MemoryModel::Tiny) {
+    Diag(AL.getLoc(), diag::err_c166_memory_model_attribute)
+        << AL << llvm::C166::getMemoryModelName(Model);
+    AL.setInvalid();
+    return std::nullopt;
+  }
   const attr::Kind ThisKind = IsNear ? attr::C166Near : attr::C166Huge;
   const attr::Kind OtherKind = IsNear ? attr::C166Huge : attr::C166Near;
   if (hasAttributedType(Type, ThisKind)) {
@@ -90,6 +102,14 @@ SemaC166::handleFunctionAddressAttr(QualType Type, ParsedAttr &AL) {
 
 std::optional<SemaC166::AttributedTypeResult>
 SemaC166::handleBankAttr(QualType Type, ParsedAttr &AL) {
+  llvm::C166::MemoryModel Model = getMemoryModel(getASTContext());
+  if (Model == llvm::C166::MemoryModel::Tiny) {
+    Diag(AL.getLoc(), diag::err_c166_memory_model_attribute)
+        << AL << llvm::C166::getMemoryModelName(Model);
+    AL.setInvalid();
+    return std::nullopt;
+  }
+
   uint32_t Bank = 0;
   if (!SemaRef.checkUInt32Argument(AL, AL.getArgAsExpr(0), Bank)) {
     AL.setInvalid();
@@ -141,9 +161,20 @@ SemaC166::handleDataAddressAttr(QualType Type, ParsedAttr &AL) {
     return std::nullopt;
   }
 
+  llvm::C166::MemoryModel Model = getMemoryModel(getASTContext());
   if (AL.getKind() == ParsedAttr::AT_C166XNear &&
-      getASTContext().getTargetInfo().getTargetOpts().CodeModel == "small") {
+      (Model == llvm::C166::MemoryModel::Tiny ||
+       Model == llvm::C166::MemoryModel::Small)) {
     Diag(AL.getLoc(), diag::err_c166_xnear_memory_model);
+    AL.setInvalid();
+    return std::nullopt;
+  }
+  if (Model == llvm::C166::MemoryModel::Tiny &&
+      (AL.getKind() == ParsedAttr::AT_C166Far ||
+       AL.getKind() == ParsedAttr::AT_C166Huge ||
+       AL.getKind() == ParsedAttr::AT_C166SHuge)) {
+    Diag(AL.getLoc(), diag::err_c166_memory_model_attribute)
+        << AL << llvm::C166::getMemoryModelName(Model);
     AL.setInvalid();
     return std::nullopt;
   }

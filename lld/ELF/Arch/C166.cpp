@@ -110,6 +110,8 @@ void C166::finalizeRelax(int passes) const {
     return;
 
   uint32_t flags = getC166EFlags(ctx.objectFiles.front());
+  bool isTiny = (flags & (EF_C166_DATA_MASK | EF_C166_CODE_MASK)) ==
+                (EF_C166_DATA_NEAR | EF_C166_CODE_NEAR);
 
   // CP addresses internal register RAM, not an arbitrary near-data page.
   // Check input sections so an output-section rename cannot hide bad placement.
@@ -128,8 +130,9 @@ void C166::finalizeRelax(int passes) const {
   auto CheckRange = [&](const Twine &Owner, uint64_t start, uint64_t size) {
     if (start < 0x10000 && size <= 0x10000 - start)
       return;
-    Err(ctx) << Owner << ": Medium near code range [0x" << utohexstr(start)
-             << ", 0x" << utohexstr(start + size)
+    Err(ctx) << Owner << ": " << (isTiny ? "Tiny" : "Medium")
+             << " near code range [0x" << utohexstr(start) << ", 0x"
+             << utohexstr(start + size)
              << ") is outside the first 64 KiB code segment";
   };
 
@@ -156,6 +159,11 @@ void C166::finalizeRelax(int passes) const {
         (codeClass == 0 && (flags & EF_C166_CODE_MASK) == EF_C166_CODE_HUGE);
     if (!isHuge)
       return;
+    if (isTiny) {
+      Err(ctx) << "huge function '" << sym->getName()
+               << "' is not available in the Tiny memory model";
+      return;
+    }
     auto *defined = dyn_cast<Defined>(sym);
     if (!defined || !defined->section || !defined->section->isLive())
       return;
@@ -170,11 +178,10 @@ void C166::finalizeRelax(int passes) const {
   CheckedSymbols.clear();
 
   if ((flags & EF_C166_CODE_MASK) == EF_C166_CODE_NEAR) {
-    // In the Medium model every ordinary function is near and must reside in
-    // the first 64 KiB code segment.  Check input-section identity rather than
-    // the output-section name so linker scripts cannot accidentally evade the
-    // rule by renaming .c166.near.text.  Explicit huge functions live in the
-    // ordinary .text class and are deliberately unrestricted here.
+    // In near-code models every ordinary function must reside in the first
+    // 64 KiB code segment. Check input-section identity rather than the output
+    // section name so linker scripts cannot accidentally evade the rule by
+    // renaming .c166.near.text.
     for (InputSectionBase *sec : ctx.inputSections) {
       if (!sec->isLive() || sec->name != ".c166.near.text" || !sec->parent)
         continue;
@@ -198,7 +205,28 @@ void C166::finalizeRelax(int passes) const {
     });
   }
 
-  if ((flags & EF_C166_DATA_MASK) != EF_C166_DATA_NEAR)
+  StringRef modelName;
+  switch (flags & (EF_C166_DATA_MASK | EF_C166_CODE_MASK)) {
+  case EF_C166_DATA_NEAR | EF_C166_CODE_NEAR:
+    modelName = "Tiny";
+    break;
+  case EF_C166_DATA_NEAR | EF_C166_CODE_HUGE:
+    modelName = "Small";
+    break;
+  case EF_C166_DATA_FAR | EF_C166_CODE_NEAR:
+    modelName = "Medium";
+    break;
+  case EF_C166_DATA_HUGE | EF_C166_CODE_HUGE:
+    modelName = "Huge";
+    break;
+  default:
+    modelName = "Large";
+    break;
+  }
+
+  unsigned defaultDataClass = flags & EF_C166_DATA_MASK;
+  if (defaultDataClass != EF_C166_DATA_NEAR &&
+      defaultDataClass != EF_C166_DATA_HUGE)
     return;
 
   auto CheckDataRange = [&](const Twine &Owner, StringRef Class, uint64_t start,
@@ -207,24 +235,26 @@ void C166::finalizeRelax(int passes) const {
     if (start < addressLimit && size <= addressLimit - start &&
         (start % boundary) + size <= boundary)
       return;
-    Err(ctx) << Owner << ": Small " << Class << " data range [0x"
+    Err(ctx) << Owner << ": " << modelName << " " << Class << " data range [0x"
              << utohexstr(start) << ", 0x" << utohexstr(start + size)
              << ") violates its " << boundary / 1024 << " KiB placement";
   };
 
-  // The Small model uses the default linear LDAT map:
-  // DPP0..DPP3 select pages 0..3.  Keep canonical normal data, including
-  // constant pools without an STT_OBJECT symbol, inside that direct 64-KiB
-  // window.  Explicitly qualified objects use separate sections below.
-  for (InputSectionBase *sec : ctx.inputSections) {
-    if (!sec->isLive() || !sec->parent ||
-        !sec->name.starts_with(".c166.small.") ||
-        sec->name.starts_with(".c166.small.far.") ||
-        sec->name.starts_with(".c166.small.huge.") ||
-        sec->name.starts_with(".c166.small.shuge."))
-      continue;
-    CheckDataRange(toStr(ctx, sec), "normal", sec->getVA(), sec->getSize(),
-                   0x10000, 0x10000);
+  if (defaultDataClass == EF_C166_DATA_NEAR) {
+    // Near-data models use the default linear LDAT map. Keep canonical normal
+    // data, including constant pools without an STT_OBJECT symbol, inside the
+    // direct 64-KiB window. Explicitly qualified objects use separate
+    // sections below.
+    for (InputSectionBase *sec : ctx.inputSections) {
+      if (!sec->isLive() || !sec->parent ||
+          !sec->name.starts_with(".c166.small.") ||
+          sec->name.starts_with(".c166.small.far.") ||
+          sec->name.starts_with(".c166.small.huge.") ||
+          sec->name.starts_with(".c166.small.shuge."))
+        continue;
+      CheckDataRange(toStr(ctx, sec), "normal", sec->getVA(), sec->getSize(),
+                     0x10000, 0x10000);
+    }
   }
 
   CheckedSymbols.clear();
@@ -236,14 +266,42 @@ void C166::finalizeRelax(int passes) const {
       return;
     uint64_t start = defined->getVA(ctx);
     uint64_t size = std::max<uint64_t>(defined->getSize(), 1);
-    switch (sym->stOther & STO_C166_DATA_MASK) {
+    unsigned dataClass = sym->stOther & STO_C166_DATA_MASK;
+    if (dataClass == 0) {
+      switch (defaultDataClass) {
+      case EF_C166_DATA_NEAR:
+        dataClass = STO_C166_DATA_NEAR;
+        break;
+      case EF_C166_DATA_HUGE:
+        dataClass = STO_C166_DATA_HUGE;
+        break;
+      default:
+        dataClass = STO_C166_DATA_FAR;
+        break;
+      }
+    }
+    if (isTiny && dataClass != 0 && dataClass != STO_C166_DATA_NEAR) {
+      Err(ctx) << "data symbol '" << sym->getName() << "' uses a data class "
+               << "which is not available in the Tiny memory model";
+      return;
+    }
+    switch (dataClass) {
     case STO_C166_DATA_NEAR:
-      if (!defined->section->name.starts_with(".c166.small.") ||
-          defined->section->name.starts_with(".c166.small.far.") ||
-          defined->section->name.starts_with(".c166.small.huge.") ||
-          defined->section->name.starts_with(".c166.small.shuge."))
-        CheckDataRange(Twine("data symbol '") + sym->getName() + "'", "normal",
-                       start, size, 0x10000, 0x10000);
+      if (defaultDataClass == EF_C166_DATA_NEAR) {
+        if (!defined->section->name.starts_with(".c166.small.") ||
+            defined->section->name.starts_with(".c166.small.far.") ||
+            defined->section->name.starts_with(".c166.small.huge.") ||
+            defined->section->name.starts_with(".c166.small.shuge."))
+          CheckDataRange(Twine("data symbol '") + sym->getName() + "'",
+                         "normal", start, size, 0x10000, 0x10000);
+      } else {
+        CheckDataRange(Twine("data symbol '") + sym->getName() + "'", "near",
+                       start, size, 0x4000, 0x1000000);
+      }
+      break;
+    case STO_C166_DATA_XNEAR:
+      CheckDataRange(Twine("data symbol '") + sym->getName() + "'", "xnear",
+                     start, size, 0x4000, 0x1000000);
       break;
     case STO_C166_DATA_FAR:
       CheckDataRange(Twine("data symbol '") + sym->getName() + "'", "far",

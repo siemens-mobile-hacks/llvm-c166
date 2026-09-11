@@ -8,6 +8,7 @@
 
 #include "C166TargetObjectFile.h"
 #include "C166.h"
+#include "C166TargetMachine.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/BinaryFormat/ELF.h"
@@ -99,7 +100,9 @@ MCSection *C166TargetObjectFile::SelectSectionForGlobal(
                             ".c166.near.text",
                             TM.getFunctionSections() || GO->hasComdat());
   bool IsSmallData =
-      TM.getCodeModel() == CodeModel::Small && !isa<Function>(GO);
+      C166::hasNearData(
+          static_cast<const C166TargetMachine &>(TM).getC166MemoryModel()) &&
+      !isa<Function>(GO);
   if (!GO->hasSection() && IsSmallData) {
     auto Select = [&](MCSection *Data, MCSection *BSS,
                       MCSection *ReadOnly) -> MCSection * {
@@ -141,7 +144,8 @@ MCSection *C166TargetObjectFile::SelectSectionForGlobal(
 MCSection *
 C166TargetObjectFile::getSectionForJumpTable(const Function &F,
                                              const TargetMachine &TM) const {
-  if (TM.getCodeModel() == CodeModel::Small)
+  if (C166::hasNearData(
+          static_cast<const C166TargetMachine &>(TM).getC166MemoryModel()))
     return SmallReadOnlySection;
   return Base::getSectionForJumpTable(F, TM);
 }

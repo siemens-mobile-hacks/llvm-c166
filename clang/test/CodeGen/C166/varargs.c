@@ -1,6 +1,10 @@
 // REQUIRES: c166-registered-target
 // RUN: %clang --target=c166-none-elf -mcmodel=medium -O1 -mllvm -verify-machineinstrs -c %s -o %t.medium.o
 // RUN: %clang --target=c166-none-elf -mcmodel=small -O1 -mllvm -verify-machineinstrs -c %s -o %t.small.o
+// RUN: %clang --target=c166-none-elf -mcmodel=huge -O1 -fno-inline -mllvm -verify-machineinstrs -c %s -o %t.huge.o
+// RUN: llvm-objdump -d %t.huge.o | FileCheck %s --check-prefix=HUGE
+// RUN: %clang --target=c166-none-elf -mcmodel=huge -O0 -fno-inline -mllvm -verify-machineinstrs -c %s -o %t.huge-o0.o
+// RUN: llvm-objdump -d %t.huge-o0.o | FileCheck %s --check-prefix=HUGE-O0
 // RUN: %clang --target=c166-none-elf -mcmodel=large -O1 -fno-inline -mllvm -verify-machineinstrs -c %s -o %t.o
 // RUN: llvm-objdump -d %t.o | FileCheck %s
 // RUN: %clang --target=c166-none-elf -mcmodel=large -O0 -fno-inline -mllvm -verify-machineinstrs -c %s -o %t-o0.o
@@ -180,6 +184,23 @@ unsigned int take_aggregate_varargs(unsigned int tag, ...) {
 // CHECK:       mov {{r[0-9]+}}, dpp1
 // CHECK:       extp {{r[0-9]+}}, #1
 // CHECK:       rets
+
+// HUGE-LABEL: <_sum_words>:
+// HUGE:       and [[OFFSET:r[0-9]+]], #16383
+// HUGE:       mov [[PAGE:r[0-9]+]], dpp1
+// HUGE-NEXT:  shl [[PAGE]], #14
+// HUGE-NEXT:  or [[OFFSET]], [[PAGE]]
+// HUGE:       mov [[SEGMENT:r[0-9]+]], dpp1
+// HUGE-NEXT:  shr [[SEGMENT]], #2
+// HUGE:       exts [[SEGMENT]], #1
+
+// The canonical O0 va_arg path must dereference that SEG:SOF pointer with
+// EXTS as well; using EXTP would reinterpret the segment word as a DPP page.
+// HUGE-O0-LABEL: <_unoptimized_varargs>:
+// HUGE-O0:       shl {{r[0-9]+}}, #14
+// HUGE-O0:       or
+// HUGE-O0:       shr {{r[0-9]+}}, #2
+// HUGE-O0:       exts {{r[0-9]+}}, #1
 // CHECK-LABEL: <_take_long>:
 // CHECK-NOT:   extp
 // CHECK:       mov r4, [r0]

@@ -17,6 +17,7 @@ namespace llvm {
 
 class C166TargetMachine : public CodeGenTargetMachineImpl {
   std::unique_ptr<TargetLoweringObjectFile> TLOF;
+  C166::MemoryModel MemoryModel;
   C166Subtarget Subtarget;
 
 public:
@@ -39,6 +40,8 @@ public:
                             const TargetSubtargetInfo *STI) const override;
   void registerPassBuilderCallbacks(PassBuilder &PB) override;
   bool shouldDefaultToNewPM() const override { return false; }
+
+  C166::MemoryModel getC166MemoryModel() const { return MemoryModel; }
 
   bool isNoopAddrSpaceCast(unsigned SrcAS, unsigned DestAS) const override {
     // Huge code pointers and far data pointers have the same two-word storage

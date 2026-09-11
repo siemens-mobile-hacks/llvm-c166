@@ -11,6 +11,7 @@
 #include "C166MachineFunctionInfo.h"
 #include "C166SelectionDAGInfo.h"
 #include "C166Subtarget.h"
+#include "C166TargetMachine.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -103,7 +104,11 @@ C166TargetLowering::C166TargetLowering(const TargetMachine &TM,
   setMinFunctionAlignment(Align(2));
   setPrefFunctionAlignment(Align(2));
   // Paged table setup breaks even later than direct Small-model access.
-  setMinimumJumpTableEntries(TM.getCodeModel() == CodeModel::Small ? 7 : 8);
+  setMinimumJumpTableEntries(
+      C166::hasNearData(
+          static_cast<const C166TargetMachine &>(TM).getC166MemoryModel())
+          ? 7
+          : 8);
   setMaxAtomicSizeInBitsSupported(0);
 }
 
@@ -1723,6 +1728,7 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
       unsigned ObjectSize = CLI.Outs[I].Flags.getByValSize();
       unsigned SlotSize = alignTo(ObjectSize, 2u);
       Align ObjectAlign = CLI.Outs[I].Flags.getNonZeroByValAlign();
+      MachinePointerInfo PointerInfo(CLI.Outs[I].Flags.getPointerAddrSpace());
       SDValue Base = CLI.OutVals[I];
       if (CanForwardStackTail) {
         auto *FI = dyn_cast<FrameIndexSDNode>(Base);
@@ -1745,7 +1751,7 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
       auto LoadByte = [&](unsigned Offset) {
         return DAG.getExtLoad(
             ISD::ZEXTLOAD, DL, MVT::i16, Chain, AddressAt(Offset),
-            MachinePointerInfo().getWithOffset(Offset), MVT::i8, Align(1));
+            PointerInfo.getWithOffset(Offset), MVT::i8, Align(1));
       };
 
       for (unsigned Offset = 0; Offset != SlotSize; Offset += 2) {
@@ -1758,7 +1764,7 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
           Word = findStoredByValWord(Chain, Base, Offset);
           if (!Word)
             Word = DAG.getLoad(MVT::i16, DL, Chain, AddressAt(Offset),
-                               MachinePointerInfo().getWithOffset(Offset),
+                               PointerInfo.getWithOffset(Offset),
                                commonAlignment(ObjectAlign, Offset));
         } else {
           // Packed aggregates may begin at an odd address, and an odd-sized
@@ -1899,7 +1905,10 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
   EVT FarCodePtrVT =
       getPointerTy(DAG.getDataLayout(), C166::HugeCodeAddressSpace);
   bool IsNearCall = CLI.Callee.getValueType() == MVT::i16;
-  if (!IsNearCall && DAG.getTarget().getCodeModel() == CodeModel::Medium) {
+  C166::MemoryModel MemoryModel =
+      static_cast<const C166TargetMachine &>(DAG.getTarget())
+          .getC166MemoryModel();
+  if (!IsNearCall && C166::hasNearCode(MemoryModel)) {
     // Untyped runtime symbols and target-generated default-address-space
     // functions use Medium's near code class. Explicit huge functions and
     // 32-bit indirect function pointers retain their own class.
@@ -1908,7 +1917,7 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
     else if (const auto *GA = dyn_cast<GlobalAddressSDNode>(CLI.Callee))
       IsNearCall = GA->getGlobal()->getAddressSpace() == 0;
   }
-  if (DAG.getTarget().getCodeModel() == CodeModel::Small) {
+  if (MemoryModel == C166::MemoryModel::Small) {
     // Untyped runtime symbols and target-generated default-address-space
     // functions use Small's huge code class. Explicit near functions retain
     // their own class.
@@ -1962,7 +1971,7 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
     // External symbols receive the C ABI leading underscore in the asm
     // printer, so the runtime helper's IR-level spelling is `_icall` and its
     // emitted ABI symbol is exactly `__icall`.
-    EmitNearCall = DAG.getTarget().getCodeModel() == CodeModel::Medium;
+    EmitNearCall = C166::hasNearCode(MemoryModel);
     EVT HelperVT = EmitNearCall ? EVT(MVT::i16) : FarCodePtrVT;
     CalleeFirst = DAG.getTargetExternalSymbol("_icall", HelperVT);
     if (!EmitNearCall)
@@ -2126,6 +2135,10 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
   return Chain;
 }
 
+static std::pair<SDValue, SDValue>
+getUserStackAddress(SelectionDAG &DAG, const SDLoc &DL, SDValue Chain,
+                    SDValue StackPointer, EVT AddressVT, unsigned AddressSpace);
+
 SDValue C166TargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
   MachineFunction &MF = DAG.getMachineFunction();
   const C166MachineFunctionInfo *FuncInfo =
@@ -2143,16 +2156,13 @@ SDValue C166TargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
     return DAG.getStore(Op.getOperand(0), DL, FrameAddress, Op.getOperand(1),
                         MachinePointerInfo(SV));
 
-  SDValue Offset = DAG.getNode(ISD::TRUNCATE, DL, MVT::i16, FrameAddress);
-  Offset = DAG.getNode(ISD::AND, DL, MVT::i16, Offset,
-                       DAG.getConstant(0x3fff, DL, MVT::i16));
-
-  // R0 is a 16-bit user-stack offset within the page selected by DPP1.  A
-  // A far data pointer stores the 14-bit page offset in its low word and
-  // the DPP page number in its high word.
-  SDValue Page = DAG.getCopyFromReg(Op.getOperand(0), DL, C166::DPP1, MVT::i16);
-  SDValue Address = DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i32, Offset, Page);
-  return DAG.getStore(Page.getValue(1), DL, Address, Op.getOperand(1),
+  SDValue StackPointer =
+      DAG.getNode(C166ISD::FRAMEADDR, DL, MVT::i16, FrameAddress);
+  auto [Address, Chain] = getUserStackAddress(
+      DAG, DL, Op.getOperand(0), StackPointer,
+      getPointerTy(DataLayout, DataLayout.getAllocaAddrSpace()),
+      DataLayout.getAllocaAddrSpace());
+  return DAG.getStore(Chain, DL, Address, Op.getOperand(1),
                       MachinePointerInfo(SV));
 }
 
@@ -2173,7 +2183,8 @@ SDValue C166TargetLowering::LowerVACOPY(SDValue Op, SelectionDAG &DAG) const {
 
 static std::pair<SDValue, SDValue>
 getUserStackAddress(SelectionDAG &DAG, const SDLoc &DL, SDValue Chain,
-                    SDValue StackPointer, EVT AddressVT) {
+                    SDValue StackPointer, EVT AddressVT,
+                    unsigned AddressSpace) {
   if (AddressVT == MVT::i16)
     return {StackPointer, Chain};
 
@@ -2181,6 +2192,23 @@ getUserStackAddress(SelectionDAG &DAG, const SDLoc &DL, SDValue Chain,
   SDValue Offset = DAG.getNode(ISD::AND, DL, MVT::i16, StackPointer,
                                DAG.getConstant(0x3fff, DL, MVT::i16));
   SDValue Page = DAG.getCopyFromReg(Chain, DL, C166::DPP1, MVT::i16);
+  if (AddressSpace == C166::HugeDataAddressSpace ||
+      AddressSpace == C166::SHugeDataAddressSpace) {
+    SDValue PageInSegment = DAG.getNode(ISD::AND, DL, MVT::i16, Page,
+                                        DAG.getConstant(3, DL, MVT::i16));
+    PageInSegment = DAG.getNode(ISD::SHL, DL, MVT::i16, PageInSegment,
+                                DAG.getConstant(14, DL, MVT::i16));
+    SDValue SegmentOffset =
+        DAG.getNode(ISD::OR, DL, MVT::i16, Offset, PageInSegment);
+    SDValue Segment = DAG.getNode(ISD::SRL, DL, MVT::i16, Page,
+                                  DAG.getConstant(2, DL, MVT::i16));
+    SDValue Address =
+        DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i32, SegmentOffset, Segment);
+    return {Address, Page.getValue(1)};
+  }
+
+  assert(AddressSpace == C166::FarDataAddressSpace &&
+         "unexpected C166 32-bit stack address space");
   SDValue Address = DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i32, Offset, Page);
   return {Address, Page.getValue(1)};
 }
@@ -2209,8 +2237,9 @@ C166TargetLowering::LowerDYNAMIC_STACKALLOC(SDValue Op,
 
   Chain = DAG.getCopyToReg(StackPointer.getValue(1), DL, C166::R0,
                            NewStackPointer);
+  unsigned AllocaAddressSpace = DAG.getDataLayout().getAllocaAddrSpace();
   auto [Address, AddressChain] = getUserStackAddress(
-      DAG, DL, Chain, NewStackPointer, Op.getValueType());
+      DAG, DL, Chain, NewStackPointer, Op.getValueType(), AllocaAddressSpace);
   return DAG.getMergeValues({Address, AddressChain}, DL);
 }
 
@@ -2219,9 +2248,10 @@ SDValue C166TargetLowering::LowerSTACKSAVE(SDValue Op,
   SDLoc DL(Op);
   SDValue StackPointer =
       DAG.getCopyFromReg(Op.getOperand(0), DL, C166::R0, MVT::i16);
+  unsigned AllocaAddressSpace = DAG.getDataLayout().getAllocaAddrSpace();
   auto [Address, Chain] =
       getUserStackAddress(DAG, DL, StackPointer.getValue(1), StackPointer,
-                          Op.getValueType());
+                          Op.getValueType(), AllocaAddressSpace);
   return DAG.getMergeValues({Address, Chain}, DL);
 }
 
@@ -2249,22 +2279,25 @@ SDValue C166TargetLowering::LowerVAARG(SDValue Op, SelectionDAG &DAG) const {
   SDLoc DL(Node);
 
   const DataLayout &DataLayout = DAG.getDataLayout();
-  MVT PointerVT =
-      getPointerTy(DataLayout, DataLayout.getDefaultGlobalsAddressSpace());
+  unsigned DataAddressSpace = DataLayout.getDefaultGlobalsAddressSpace();
+  MVT PointerVT = getPointerTy(DataLayout, DataAddressSpace);
   SDValue VAList = DAG.getLoad(PointerVT, DL, Chain, VAListPtr,
                                MachinePointerInfo(SV), Align(2));
   unsigned ArgBytes = alignTo(VT.getStoreSize().getFixedValue(), 2u);
-  SDValue Next = PointerVT == MVT::i16
-                     ? DAG.getNode(ISD::ADD, DL, MVT::i16, VAList,
-                                   DAG.getConstant(ArgBytes, DL, MVT::i16))
-                     : DAG.getNode(C166ISD::FARADD, DL, MVT::i32, VAList,
-                                   DAG.getConstant(ArgBytes, DL, MVT::i16));
+  SDValue Next;
+  if (PointerVT == MVT::i16 || DataAddressSpace == C166::HugeDataAddressSpace)
+    Next = DAG.getNode(ISD::ADD, DL, PointerVT, VAList,
+                       DAG.getConstant(ArgBytes, DL, PointerVT));
+  else
+    Next = DAG.getNode(C166ISD::FARADD, DL, MVT::i32, VAList,
+                       DAG.getConstant(ArgBytes, DL, MVT::i16));
   Chain = DAG.getStore(VAList.getValue(1), DL, Next, VAListPtr,
                        MachinePointerInfo(SV), Align(2));
 
   // Stack arguments are only word-aligned in the C166 ABI, including
   // four-byte long values and far pointers.
-  return DAG.getLoad(VT, DL, Chain, VAList, MachinePointerInfo(), Align(2));
+  return DAG.getLoad(VT, DL, Chain, VAList,
+                     MachinePointerInfo(DataAddressSpace), Align(2));
 }
 
 bool C166TargetLowering::CanLowerReturn(

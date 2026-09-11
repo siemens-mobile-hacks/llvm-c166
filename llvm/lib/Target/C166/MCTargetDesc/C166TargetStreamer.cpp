@@ -58,11 +58,8 @@ public:
   C166TargetAsmStreamer(MCStreamer &S, formatted_raw_ostream &OS)
       : C166TargetStreamer(S), OS(OS) {}
 
-  void emitMemoryModel(CodeModel::Model Model) override {
-    StringRef Name = Model == CodeModel::Small    ? "small"
-                     : Model == CodeModel::Medium ? "medium"
-                                                  : "large";
-    OS << "\t.c166_model\t" << Name << '\n';
+  void emitMemoryModel(C166::MemoryModel Model) override {
+    OS << "\t.c166_model\t" << C166::getMemoryModelName(Model) << '\n';
   }
 
   void emitFunctionClass(MCSymbol &Symbol, bool IsNear) override {
@@ -82,11 +79,26 @@ class C166TargetELFStreamer final : public C166TargetStreamer {
 public:
   explicit C166TargetELFStreamer(MCStreamer &S) : C166TargetStreamer(S) {}
 
-  void emitMemoryModel(CodeModel::Model Model) override {
+  void emitMemoryModel(C166::MemoryModel Model) override {
     auto &ELFStreamer = static_cast<MCELFStreamer &>(Streamer);
-    unsigned Flags = Model == CodeModel::Small    ? ELF::EF_C166_SMALL
-                     : Model == CodeModel::Medium ? ELF::EF_C166_MEDIUM
-                                                  : ELF::EF_C166_LARGE;
+    unsigned Flags;
+    switch (Model) {
+    case C166::MemoryModel::Tiny:
+      Flags = ELF::EF_C166_TINY;
+      break;
+    case C166::MemoryModel::Small:
+      Flags = ELF::EF_C166_SMALL;
+      break;
+    case C166::MemoryModel::Medium:
+      Flags = ELF::EF_C166_MEDIUM;
+      break;
+    case C166::MemoryModel::Large:
+      Flags = ELF::EF_C166_LARGE;
+      break;
+    case C166::MemoryModel::Huge:
+      Flags = ELF::EF_C166_HUGE;
+      break;
+    }
     ELFStreamer.getWriter().setELFHeaderEFlags(Flags);
   }
 

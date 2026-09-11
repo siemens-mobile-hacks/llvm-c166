@@ -48,17 +48,28 @@ static Reloc::Model getEffectiveRelocModel(std::optional<Reloc::Model> RM) {
 
 static CodeModel::Model
 getEffectiveC166CodeModel(std::optional<CodeModel::Model> CM) {
-  return getEffectiveCodeModel(CM, CodeModel::Large);
+  if (!CM)
+    return CodeModel::Large;
+  if (*CM == CodeModel::Kernel)
+    reportFatalUsageError("Target does not support the kernel CodeModel");
+  return *CM;
 }
 
-static StringRef computeC166DataLayout(std::optional<CodeModel::Model> CM) {
+static C166::MemoryModel
+computeC166MemoryModel(const TargetOptions &Options,
+                       std::optional<CodeModel::Model> CM) {
+  if (std::optional Model =
+          C166::parseMemoryModel(Options.MCOptions.getABIName()))
+    return *Model;
   switch (getEffectiveC166CodeModel(CM)) {
+  case CodeModel::Tiny:
+    return C166::MemoryModel::Tiny;
   case CodeModel::Small:
-    return C166::getDataLayout(C166::MemoryModel::Small);
+    return C166::MemoryModel::Small;
   case CodeModel::Medium:
-    return C166::getDataLayout(C166::MemoryModel::Medium);
+    return C166::MemoryModel::Medium;
   default:
-    return C166::getDataLayout(C166::MemoryModel::Large);
+    return C166::MemoryModel::Large;
   }
 }
 
@@ -68,10 +79,12 @@ C166TargetMachine::C166TargetMachine(const Target &T, const Triple &TT,
                                      std::optional<Reloc::Model> RM,
                                      std::optional<CodeModel::Model> CM,
                                      CodeGenOptLevel OL, bool JIT)
-    : CodeGenTargetMachineImpl(T, computeC166DataLayout(CM), TT, CPU, FS,
-                               Options, getEffectiveRelocModel(RM),
-                               getEffectiveC166CodeModel(CM), OL),
+    : CodeGenTargetMachineImpl(
+          T, C166::getDataLayout(computeC166MemoryModel(Options, CM)), TT, CPU,
+          FS, Options, getEffectiveRelocModel(RM),
+          getEffectiveC166CodeModel(CM), OL),
       TLOF(std::make_unique<C166TargetObjectFile>()),
+      MemoryModel(computeC166MemoryModel(Options, CM)),
       Subtarget(TT, CPU, FS, *this) {
   initAsmInfo();
 }

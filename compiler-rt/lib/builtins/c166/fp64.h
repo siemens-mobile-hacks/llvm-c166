@@ -9,7 +9,7 @@
 #ifndef COMPILER_RT_LIB_BUILTINS_C166_FP64_H
 #define COMPILER_RT_LIB_BUILTINS_C166_FP64_H
 
-#if __C166_MEMORY_MODEL__ == 3
+#if __C166_MEMORY_MODEL__ == 3 || __C166_MEMORY_MODEL__ == 4
 #define C166_STACK_ADDRESS_CLASS c166_near
 #else
 #define C166_STACK_ADDRESS_CLASS c166_xnear
@@ -28,7 +28,7 @@ typedef union {
 } c166_df_limbs;
 
 // Limb temporaries use the user-stack DPP: xnear/DPP1 in Large and Medium,
-// and the default near/DPP2 address class in Small.
+// and the default near/DPP2 address class in Tiny and Small.
 typedef c166_df_limbs __attribute__((C166_STACK_ADDRESS_CLASS)) *
     c166_stack_df_limbs_ptr;
 typedef const c166_df_limbs __attribute__((C166_STACK_ADDRESS_CLASS)) *

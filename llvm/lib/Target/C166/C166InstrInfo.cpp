@@ -10,6 +10,7 @@
 #include "C166.h"
 #include "C166CFI.h"
 #include "C166Subtarget.h"
+#include "C166TargetMachine.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -415,12 +416,13 @@ static void emitDynamicUserStackCFI(MachineInstr &MI, const C166InstrInfo &TII,
   }
 }
 
-static bool isC166SmallDataAddress(const MachineInstr &MI,
-                                   const MachineOperand &Address) {
+static bool isC166NearModelDataAddress(const MachineInstr &MI,
+                                       const MachineOperand &Address) {
   return !isa<Function>(Address.getGlobal()) &&
          Address.getGlobal()->getAddressSpace() == C166::NearAddressSpace &&
-         MI.getParent()->getParent()->getTarget().getCodeModel() ==
-             CodeModel::Small;
+         C166::hasNearData(static_cast<const C166TargetMachine &>(
+                               MI.getParent()->getParent()->getTarget())
+                               .getC166MemoryModel());
 }
 
 static unsigned getC166NearAddressFlag(const MachineInstr &MI,
@@ -432,7 +434,7 @@ static unsigned getC166NearAddressFlag(const MachineInstr &MI,
   assert((AddressSpace == C166::NearAddressSpace ||
           AddressSpace == C166::XNearDataAddressSpace) &&
          "C166 near global has an invalid address space");
-  if (isC166SmallDataAddress(MI, Address))
+  if (isC166NearModelDataAddress(MI, Address))
     return C166II::MO_None;
   return AddressSpace == C166::NearAddressSpace ? C166II::MO_DPP2
                                                 : C166II::MO_DPP1;

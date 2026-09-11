@@ -186,8 +186,8 @@ Makes programs 10x faster by doing Special New Thing.
 ### Changes to the C166 Backend
 
 * Added an experimental C166 backend with assembly, disassembly, ELF object
-  emission, static linking, and initial C code generation for the Large,
-  Medium, and Small memory models.
+  emission, static linking, and initial C code generation for the Tiny, Small,
+  Medium, Large, and Huge memory models.
 
 ### Changes to the DirectX Backend
 

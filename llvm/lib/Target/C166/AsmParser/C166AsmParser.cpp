@@ -335,7 +335,7 @@ public:
 
 class C166AsmParser : public MCTargetAsmParser {
   MCAsmParser &Parser;
-  std::optional<CodeModel::Model> MemoryModel;
+  std::optional<C166::MemoryModel> MemoryModel;
   DenseMap<const MCSymbol *, bool> FunctionClasses;
   DenseMap<const MCSymbol *, C166DataClass> DataClasses;
 
@@ -407,10 +407,8 @@ public:
     Parser.addAliasForDirective(".word", ".short");
     setAvailableFeatures(ComputeAvailableFeatures(STI.getFeatureBits()));
     StringRef Model = Parser.getContext().getTargetOptions().getABIName();
-    if (Model == "large" || Model == "medium" || Model == "small") {
-      MemoryModel = Model == "small"    ? CodeModel::Small
-                    : Model == "medium" ? CodeModel::Medium
-                                        : CodeModel::Large;
+    if (std::optional ParsedModel = C166::parseMemoryModel(Model)) {
+      MemoryModel = *ParsedModel;
       auto *TS = static_cast<C166TargetStreamer *>(
           Parser.getStreamer().getTargetStreamer());
       if (TS)
@@ -524,18 +522,11 @@ ParseStatus C166AsmParser::parseDirective(AsmToken DirectiveID) {
 
   SMLoc Loc = getLexer().getLoc();
   if (getLexer().isNot(AsmToken::Identifier))
-    return Error(Loc,
-                 "expected 'small', 'medium', or 'large' after .c166_model");
+    return Error(Loc, "expected C166 memory model after .c166_model");
 
   StringRef Model = getLexer().getTok().getIdentifier();
-  CodeModel::Model NewModel;
-  if (Model.equals_insensitive("small"))
-    NewModel = CodeModel::Small;
-  else if (Model.equals_insensitive("medium"))
-    NewModel = CodeModel::Medium;
-  else if (Model.equals_insensitive("large"))
-    NewModel = CodeModel::Large;
-  else
+  std::optional NewModel = C166::parseMemoryModel(Model);
+  if (!NewModel)
     return Error(Loc, "unsupported C166 memory model '" + Model + "'");
   Parser.Lex();
 
@@ -543,15 +534,15 @@ ParseStatus C166AsmParser::parseDirective(AsmToken DirectiveID) {
     return Error(getLexer().getLoc(), "unexpected token in .c166_model");
   Parser.Lex();
 
-  if (MemoryModel && *MemoryModel != NewModel)
+  if (MemoryModel && *MemoryModel != *NewModel)
     return Error(Loc, "conflicting C166 memory model directives");
-  MemoryModel = NewModel;
+  MemoryModel = *NewModel;
 
   auto *TS = static_cast<C166TargetStreamer *>(
       Parser.getStreamer().getTargetStreamer());
   if (!TS)
     return Error(Loc, "C166 target streamer is not registered");
-  TS->emitMemoryModel(NewModel);
+  TS->emitMemoryModel(*NewModel);
   return ParseStatus::Success;
 }
 

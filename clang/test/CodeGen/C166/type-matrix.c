@@ -1,6 +1,8 @@
 // REQUIRES: c166-registered-target
 // RUN: %clang --target=c166-none-elf -mcmodel=medium -O1 -mllvm -verify-machineinstrs -c %s -o %t.medium.o
 // RUN: %clang --target=c166-none-elf -mcmodel=small -O1 -mllvm -verify-machineinstrs -c %s -o %t.small.o
+// RUN: %clang --target=c166-none-elf -mcmodel=tiny -O1 -mllvm -verify-machineinstrs -c %s -o %t.tiny.o
+// RUN: %clang --target=c166-none-elf -mcmodel=huge -O1 -mllvm -verify-machineinstrs -c %s -o %t.huge.o
 // RUN: %clang --target=c166-none-elf -mcmodel=large -O1 -fno-inline -mllvm -verify-machineinstrs -c %s -o %t.o
 // RUN: llvm-objdump -d %t.o | FileCheck %s
 // RUN: %clang --target=c166-none-elf -mcmodel=large -O0 -fno-inline -mllvm -verify-machineinstrs -c %s -o %t-o0.o

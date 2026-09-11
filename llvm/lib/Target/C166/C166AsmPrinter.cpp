@@ -66,7 +66,8 @@ public:
   void emitStartOfAsmFile(Module &M) override {
     AsmPrinter::emitStartOfAsmFile(M);
     if (MCTargetStreamer *TS = OutStreamer->getTargetStreamer())
-      static_cast<C166TargetStreamer *>(TS)->emitMemoryModel(TM.getCodeModel());
+      static_cast<C166TargetStreamer *>(TS)->emitMemoryModel(
+          static_cast<const C166TargetMachine &>(TM).getC166MemoryModel());
   }
 
   void emitFunctionEntryLabel() override {
@@ -179,10 +180,13 @@ public:
         getObjFileLowering().getSectionForJumpTable(F, TM));
     emitAlignment(Align(2));
 
-    const bool IsMedium = TM.getCodeModel() == CodeModel::Medium;
-    const C166DataClass DataClass = TM.getCodeModel() == CodeModel::Small
-                                        ? C166DataClass::Near
-                                        : C166DataClass::Far;
+    C166::MemoryModel Model =
+        static_cast<const C166TargetMachine &>(TM).getC166MemoryModel();
+    const bool IsNearCode = C166::hasNearCode(Model);
+    const C166DataClass DataClass =
+        C166::hasNearData(Model)           ? C166DataClass::Near
+        : Model == C166::MemoryModel::Huge ? C166DataClass::Huge
+                                           : C166DataClass::Far;
     for (unsigned JTI = 0; JTI != MJTI->getJumpTables().size(); ++JTI) {
       ArrayRef<MachineBasicBlock *> Entries = MJTI->getJumpTables()[JTI].MBBs;
       if (Entries.empty())
@@ -196,7 +200,7 @@ public:
       for (const MachineBasicBlock *MBB : Entries) {
         const MCExpr *Entry =
             MCSymbolRefExpr::create(MBB->getSymbol(), OutContext);
-        if (!IsMedium)
+        if (!IsNearCode)
           Entry = MCSpecifierExpr::create(Entry, C166::S_SOF, OutContext);
         OutStreamer->emitValue(Entry, 2);
       }

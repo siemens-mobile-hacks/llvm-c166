@@ -2183,8 +2183,37 @@ public:
         ReplaceNode(Node, Selected);
         return;
       }
-      assert(Load->getAddressSpace() != C166::HugeDataAddressSpace &&
-             "_huge i32 loads must be split before instruction selection");
+      if (Load->getAddressSpace() == C166::HugeDataAddressSpace) {
+        SDLoc DL(Node);
+        SDValue Base = Load->getBasePtr();
+        SDValue HighAddress(
+            CurDAG->getMachineNode(C166::ADD32ri, DL, MVT::i32, Base,
+                                   CurDAG->getTargetConstant(2, DL, MVT::i32)),
+            0);
+        SDNode *Low = CurDAG->getMachineNode(
+            C166::SEGLOAD16, DL, MVT::i16, MVT::Other, Base, Load->getChain());
+        SDNode *High =
+            CurDAG->getMachineNode(C166::SEGLOAD16, DL, MVT::i16, MVT::Other,
+                                   HighAddress, SDValue(Low, 1));
+        CurDAG->setNodeMemRefs(cast<MachineSDNode>(Low),
+                               {Load->getMemOperand()});
+        CurDAG->setNodeMemRefs(cast<MachineSDNode>(High),
+                               {Load->getMemOperand()});
+        SDValue Ops[] = {
+            CurDAG->getTargetConstant(C166::GR32RegClassID, DL, MVT::i32),
+            SDValue(Low, 0),
+            CurDAG->getTargetConstant(sub_lo16, DL, MVT::i32),
+            SDValue(High, 0),
+            CurDAG->getTargetConstant(sub_hi16, DL, MVT::i32),
+        };
+        SDValue Pair(CurDAG->getMachineNode(TargetOpcode::REG_SEQUENCE, DL,
+                                            MVT::i32, Ops),
+                     0);
+        CurDAG->ReplaceAllUsesOfValueWith(SDValue(Node, 0), Pair);
+        CurDAG->ReplaceAllUsesOfValueWith(SDValue(Node, 1), SDValue(High, 1));
+        CurDAG->RemoveDeadNode(Node);
+        return;
+      }
       unsigned Opcode = Load->getAddressSpace() == C166::SHugeDataAddressSpace
                             ? C166::SHUGELOAD32
                             : C166::FARLOAD32;
@@ -2413,8 +2442,37 @@ public:
         ReplaceNode(Node, Selected);
         return;
       }
-      assert(Store->getAddressSpace() != C166::HugeDataAddressSpace &&
-             "_huge i32 stores must be split before instruction selection");
+      if (Store->getAddressSpace() == C166::HugeDataAddressSpace) {
+        SDLoc DL(Node);
+        SDValue Base = Store->getBasePtr();
+        SDValue Value = Store->getValue();
+        auto ExtractWord = [&](unsigned SubReg) {
+          if (Value.getOpcode() == ISD::BUILD_PAIR)
+            return Value.getOperand(SubReg == sub_lo16 ? 0 : 1);
+          SDValue SubRegIndex = CurDAG->getTargetConstant(SubReg, DL, MVT::i32);
+          return SDValue(CurDAG->getMachineNode(TargetOpcode::EXTRACT_SUBREG,
+                                                DL, MVT::i16, Value,
+                                                SubRegIndex),
+                         0);
+        };
+        SDValue HighAddress(
+            CurDAG->getMachineNode(C166::ADD32ri, DL, MVT::i32, Base,
+                                   CurDAG->getTargetConstant(2, DL, MVT::i32)),
+            0);
+        SDValue LowOps[] = {Base, ExtractWord(sub_lo16), Store->getChain()};
+        SDNode *Low =
+            CurDAG->getMachineNode(C166::SEGSTORE16, DL, MVT::Other, LowOps);
+        SDValue HighOps[] = {HighAddress, ExtractWord(sub_hi16),
+                             SDValue(Low, 0)};
+        SDNode *High =
+            CurDAG->getMachineNode(C166::SEGSTORE16, DL, MVT::Other, HighOps);
+        CurDAG->setNodeMemRefs(cast<MachineSDNode>(Low),
+                               {Store->getMemOperand()});
+        CurDAG->setNodeMemRefs(cast<MachineSDNode>(High),
+                               {Store->getMemOperand()});
+        ReplaceNode(Node, High);
+        return;
+      }
       unsigned Opcode = Store->getAddressSpace() == C166::SHugeDataAddressSpace
                             ? C166::SHUGESTORE32
                             : C166::FARSTORE32;

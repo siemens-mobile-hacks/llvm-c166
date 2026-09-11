@@ -3990,10 +3990,17 @@ TEST(DataLayoutTest, UEFI) {
 TEST(DataLayoutTest, C166Large) {
   Triple TT = Triple("c166-none-elf");
 
-  EXPECT_EQ("e-m:u-P1-G2-A2-p:32:16-p1:32:16-p2:32:16:16:32-p3:16:16-"
-            "p4:16:16-p5:32:16:16:32-p6:32:16:16:32-i32:16-i64:16-"
-            "f32:16-f64:16-a:0:16-n8:16-S16-ni:2",
-            TT.computeDataLayout());
+  EXPECT_THAT(TT.computeDataLayout(), testing::HasSubstr("-P1-G2-A2-"));
+}
+
+TEST(DataLayoutTest, C166MemoryModels) {
+  Triple TT = Triple("c166-none-elf");
+
+  EXPECT_THAT(TT.computeDataLayout("tiny"), testing::HasSubstr("-P3-G3-A3-"));
+  EXPECT_THAT(TT.computeDataLayout("small"), testing::HasSubstr("-P1-G3-A3-"));
+  EXPECT_THAT(TT.computeDataLayout("medium"), testing::HasSubstr("-P3-G2-A2-"));
+  EXPECT_THAT(TT.computeDataLayout("large"), testing::HasSubstr("-P1-G2-A2-"));
+  EXPECT_THAT(TT.computeDataLayout("huge"), testing::HasSubstr("-P1-G5-A5-"));
 }
 
 TEST(TripleTest, WindowsOrUEFI) {

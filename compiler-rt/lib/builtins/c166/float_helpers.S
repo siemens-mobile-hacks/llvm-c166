@@ -21,7 +21,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if __C166_MEMORY_MODEL__ == 2
+#if __C166_MEMORY_MODEL__ == 2 || __C166_MEMORY_MODEL__ == 4
 #define C166_ABI_RET ret
 #else
 #define C166_ABI_RET rets
@@ -209,7 +209,7 @@ __cpfnw:
         C166_ABI_RET
         .size   __cpfnw, .-__cpfnw
 
-#if __C166_MEMORY_MODEL__ == 2
+#if __C166_MEMORY_MODEL__ == 2 || __C166_MEMORY_MODEL__ == 4
         .section .c166.near.text,"ax",@progbits
 #else
         .section .text.___c166_df_limbs_increment,"ax",@progbits

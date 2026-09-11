@@ -3,8 +3,8 @@
 ## Status and Scope
 
 The `c166-none-elf` target provides initial support for the Siemens/Infineon
-C166 architecture and its C ABI. Clang accepts the Large, Medium, and Small
-Memory Models:
+C166 architecture and its C ABI. Clang accepts the Tiny, Small, Medium, Large,
+and Huge Memory Models:
 
 ```console
 clang --target=c166-none-elf -mcpu=c166 -mcmodel=large -ffreestanding -c input.c
@@ -12,11 +12,22 @@ ld.lld input.o -o output.elf
 llvm-objdump -d output.elf
 ```
 
-Use `-mcmodel=medium` for the Medium model. Its data model is the same paged
-far data model as Large, but ordinary functions and function pointers are
-near. An explicit `c166_huge` function keeps the inter-segment call class.
-Use `-mcmodel=small` for 16-bit direct/DPP ordinary data pointers with the
-Large far code model.
+The model controls the default code and data address classes:
+
+| Model | Functions | Data | Ordinary data pointer |
+| --- | --- | --- | --- |
+| Tiny | near | near/direct | 16 bits |
+| Small | huge | near/direct | 16 bits |
+| Medium | near | far/paged | 32 bits |
+| Large | huge | far/paged | 32 bits |
+| Huge | huge | huge/segmented | 32 bits |
+
+Near functions use `CALLA`/`RET`; huge functions use `CALLS`/`RETS`. Far data
+pointers use page-and-page-offset arithmetic and cannot cross a 16-KiB page.
+Huge data pointers use segment-and-segment-offset arithmetic and can traverse
+the complete 16-MiB address space. Explicit address-class attributes override
+the defaults where the selected model permits them. Tiny intentionally accepts
+only its near code and near data classes.
 
 LLVM emits its own little-endian ELF32 C166 format. Foreign object formats are
 not accepted as compatible inputs. C ABI compatibility refers to the machine
@@ -43,7 +54,8 @@ register map.
 ## Assembly Sources
 
 Clang preprocesses `.S` inputs and assembles them with the integrated assembler.
-`__C166_MEMORY_MODEL__` is 1 for Large, 2 for Medium, and 3 for Small.
+`__C166_MEMORY_MODEL__` is 1 for Large, 2 for Medium, 3 for Small, 4 for Tiny,
+and 5 for Huge.
 Use the model's call/return class when hand-written assembly calls C functions.
 
 Direct memory operands accept `sof(symbol + addend)` for a full 16-bit segment
@@ -298,28 +310,31 @@ displacements wrap with the 16-bit IP; they do not change CSP.
 relocation numbers 253 through 255 are reserved and are not emitted or accepted
 as LLVM relocation names.
 
-Large objects carry ELF `e_flags` value `0x121` (8x166 core, far data, huge
-code); Medium objects carry `0x221` (8x166 core, far data, near code); Small
-objects carry `0x111` (8x166 core, direct data, huge code). LLD rejects inputs
-with different C166 model flags. In a Medium link, ordinary
-near code must fit completely in the first 64-KiB code segment. This is
+Tiny objects carry ELF `e_flags` value `0x211` (8x166 core, near data, near
+code); Small objects carry `0x111` (8x166 core, near data, huge code); Medium
+objects carry `0x221` (8x166 core, far data, near code); Large objects carry
+`0x121` (8x166 core, far data, huge code); and Huge objects carry `0x141`
+(8x166 core, huge data, huge code). LLD rejects inputs with different C166
+model flags. In Tiny and Medium links, ordinary near code must fit completely
+in the first 64-KiB code segment. This is
 checked using input-section identity and processor-specific symbol metadata,
 so a custom source section or linker-script output-section rename cannot hide
-an invalid placement. Explicitly huge functions may be placed in another code
-segment. In a Small link, ordinary direct data must fit below 64 KiB; explicit
-far objects must stay within one 16-KiB page, shuge objects within one 64-KiB
-segment, and all explicit far/huge/shuge objects within the 16-MiB address
-space. Processor-specific object-symbol metadata preserves these checks when
-source section attributes or linker scripts rename output sections.
+an invalid placement. Medium permits explicitly huge functions in another code
+segment; Tiny does not. In Tiny and Small links, ordinary direct data must fit
+below 64 KiB. Far objects must stay within one 16-KiB page, shuge objects
+within one 64-KiB segment, and all address classes must stay within the 16-MiB
+address space. Huge ordinary objects may cross both page and segment
+boundaries. Processor-specific object-symbol metadata preserves these checks
+when source section attributes or linker scripts rename output sections.
 
 Optimized dense switches use tables of 16-bit code offsets and dispatch with
-`JMPI`. Large and Medium address the table as paged read-only data; Small uses
-its direct read-only-data range. Large and Small table entries use the segment
-offset of each destination, while Medium entries use the near code offset.
-LLD rejects a paged table that crosses a 16-KiB data page and any huge function
-whose body crosses a 64-KiB code-segment boundary. These checks ensure that the
-table load and the current-`CSP` `JMPI` transfer remain valid after final
-layout.
+`JMPI`. Large and Medium address the table as paged read-only data, Tiny and
+Small use direct read-only data, and Huge uses segmented read-only data. Large,
+Small, and Huge table entries use the segment offset of each destination;
+Tiny and Medium entries use the near code offset. LLD rejects a paged table
+that crosses a 16-KiB data page and any huge function whose body crosses a
+64-KiB code-segment boundary. These checks ensure that the table load and the
+current-`CSP` `JMPI` transfer remain valid after final layout.
 
 The textual assembly directives `.c166_model`, `.c166_function`, and
 `.c166_data` preserve the model and function/data address classes through a
@@ -329,7 +344,7 @@ standard ELF32 encoding for its C166 format.
 
 For `.s` and preprocessed `.S` input, the Clang driver forwards the selected
 `-mcmodel` to the integrated assembler. Assembly sources therefore inherit
-Large, Medium, or Small ELF identity without spelling `.c166_model`
+the selected ELF model identity without spelling `.c166_model`
 themselves. The directive remains useful for standalone `llvm-mc` input and
 textual assembly that must carry its model explicitly. A conflicting
 command-line model and directive is diagnosed.
@@ -365,12 +380,14 @@ them as ordinary C functions with `float` parameters would incorrectly apply
 the public stack-passed float convention. The C166 compiler-rt port provides
 these entries, including the different calling conventions needed by binary32
 helper internals and ordinary binary64 functions. It installs
-separate `libclang_rt.builtins.a` (Large),
-`libclang_rt.builtins-medium.a` (Medium), and
-`libclang_rt.builtins-small.a` (Small) archives; Clang selects the matching
+separate `libclang_rt.builtins-tiny.a` (Tiny),
+`libclang_rt.builtins-small.a` (Small),
+`libclang_rt.builtins-medium.a` (Medium),
+`libclang_rt.builtins.a` (Large), and
+`libclang_rt.builtins-huge.a` (Huge) archives; Clang selects the matching
 archive from `-mcmodel`. Mixing their objects is rejected by the ELF model
-flags. Compiler-generated Medium helper calls and assembly adapter returns use
-the near `CALLA`/`RET` class; Small helpers use the Large far code class.
+flags. Tiny and Medium helpers use the near `CALLA`/`RET` class; Small, Large,
+and Huge helpers use the far `CALLS`/`RETS` class.
 
 `__icall` is an assembly interface, not a C function.  In Large it is reached
 with `CALLS`, so the caller's system-stack frame already contains both IP and
@@ -384,10 +401,10 @@ __icall:
   rets
 ```
 
-Small uses the same far `__icall` contract as Large. In Medium `__icall` is a
-near entry reached with `CALLA`, which saves only the return IP. An explicitly
-huge target returns with `RETS` and needs an IP:CSP frame. The Medium runtime
-therefore converts the caller's frame
+Small and Huge use the same far `__icall` contract as Large. In Medium and Tiny
+`__icall` is a near entry reached with `CALLA`, which saves only the return IP.
+An explicitly huge target returns with `RETS` and needs an IP:CSP frame. The
+Medium runtime therefore converts the caller's frame
 before transferring control; `R1` and `R2` are caller-clobbered ABI registers:
 
 ```asm
@@ -434,9 +451,9 @@ not restore the original bank.
 
 ## Current Limitations
 
-- Tiny and Huge memory models are not implemented. Large, Medium, and Small
-  compile, assembly, ELF link placement, runtime multilib, and DWARF frame
-  classes are implemented. Small currently uses the default linear DPP map I.
+- All five memory models implement C compilation, assembly, ELF link
+  placement, runtime multilib selection, and DWARF frame classes. Tiny and
+  Small use the default linear DPP map I.
 - The public C data model has no 64-bit integer type. Private
   compiler-rt `_BitInt(64)` containers do not create a public 64-bit ABI.
 - C11 atomics are always non-lock-free and use the C166 runtime
@@ -444,7 +461,8 @@ not restore the original bank.
 - C++ ABI support, exceptions, RTTI, TLS, PIC/PIE, shared objects, and dynamic
   linking are outside the initial target scope.
 - Debug-only DWARF call-frame information is supported for ordinary
-  Large/Small far, Medium/explicit-near, interrupt, and register-bank frames.
+  Large/Small/Huge far, Tiny/Medium/explicit-near, interrupt, and register-bank
+  frames.
   Runtime `.eh_frame` unwinding is intentionally diagnosed because C166 far
   returns use a hardware system stack separate from the `R0` user stack.
 - Cross-bank calls require a platform-provided `__banksw`; compiler-rt cannot

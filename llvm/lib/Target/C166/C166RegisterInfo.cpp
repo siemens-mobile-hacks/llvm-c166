@@ -19,6 +19,7 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/TargetParser/C166TargetParser.h"
 
 #define GET_REGINFO_TARGET_DESC
 #include "C166GenRegisterInfo.inc"
@@ -183,8 +184,25 @@ bool C166RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     BuildMI(MBB, II, MI.getDebugLoc(), TII.get(C166::ANDri16), Low)
         .addReg(Low)
         .addImm(0x3fff);
-    BuildMI(MBB, II, MI.getDebugLoc(), TII.get(C166::MOVgsfr), High)
-        .addReg(C166::DPP1);
+    if (MI.getMF()->getDataLayout().getAllocaAddrSpace() ==
+        C166::HugeDataAddressSpace) {
+      BuildMI(MBB, II, MI.getDebugLoc(), TII.get(C166::MOVgsfr), High)
+          .addReg(C166::DPP1);
+      BuildMI(MBB, II, MI.getDebugLoc(), TII.get(C166::SHLri4), High)
+          .addReg(High)
+          .addImm(14);
+      BuildMI(MBB, II, MI.getDebugLoc(), TII.get(C166::ORrr), Low)
+          .addReg(Low)
+          .addReg(High);
+      BuildMI(MBB, II, MI.getDebugLoc(), TII.get(C166::MOVgsfr), High)
+          .addReg(C166::DPP1);
+      BuildMI(MBB, II, MI.getDebugLoc(), TII.get(C166::SHRri4), High)
+          .addReg(High)
+          .addImm(2);
+    } else {
+      BuildMI(MBB, II, MI.getDebugLoc(), TII.get(C166::MOVgsfr), High)
+          .addReg(C166::DPP1);
+    }
     MI.eraseFromParent();
     return true;
   }

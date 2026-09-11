@@ -31,13 +31,11 @@ static constexpr auto BuiltinInfos = Builtin::MakeInfos<NumBuiltins>({
 
 C166TargetInfo::C166TargetInfo(const llvm::Triple &Triple,
                                const TargetOptions &Opts)
-    : TargetInfo(Triple), IsMediumModel(Opts.CodeModel == "medium"),
-      IsSmallModel(Opts.CodeModel == "small") {
+    : TargetInfo(Triple),
+      MemoryModel(llvm::C166::getMemoryModel(Opts.ABI, Opts.CodeModel)) {
   TLSSupported = false;
   HasMustTail = false;
   UserLabelPrefix = "_";
-  AddrSpaceMap =
-      IsSmallModel ? &C166NearDataAddrSpaceMap : &C166FarDataAddrSpaceMap;
   UseAddrSpaceMapMangling = true;
 
   BoolWidth = BoolAlign = 8;
@@ -55,15 +53,11 @@ C166TargetInfo::C166TargetInfo(const llvm::Triple &Triple,
   DoubleWidth = LongDoubleWidth = 64;
   DoubleAlign = LongDoubleAlign = 16;
 
-  PointerWidth = IsSmallModel ? 16 : 32;
   PointerAlign = 16;
   SuitableAlign = 16;
   DefaultAlignForAttributeAligned = 16;
   NewAlign = 16;
 
-  SizeType = UnsignedInt;
-  PtrDiffType = SignedInt;
-  IntPtrType = IsSmallModel ? SignedInt : SignedLong;
   IntMaxType = SignedLong;
   WCharType = SignedInt;
   WIntType = SignedInt;
@@ -75,11 +69,31 @@ C166TargetInfo::C166TargetInfo(const llvm::Triple &Triple,
 
   MaxAtomicPromoteWidth = 0;
   MaxAtomicInlineWidth = 0;
-  llvm::C166::MemoryModel Model = IsSmallModel ? llvm::C166::MemoryModel::Small
-                                  : IsMediumModel
-                                      ? llvm::C166::MemoryModel::Medium
-                                      : llvm::C166::MemoryModel::Large;
+  setMemoryModel(MemoryModel);
+}
+
+void C166TargetInfo::setMemoryModel(llvm::C166::MemoryModel Model) {
+  MemoryModel = Model;
+  if (Model == llvm::C166::MemoryModel::Huge)
+    AddrSpaceMap = &C166HugeDataAddrSpaceMap;
+  else if (llvm::C166::hasNearData(Model))
+    AddrSpaceMap = &C166NearDataAddrSpaceMap;
+  else
+    AddrSpaceMap = &C166FarDataAddrSpaceMap;
+
+  PointerWidth = llvm::C166::hasNearData(Model) ? 16 : 32;
+  SizeType = UnsignedInt;
+  PtrDiffType = Model == llvm::C166::MemoryModel::Huge ? SignedLong : SignedInt;
+  IntPtrType = llvm::C166::hasNearData(Model) ? SignedInt : SignedLong;
   resetDataLayout(llvm::C166::getDataLayout(Model));
+}
+
+bool C166TargetInfo::setABI(const std::string &Name) {
+  std::optional Model = llvm::C166::parseMemoryModel(Name);
+  if (!Model)
+    return false;
+  setMemoryModel(*Model);
+  return true;
 }
 
 void C166TargetInfo::getTargetDefines(const LangOptions &Opts,
@@ -94,9 +108,25 @@ void C166TargetInfo::getTargetDefines(const LangOptions &Opts,
   Builder.defineMacro("__sfr", "__attribute__((c166_sfr))");
   Builder.defineMacro("__esfr", "__attribute__((c166_esfr))");
 
-  Builder.defineMacro("__C166_MEMORY_MODEL__", IsMediumModel  ? "2"
-                                               : IsSmallModel ? "3"
-                                                              : "1");
+  StringRef ModelValue;
+  switch (MemoryModel) {
+  case llvm::C166::MemoryModel::Large:
+    ModelValue = "1";
+    break;
+  case llvm::C166::MemoryModel::Medium:
+    ModelValue = "2";
+    break;
+  case llvm::C166::MemoryModel::Small:
+    ModelValue = "3";
+    break;
+  case llvm::C166::MemoryModel::Tiny:
+    ModelValue = "4";
+    break;
+  case llvm::C166::MemoryModel::Huge:
+    ModelValue = "5";
+    break;
+  }
+  Builder.defineMacro("__C166_MEMORY_MODEL__", ModelValue);
 }
 
 llvm::SmallVector<Builtin::InfosShard>

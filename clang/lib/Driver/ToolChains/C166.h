@@ -21,6 +21,10 @@ public:
   std::string getCompilerRT(const llvm::opt::ArgList &Args, StringRef Component,
                             FileType Type = ToolChain::FT_Static,
                             bool IsFortran = false) const override;
+  void
+  addClangTargetOptions(const llvm::opt::ArgList &DriverArgs,
+                        llvm::opt::ArgStringList &CC1Args, BoundArch BA,
+                        Action::OffloadKind DeviceOffloadKind) const override;
   void addClangCC1ASTargetOptions(
       const llvm::opt::ArgList &Args,
       llvm::opt::ArgStringList &CC1ASArgs) const override;

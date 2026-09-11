@@ -637,9 +637,9 @@ features cannot lower the translation-unit ABI level;
 
 #### C166 Support
 
-- Added the experimental `c166-none-elf` target, including the Large, Medium,
-  and Small memory models and C166-specific address-class, interrupt,
-  register-bank, and stack-argument attributes.
+- Added the experimental `c166-none-elf` target, including the Tiny, Small,
+  Medium, Large, and Huge memory models and C166-specific address-class,
+  interrupt, register-bank, and stack-argument attributes.
 
 #### SystemZ Support
 

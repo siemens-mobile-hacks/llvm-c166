@@ -1246,6 +1246,17 @@ else ()
 
       # Calls and returns make runtime archives memory-model specific.
       if ("${arch}" STREQUAL "c166")
+        add_compiler_rt_runtime(clang_rt.builtins-tiny
+                                STATIC
+                                ARCHS ${arch}
+                                DEPS ${deps_${arch}}
+                                SOURCES ${${arch}_SOURCES}
+                                DEFS ${BUILTIN_DEFS}
+                                CFLAGS ${BUILTIN_CFLAGS_${arch}}
+                                  -mcmodel=tiny
+                                C_STANDARD 11
+                                CXX_STANDARD 17
+                                PARENT_TARGET builtins)
         add_compiler_rt_runtime(clang_rt.builtins-medium
                                 STATIC
                                 ARCHS ${arch}
@@ -1265,6 +1276,17 @@ else ()
                                 DEFS ${BUILTIN_DEFS}
                                 CFLAGS ${BUILTIN_CFLAGS_${arch}}
                                   -mcmodel=small
+                                C_STANDARD 11
+                                CXX_STANDARD 17
+                                PARENT_TARGET builtins)
+        add_compiler_rt_runtime(clang_rt.builtins-huge
+                                STATIC
+                                ARCHS ${arch}
+                                DEPS ${deps_${arch}}
+                                SOURCES ${${arch}_SOURCES}
+                                DEFS ${BUILTIN_DEFS}
+                                CFLAGS ${BUILTIN_CFLAGS_${arch}}
+                                  -mcmodel=huge
                                 C_STANDARD 11
                                 CXX_STANDARD 17
                                 PARENT_TARGET builtins)

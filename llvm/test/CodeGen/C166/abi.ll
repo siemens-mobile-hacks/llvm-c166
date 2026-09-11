@@ -4,23 +4,39 @@
 ; RUN:   | FileCheck %s --check-prefixes=CHECK,NEAR
 ; RUN: llc -mtriple=c166-none-elf -code-model=small < %s \
 ; RUN:   | FileCheck %s --check-prefixes=CHECK,HUGE
+; RUN: llc -mtriple=c166-none-elf -code-model=tiny < %s \
+; RUN:   | FileCheck %s --check-prefixes=CHECK,NEAR
+; RUN: llc -mtriple=c166-none-elf -code-model=large -target-abi=huge < %s \
+; RUN:   | FileCheck %s --check-prefixes=CHECK,HUGE
 ; RUN: llc -mtriple=c166-none-elf -code-model=large -filetype=obj < %s \
 ; RUN:   -o %t.large.o
 ; RUN: llc -mtriple=c166-none-elf -code-model=medium -filetype=obj < %s \
 ; RUN:   -o %t.medium.o
 ; RUN: llc -mtriple=c166-none-elf -code-model=small -filetype=obj < %s \
 ; RUN:   -o %t.small.o
+; RUN: llc -mtriple=c166-none-elf -code-model=tiny -filetype=obj < %s \
+; RUN:   -o %t.tiny.o
+; RUN: llc -mtriple=c166-none-elf -code-model=large -target-abi=huge \
+; RUN:   -filetype=obj < %s -o %t.huge.o
 ; RUN: llvm-readobj --file-header %t.large.o \
 ; RUN:   | FileCheck %s --check-prefixes=OBJ,LARGE-OBJ
 ; RUN: llvm-readobj --file-header %t.medium.o \
 ; RUN:   | FileCheck %s --check-prefixes=OBJ,MEDIUM-OBJ
 ; RUN: llvm-readobj --file-header %t.small.o \
 ; RUN:   | FileCheck %s --check-prefixes=OBJ,SMALL-OBJ
+; RUN: llvm-readobj --file-header %t.tiny.o \
+; RUN:   | FileCheck %s --check-prefixes=OBJ,TINY-OBJ
+; RUN: llvm-readobj --file-header %t.huge.o \
+; RUN:   | FileCheck %s --check-prefixes=OBJ,HUGE-OBJ
 ; RUN: llvm-readobj --relocations %t.large.o \
 ; RUN:   | FileCheck %s --check-prefix=HUGE-RELOC
 ; RUN: llvm-readobj --relocations %t.medium.o \
 ; RUN:   | FileCheck %s --check-prefix=NEAR-RELOC
 ; RUN: llvm-readobj --relocations %t.small.o \
+; RUN:   | FileCheck %s --check-prefix=HUGE-RELOC
+; RUN: llvm-readobj --relocations %t.tiny.o \
+; RUN:   | FileCheck %s --check-prefix=NEAR-RELOC
+; RUN: llvm-readobj --relocations %t.huge.o \
 ; RUN:   | FileCheck %s --check-prefix=HUGE-RELOC
 ; RUN: llc -mtriple=c166-none-elf -code-model=large \
 ; RUN:   -stop-before=c166-asm-printer < %s \
@@ -60,6 +76,14 @@
 ; SMALL-OBJ-DAG: EF_C166_CODE_HUGE (0x100)
 ; SMALL-OBJ-DAG: EF_C166_CORE_8X166 (0x1)
 ; SMALL-OBJ-DAG: EF_C166_DATA_NEAR (0x10)
+; TINY-OBJ:   Flags [ (0x211)
+; TINY-OBJ-DAG: EF_C166_CODE_NEAR (0x200)
+; TINY-OBJ-DAG: EF_C166_CORE_8X166 (0x1)
+; TINY-OBJ-DAG: EF_C166_DATA_NEAR (0x10)
+; HUGE-OBJ:   Flags [ (0x141)
+; HUGE-OBJ-DAG: EF_C166_CODE_HUGE (0x100)
+; HUGE-OBJ-DAG: EF_C166_CORE_8X166 (0x1)
+; HUGE-OBJ-DAG: EF_C166_DATA_HUGE (0x40)
 ; HUGE-RELOC:      R_C166_SEG24 _callee_mix
 ; NEAR-RELOC:      R_C166_COF16 _callee_mix
 ; MIR-LABEL:  name: forward_mix

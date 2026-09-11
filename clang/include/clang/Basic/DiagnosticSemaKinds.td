@@ -448,7 +448,9 @@ def err_c166_code_bank_out_of_range : Error<
 def err_c166_code_bank_near : Error<
   "'c166_bank' cannot be combined with a near function type">;
 def err_c166_xnear_memory_model : Error<
-  "'c166_xnear' is only available in the Medium and Large memory models">;
+  "'c166_xnear' is only available in the Medium, Large, and Huge memory models">;
+def err_c166_memory_model_attribute : Error<
+  "%0 attribute is not available in the %1 memory model">;
 def err_c166_register_bank_requires_interrupt : Error<
   "'c166_register_bank' attribute requires a C166 interrupt handler">;
 def err_c166_sfrbit_type : Error<
