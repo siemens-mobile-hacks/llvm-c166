@@ -5,6 +5,7 @@
 // RUN: %clang -### --target=c166-none-elf -mcmodel=tiny -c %s 2>&1 | FileCheck %s --check-prefix=TINY
 // RUN: %clang -### --target=c166-none-elf -mcmodel=huge -c %s 2>&1 | FileCheck %s --check-prefix=HUGE
 // RUN: %clang -### --target=c166-none-elf -mcpu=generic -c %s 2>&1 | FileCheck %s --check-prefix=GENERIC
+// RUN: not %clang --target=c166-none-elf -mcpu=c167 -c %s -o /dev/null 2>&1 | FileCheck %s --check-prefix=INVALID-CPU
 // RUN: %clang -### --target=c166-none-elf -nostartfiles -nolibc %s 2>&1 | FileCheck %s --check-prefix=LINK
 // RUN: %clang -### --target=c166-none-elf -mcmodel=small -nostartfiles -nolibc %s 2>&1 | FileCheck %s --check-prefix=SMALL-LINK
 // RUN: %clang -### --target=c166-none-elf -mcmodel=medium -nostartfiles -nolibc %s 2>&1 | FileCheck %s --check-prefix=MEDIUM-LINK
@@ -45,6 +46,9 @@
 
 // GENERIC: "-cc1"
 // GENERIC-SAME: "-target-cpu" "generic"
+
+// INVALID-CPU: error: unknown target CPU 'c167'
+// INVALID-CPU-NEXT: note: valid target CPU values are: c166, generic
 
 // LINK: ld.lld"
 // LINK-SAME: "-m" "c166elf"

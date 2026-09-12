@@ -2,7 +2,7 @@
 # RUN: llc -mtriple=c166-none-elf -run-pass=postrapseudos -o - %s | llc -x mir -mtriple=c166-none-elf -start-after=postrapseudos -verify-machineinstrs -o - | FileCheck %s --check-prefix=ASM
 
 # ASM-LABEL: _carry_copy_roundtrip:
-# ASM: bmov psw.11, r6.0
+# ASM: bmov psw.1, r6.0
 # ASM-NEXT: mov r4, #0
 # ASM-NEXT: addc r4, #0
 # ASM-NEXT: rets
@@ -22,7 +22,7 @@ body: |
 ...
 # Copy bit zero of r6 into PSW.C, then materialize it as 0 or 1.
 # CHECK-LABEL: name: carry_copy_roundtrip
-# CHECK: BMOV 2187, 3936, implicit-def $psw, implicit-def $c, implicit $r6
+# CHECK: BMOV 2177, 3936, implicit-def $psw, implicit-def $c, implicit $r6
 # CHECK-NEXT: $r4 = MOVri4 0, implicit-def $psw
 # CHECK-NEXT: $r4 = ADDCri3 $r4, 0,
 # CHECK-NEXT: RETS implicit $r4

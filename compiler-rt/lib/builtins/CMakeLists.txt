@@ -915,6 +915,8 @@ set(avr_SOURCES
 # Generic 32-bit integer sources recurse through C166 libcalls.
 set(c166_SOURCES
   c166/adddf3.c
+  ashldi3.c
+  ashrdi3.c
   c166/divdf3.c
   fp_mode.c
   c166/atomic.c
@@ -922,11 +924,17 @@ set(c166_SOURCES
   c166/ashlsi3.c
   c166/ashrsi3.c
   c166/clzsi2.c
+  popcountsi2.c
   c166/cmpdf2.S
   c166/comparedf2.c
   c166/comparesf2.c
   c166/divsf3.c
   c166/divsi3.c
+  divdi3.c
+  fixdfdi.c
+  fixsfdi.c
+  fixunsdfdi.c
+  fixunssfdi.c
   c166/fixdfsi.c
   c166/fixsfsi.S
   c166/fixunsdfsi.c
@@ -937,6 +945,10 @@ set(c166_SOURCES
   c166/floatunsidf.c
   c166/floatunsidf_direct.c
   c166/floatunsisf.c
+  floatdidf.c
+  floatdisf.c
+  floatundidf.c
+  floatundisf.c
   c166/fp32_round.c
   c166/fp64_add.c
   c166/fp64_add_impl.S
@@ -950,12 +962,18 @@ set(c166_SOURCES
   c166/truncdfsf2.S
   c166/icall.S
   c166/lshrsi3.c
+  lshrdi3.c
   c166/memory.c
   c166/modsi3.c
   c166/mulsf3.c
   c166/mulsi3.c
+  moddi3.c
+  muldi3.c
   c166/subsf3.c
   c166/udivsi3.c
+  udivdi3.c
+  udivmoddi4.c
+  umoddi3.c
   c166/umodsi3.c
   c166/float_helpers.S
   c166/muldf3.c
@@ -1177,10 +1195,7 @@ else ()
       set(BUILTIN_CFLAGS_${arch} ${BUILTIN_CFLAGS})
       if ("${arch}" STREQUAL "c166")
         list(APPEND BUILTIN_CFLAGS_${arch} -Os -ffreestanding
-          -ffunction-sections -fdata-sections
-          -Xclang -fexperimental-max-bitint-width=64
-          -DCRT_USE_64BIT_BITINT
-          -DCRT_REVERSE_16BIT_FP_WORDS)
+          -ffunction-sections -fdata-sections -DCRT_REVERSE_16BIT_FP_WORDS)
       endif()
       # CMAKE_REQUIRED_FLAGS must be a space separated string
       # Join BUILTIN_CFLAGS_${arch} and TARGET_${arch}_CFLAGS as a

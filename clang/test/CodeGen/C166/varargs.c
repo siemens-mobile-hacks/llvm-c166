@@ -13,7 +13,6 @@
 // C166-ABI: varargs.unnamed_words_on_stack
 // C166-ABI: varargs.va_list_stack_pointer
 // C166-ABI: varargs.long_word_order
-// C166-ABI: varargs.long_long_alias
 // C166-ABI: varargs.far_pointer_word_order
 // C166-ABI: varargs.float_word_order
 
@@ -208,8 +207,8 @@ unsigned int take_aggregate_varargs(unsigned int tag, ...) {
 // CHECK:       rets
 // CHECK-LABEL: <_take_long_long>:
 // CHECK-NOT:   extp
-// CHECK:       mov r4, [r0]
-// CHECK:       mov r5, [r0 + #2]
+// CHECK:       mov r4, r0
+// CHECK:       mov {{r[0-9]+}}, [r0 + #6]
 // CHECK:       rets
 // CHECK-LABEL: <_take_pointer>:
 // CHECK-NOT:   extp
@@ -249,10 +248,10 @@ unsigned int take_aggregate_varargs(unsigned int tag, ...) {
 // CHECK:       add r0, #4
 // CHECK:       rets
 // CHECK-LABEL: <_call_take_long_long>:
-// CHECK:       mov [-r0], r13
-// CHECK-NEXT:  mov [-r0], r12
+// CHECK-COUNT-4: mov [-r0], {{r[0-9]+}}
+// CHECK:       mov r12, #1
 // CHECK:       calls
-// CHECK:       add r0, #4
+// CHECK:       add r0, #16
 // CHECK:       rets
 // CHECK-LABEL: <_call_take_pointer>:
 // CHECK:       mov [-r0], r13

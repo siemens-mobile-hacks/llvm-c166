@@ -12,7 +12,7 @@ _Static_assert(sizeof(struct c166_layout) == 6, "C166 struct size");
 _Static_assert(_Alignof(struct c166_layout) == 2, "C166 struct alignment");
 _Static_assert(__builtin_offsetof(struct c166_layout, dword) == 2,
                "C166 long offset");
-_Static_assert(sizeof(long long) == 4, "C166 long long size");
+_Static_assert(sizeof(long long) == 8, "C166 long long size");
 _Static_assert(_Alignof(long long) == 2,
                "C166 long long alignment");
 
@@ -68,9 +68,10 @@ unsigned int add_words(unsigned int lhs, unsigned int rhs) { return lhs + rhs; }
 // CHECK-LABEL: define{{.*}} i32 @identity_dword(i32 noundef %value)
 unsigned long identity_dword(unsigned long value) { return value; }
 
-// C166 gives `long long` the same 32-bit
-// representation and call ABI as long, rather than defining an i64 type.
-// CHECK-LABEL: define{{.*}} i32 @identity_long_long(i32 noundef %value)
+// A 64-bit integer is passed directly as four words. The backend returns it
+// through a caller-owned slot because it does not fit the scalar return pair.
+// This is a C166 LLVM ABI extension; existing integer types are unchanged.
+// CHECK-LABEL: define{{.*}} i64 @identity_long_long(i64 noundef %value)
 long long identity_long_long(long long value) { return value; }
 
 // Large-model data pointers occupy 32 bits with 16-bit ABI alignment.

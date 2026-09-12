@@ -171,6 +171,10 @@ bool llvm::lowerC166VAArgs(Module &M) {
     Function *F = VAStart->getFunction();
     F->removeFnAttr(Attribute::AlwaysInline);
     F->addFnAttr(Attribute::NoInline);
+    // The replacement intrinsic refers to this function's incoming varargs
+    // frame.  Prevent interprocedural passes from changing its signature after
+    // llvm.va_start is no longer present for them to recognize.
+    F->addFnAttr(Attribute::NoIPA);
 
     IRBuilder<> Builder(VAStart);
     CallInst *Address = Builder.CreateCall(Start, {}, "va.start");

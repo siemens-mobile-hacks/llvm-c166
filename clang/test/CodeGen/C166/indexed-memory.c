@@ -1,4 +1,5 @@
 // REQUIRES: c166-registered-target
+// RUN: %clang --target=c166-none-elf -mcmodel=large -O0 -mllvm -verify-machineinstrs -c %s -o %t.large-o0.o
 // RUN: %clang --target=c166-none-elf -mcmodel=large -O2 -mllvm -verify-machineinstrs -c %s -o %t.large.o
 // RUN: llvm-objdump -d %t.large.o | FileCheck %s
 // RUN: %clang --target=c166-none-elf -mcmodel=medium -O2 -mllvm -verify-machineinstrs -c %s -o %t.medium.o

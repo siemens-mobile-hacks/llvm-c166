@@ -43,8 +43,7 @@ C166TargetInfo::C166TargetInfo(const llvm::Triple &Triple,
   IntWidth = IntAlign = 16;
   LongWidth = 32;
   LongAlign = 16;
-  // No C166 ABI integer type is wider than 32 bits.
-  LongLongWidth = 32;
+  LongLongWidth = 64;
   LongLongAlign = 16;
 
   HalfWidth = HalfAlign = 16;
@@ -58,7 +57,7 @@ C166TargetInfo::C166TargetInfo(const llvm::Triple &Triple,
   DefaultAlignForAttributeAligned = 16;
   NewAlign = 16;
 
-  IntMaxType = SignedLong;
+  IntMaxType = SignedLongLong;
   WCharType = SignedInt;
   WIntType = SignedInt;
   Char16Type = UnsignedInt;
@@ -100,6 +99,7 @@ void C166TargetInfo::getTargetDefines(const LangOptions &Opts,
                                       MacroBuilder &Builder) const {
   Builder.defineMacro("__c166__");
   Builder.defineMacro("__C166__");
+  Builder.defineMacro("__SOFTFP__");
   Builder.defineMacro("__near", "__attribute__((c166_near))");
   Builder.defineMacro("__xnear", "__attribute__((c166_xnear))");
   Builder.defineMacro("__far", "__attribute__((c166_far))");

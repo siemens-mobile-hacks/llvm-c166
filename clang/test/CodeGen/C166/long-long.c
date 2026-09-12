@@ -1,99 +1,70 @@
 // REQUIRES: c166-registered-target
-// RUN: %clang --target=c166-none-elf -mcmodel=medium -O1 -mllvm -verify-machineinstrs -c %s -o %t.medium.o
+// RUN: %clang --target=c166-none-elf -mcmodel=tiny -O1 -mllvm -verify-machineinstrs -c %s -o %t.tiny.o
 // RUN: %clang --target=c166-none-elf -mcmodel=small -O1 -mllvm -verify-machineinstrs -c %s -o %t.small.o
-// RUN: %clang --target=c166-none-elf -mcmodel=large -O1 -fno-inline -mllvm -verify-machineinstrs -c %s -o %t.o
-// RUN: llvm-objdump -d %t.o | FileCheck %s
-// RUN: %clang_cc1 -triple c166-none-elf -emit-llvm -o - %s | FileCheck %s --check-prefix=IR
-// C166-ABI: types.long_long_alias
+// RUN: %clang --target=c166-none-elf -mcmodel=medium -O1 -mllvm -verify-machineinstrs -c %s -o %t.medium.o
+// RUN: %clang --target=c166-none-elf -mcmodel=large -O1 -mllvm -verify-machineinstrs -c %s -o %t.large.o
+// RUN: %clang --target=c166-none-elf -mcmodel=huge -O1 -mllvm -verify-machineinstrs -c %s -o %t.huge.o
+// RUN: %clang_cc1 -triple c166-none-elf -emit-llvm -o - %s | FileCheck %s
+// RUN: %clang --target=c166-none-elf -mcmodel=small -O2 -S -o - %s | FileCheck %s --check-prefix=ASM
 
-typedef signed long long sll;
-typedef unsigned long long ull;
+typedef signed long long s64;
+typedef unsigned long long u64;
 typedef unsigned int u16;
 
-struct long_long_record {
+struct record {
   u16 tag;
-  sll value;
+  s64 value;
 };
 
-_Static_assert(sizeof(sll) == sizeof(long),
-               "C166 long long aliases long width");
-_Static_assert(sizeof(sll) == 4, "C166 long long is 32 bit");
-_Static_assert(_Alignof(sll) == 2, "C166 long long is word aligned");
-_Static_assert(sizeof(struct long_long_record) == 6,
-               "C166 long long record size");
-_Static_assert(__builtin_offsetof(struct long_long_record, value) == 2,
-               "C166 long long record offset");
+_Static_assert(sizeof(s64) == 8, "64-bit long long");
+_Static_assert(_Alignof(s64) == 2, "word-aligned long long");
+_Static_assert(sizeof(struct record) == 10, "record size");
+_Static_assert(__builtin_offsetof(struct record, value) == 2, "record offset");
 
-sll long_long_add(sll left, sll right) {
-  return left + right;
-}
-
-ull long_long_add_unsigned(ull left, ull right) {
-  return left + right;
-}
-
-sll long_long_packed(u16 prefix, sll value, u16 tail) {
+s64 add(s64 left, s64 right) { return left + right; }
+u64 multiply(u64 left, u64 right) { return left * right; }
+u64 divide(u64 left, u64 right) { return left / right; }
+s64 packed(u16 prefix, s64 value, u16 tail) {
   return value + prefix + tail;
 }
-
-sll long_long_record_sum(struct long_long_record record) {
-  return record.value + record.tag;
-}
-
-struct long_long_record long_long_record_make(u16 tag, sll value) {
-  struct long_long_record result = {tag, value};
+s64 record_sum(struct record value) { return value.value + value.tag; }
+struct record record_make(u16 tag, s64 value) {
+  struct record result = {tag, value};
   return result;
 }
+int signed_less(s64 left, s64 right) { return left < right; }
+u16 to_word(u64 value) { return (u16)value; }
+u64 from_word(u16 value) { return (u64)value; }
 
-int long_long_signed_less(sll left, sll right) {
-  return left < right;
-}
+// An i64 libcall result is already in integer word order.  It must not use
+// the word reversal required for a softened f64 result carried as i64.
+// ASM-LABEL: _divide:
+// ASM: calls seg(___udivdi3), sof(___udivdi3)
+// ASM-NEXT: mov r1, [r4+]
+// ASM-NEXT: mov r2, [r4+]
+// ASM-NEXT: mov r3, [r4+]
+// ASM-NEXT: mov r4, [r4]
 
-u16 long_long_to_word(ull value) {
-  return (u16)value;
-}
+// The prefix consumes R12, leaving only three argument registers.  The
+// four-word i64 argument therefore starts on the stack as one unit; it must
+// not be split between R13:R14 and the stack.
+// ASM-LABEL: _packed:
+// ASM: mov r13, r0
+// ASM-COUNT-4: mov {{r[0-9]+}}, [r13+]
+// ASM: mov {{r[0-9]+}}, [r13]
 
-ull word_to_long_long(u16 value) {
-  return (ull)value;
-}
-
-// Two 32-bit values use R12:R13 and R14:R15.  The result is returned in
-// R4:R5, like long.
-// CHECK-LABEL: <_long_long_add>:
-// CHECK-DAG:   mov r4, r{{(12|14)}}
-// CHECK-DAG:   mov r5, r{{(13|15)}}
-// CHECK:       add r4, r{{(12|14)}}
-// CHECK-NEXT:  addc r5, r{{(13|15)}}
-// CHECK-NEXT:  rets
-
-// CHECK-LABEL: <_long_long_add_unsigned>:
-// CHECK:       add r4, r{{(12|14)}}
-// CHECK-NEXT:  addc r5, r{{(13|15)}}
-// CHECK-NEXT:  rets
-
-// A long-long value may start at R13; it is not even-pair aligned, and the
-// following word remains in R15.
-// CHECK-LABEL: <_long_long_packed>:
-// CHECK:       mov r1, r12
-// CHECK-NEXT:  mov r2, #0
-// CHECK-NEXT:  add r1, r13
-// CHECK-NEXT:  addc r2, r14
-// CHECK-NEXT:  mov r4, r15
-// CHECK-NEXT:  mov r5, #0
-// CHECK-NEXT:  add r4, r1
-// CHECK-NEXT:  addc r5, r2
-// CHECK-NEXT:  rets
-
-// IR-LABEL: define{{.*}} i32 @long_long_add(i32 noundef %left, i32 noundef %right)
-// IR: add{{.*}} i32
-// IR-LABEL: define{{.*}} i32 @long_long_add_unsigned(i32 noundef %left, i32 noundef %right)
-// IR: add{{.*}} i32
-// IR-LABEL: define{{.*}} i32 @long_long_packed(i16 noundef %prefix, i32 noundef %value, i16 noundef %tail)
-// IR-LABEL: define{{.*}} i32 @long_long_record_sum(ptr addrspace(2) noundef byval(%struct.long_long_record) align 2 %record)
-// IR-LABEL: define{{.*}} void @long_long_record_make(ptr addrspace(2){{.*}}sret(%struct.long_long_record) align 2 %agg.result, i16 noundef %tag, i32 noundef %value)
-// IR-LABEL: define{{.*}} i16 @long_long_signed_less(i32 noundef %left, i32 noundef %right)
-// IR: icmp slt i32
-// IR-LABEL: define{{.*}} i16 @long_long_to_word(i32 noundef %value)
-// IR: trunc i32
-// IR-LABEL: define{{.*}} i32 @word_to_long_long(i16 noundef %value)
-// IR: zext i16
+// CHECK-LABEL: define{{.*}} i64 @add(i64 noundef %left, i64 noundef %right)
+// CHECK: add{{.*}} i64
+// CHECK-LABEL: define{{.*}} i64 @multiply(i64 noundef %left, i64 noundef %right)
+// CHECK: mul i64
+// CHECK-LABEL: define{{.*}} i64 @divide(i64 noundef %left, i64 noundef %right)
+// CHECK: udiv i64
+// CHECK-LABEL: define{{.*}} i64 @packed(i16 noundef %prefix, i64 noundef %value, i16 noundef %tail)
+// CHECK-LABEL: define{{.*}} i64 @record_sum(ptr addrspace(2) noundef byval(%struct.record) align 2 %value)
+// CHECK-LABEL: define{{.*}} void @record_make(ptr addrspace(2){{.*}}sret(%struct.record) align 2 %agg.result, i16 noundef %tag, i64 noundef %value)
+// CHECK-LABEL: define{{.*}} i16 @signed_less(i64 noundef %left, i64 noundef %right)
+// CHECK: icmp slt i64
+// CHECK-LABEL: define{{.*}} i16 @to_word(i64 noundef %value)
+// CHECK: trunc i64
+// CHECK-LABEL: define{{.*}} i64 @from_word(i16 noundef %value)
+// CHECK: zext i16

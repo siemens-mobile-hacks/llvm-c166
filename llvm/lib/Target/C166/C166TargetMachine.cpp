@@ -214,7 +214,9 @@ public:
   }
 
   void addPreRegAlloc() override {
-    if (getOptLevel() != CodeGenOptLevel::None) {
+    if (getOptLevel() == CodeGenOptLevel::None)
+      addPass(createC166PostISelPass());
+    else {
       addPass(createC166FrameAddressRematerializationPass());
       addPass(createC166PHIEdgeSplittingPass());
     }

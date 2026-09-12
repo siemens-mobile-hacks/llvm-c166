@@ -66,6 +66,7 @@ def IsAMDGPU : LibcallPredicate<[{TT.isAMDGPU()}]>;
 def IsARM : LibcallPredicate<[{TT.isARM()}]>;
 def IsThumb : LibcallPredicate<[{TT.isThumb()}]>;
 def IsAVR : LibcallPredicate<[{TT.getArch() == Triple::avr}]>;
+def IsC166 : LibcallPredicate<[{TT.getArch() == Triple::c166}]>;
 def IsDXIL : LibcallPredicate<[{TT.isDXIL()}]>;
 def IsHexagon : LibcallPredicate<[{TT.getArch() == Triple::hexagon}]>;
 def IsLanai : LibcallPredicate<[{TT.getArch() == Triple::lanai}]>;
@@ -111,6 +112,7 @@ def IsArchXtensa : LibcallPredicate<[{TT.getArch() == Triple::xtensa}]>;
 def isOSDarwin : RuntimeLibcallAvailability<(all_of IsOSDarwin)>;
 def isOSOpenBSD : RuntimeLibcallAvailability<(all_of IsOSOpenBSD)>;
 def isNotOSOpenBSD : RuntimeLibcallAvailability<(not IsOSOpenBSD)>;
+def isC166 : RuntimeLibcallAvailability<(all_of IsC166)>;
 
 // True when the C `long double` type is IEEE fp128.
 def isLongDoubleF128 : RuntimeLibcallAvailability<(all_of IsLongDoubleF128)>;
@@ -3642,6 +3644,13 @@ def WasmSystemLibrary
 //===----------------------------------------------------------------------===//
 // Legacy Default Runtime Libcalls
 //===----------------------------------------------------------------------===//
+
+def C166SystemLibrary : SystemRuntimeLibrary<isC166,
+  (add __clzsi2, __popcountsi2,
+       __ashldi3, __ashrdi3, __lshrdi3,
+       __muldi3, __divdi3, __udivdi3, __moddi3, __umoddi3,
+       __fixsfdi, __fixdfdi, __fixunssfdi, __fixunsdfdi,
+       __floatdisf, __floatdidf, __floatundisf, __floatundidf)>;
 
 // TODO: Should make every target explicit.
 def isDefaultLibcallArch : RuntimeLibcallAvailability<

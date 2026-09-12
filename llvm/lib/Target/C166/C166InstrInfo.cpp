@@ -811,7 +811,7 @@ void C166InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
     // Copy bit zero to PSW.C without changing a live source register.
     unsigned SourceAddress = (0xf0 | RI.getEncodingValue(SrcReg)) << 4;
     BuildMI(MBB, I, DL, get(C166::BMOV))
-        .addImm((RI.getEncodingValue(C166::PSW) << 4) | 11)
+        .addImm((RI.getEncodingValue(C166::PSW) << 4) | 1)
         .addImm(SourceAddress)
         .addReg(SrcReg, RegState::Implicit | getKillRegState(KillSrc));
     return;
@@ -1023,8 +1023,7 @@ void C166InstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
     MachineRegisterInfo &MRI = MBB.getParent()->getRegInfo();
     Register Value = MRI.createVirtualRegister(&C166::GR16RegClass);
     EmitWord(Value, 0, 0, false);
-    BuildMI(MBB, I, DebugLoc(), get(C166::SETCARRY), Value)
-        .addDef(DestReg)
+    BuildMI(MBB, I, DebugLoc(), get(C166::SETCARRY), DestReg)
         .addReg(Value, RegState::Kill)
         .setMIFlags(Flags);
     return;
@@ -1614,18 +1613,15 @@ bool C166InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
 
   if (MI.getOpcode() == C166::SETCARRY) {
     MachineBasicBlock &MBB = *MI.getParent();
-    Register Scratch = MI.getOperand(0).getReg();
-    Register Value = MI.getOperand(2).getReg();
-    bool ScratchIsDead = MI.getOperand(0).isDead();
-    MachineInstrBuilder Expanded =
-        BuildMI(MBB, MI, MI.getDebugLoc(),
-                get(ScratchIsDead ? C166::SHRri4 : C166::ADDri16), Scratch)
-            .addReg(Value, getKillRegState(MI.getOperand(2).isKill()))
-            .addImm(ScratchIsDead ? 1 : 0xffff);
-    Expanded->getOperand(0).setIsDead(ScratchIsDead);
+    Register Scratch = MI.getOperand(1).getReg();
+    assert(MI.getOperand(1).isKill() && "SETCARRY input must be disposable");
+    MachineInstrBuilder Expanded = BuildMI(
+        MBB, MI, MI.getDebugLoc(), get(C166::SHRri4), Scratch);
+    Expanded.addReg(Scratch, RegState::Kill).addImm(1);
+    Expanded->getOperand(0).setIsDead();
     copyImplicitRegisterLiveness(*Expanded, MI);
     if (MachineOperand *Carry = Expanded->findRegisterDefOperand(C166::C, &RI))
-      Carry->setIsDead(MI.getOperand(1).isDead());
+      Carry->setIsDead(MI.getOperand(0).isDead());
     Expanded->setFlags(MI.getFlags());
     MI.eraseFromParent();
     return true;

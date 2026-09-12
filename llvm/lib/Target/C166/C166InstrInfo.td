@@ -1264,13 +1264,10 @@ def SELECT32_32CMP : C166Pseudo<(outs GR32:$dst),
   let usesCustomInserter = 1;
 }
 
-// Convert a 0/1 value into the carry flag.  The tied scratch result lets
-// post-RA expansion use the two-address ALU without clobbering a live input.
-def SETCARRY : C166Pseudo<(outs GR16:$scratch, CARRY:$cout),
-                          (ins GR16:$value)> {
-  let Constraints = "$scratch = $value";
+// Convert a disposable 0/1 word into the carry flag.
+def SETCARRY : C166Pseudo<(outs CARRY:$cout), (ins GR16:$value)> {
   let Defs = [PSW];
-  let Size = 4;
+  let Size = 2;
 }
 
 let Defs = [PSW, C] in {

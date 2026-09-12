@@ -31,11 +31,7 @@
 
 typedef uint16_t half_rep_t;
 typedef uint32_t rep_t;
-#if defined(CRT_USE_64BIT_BITINT)
-typedef unsigned _BitInt(64) twice_rep_t;
-#else
 typedef uint64_t twice_rep_t;
-#endif
 typedef int32_t srep_t;
 typedef float fp_t;
 #define HALF_REP_C UINT16_C
@@ -46,58 +42,22 @@ static __inline int rep_clz(rep_t a) { return clzsi(a); }
 
 // 32x32 --> 64 bit multiply
 static __inline void wideMultiply(rep_t a, rep_t b, rep_t *hi, rep_t *lo) {
-#if defined(CRT_USE_64BIT_BITINT)
-  // Form the double-width product from four 16x16 products without requiring
-  // ordinary C integer arithmetic wider than rep_t.
-  const rep_t aLow = (uint16_t)a;
-  const rep_t aHigh = a >> 16;
-  const rep_t bLow = (uint16_t)b;
-  const rep_t bHigh = b >> 16;
-  const rep_t lowLow = aLow * bLow;
-  const rep_t cross0 = aHigh * bLow + (lowLow >> 16);
-  const rep_t crossLow = (uint16_t)cross0;
-  const rep_t crossHigh = cross0 >> 16;
-  const rep_t cross1 = aLow * bHigh + crossLow;
-  *hi = aHigh * bHigh + crossHigh + (cross1 >> 16);
-  *lo = (cross1 << 16) | (uint16_t)lowLow;
-#else
   const uint64_t product = (uint64_t)a * b;
   *hi = (rep_t)(product >> 32);
   *lo = (rep_t)product;
-#endif
 }
 
 #elif defined DOUBLE_PRECISION
 
 typedef uint32_t half_rep_t;
-#if defined(CRT_USE_64BIT_BITINT)
-// Some targets need a private 64-bit container for the IEEE binary64
-// algorithms without exposing a 64-bit standard C integer type in their ABI.
-typedef unsigned _BitInt(64) rep_t;
-typedef signed _BitInt(64) srep_t;
-#else
 typedef uint64_t rep_t;
 typedef int64_t srep_t;
-#endif
 typedef double fp_t;
 #define HALF_REP_C UINT32_C
-#if defined(CRT_USE_64BIT_BITINT)
-#define REP_C(c) ((rep_t)(c))
-#else
 #define REP_C UINT64_C
-#endif
 #define significandBits 52
 
-#if defined(CRT_USE_64BIT_BITINT)
-static inline int rep_clz(rep_t a) {
-  const uint32_t high = (uint32_t)(a >> 32);
-  if (high)
-    return __builtin_clzl(high);
-  return 32 + __builtin_clzl((uint32_t)a);
-}
-#else
 static inline int rep_clz(rep_t a) { return __builtin_clzll(a); }
-#endif
 
 #define loWord(a) (a & 0xffffffffU)
 #define hiWord(a) (a >> 32)
@@ -233,17 +193,23 @@ typedef long double fp_t;
     (defined(QUAD_PRECISION) && defined(CRT_HAS_TF_MODE))
 #define typeWidth (sizeof(rep_t) * CHAR_BIT)
 
-#if defined(CRT_REVERSE_16BIT_FP_WORDS) && defined(DOUBLE_PRECISION)
+#if defined(CRT_REVERSE_16BIT_FP_WORDS) &&                                     \
+    (defined(SINGLE_PRECISION) || defined(DOUBLE_PRECISION))
 static __inline rep_t reverseRepWords(rep_t x) {
+#if defined(SINGLE_PRECISION)
+  return x << 16 | x >> 16;
+#else
   return (x & REP_C(0x000000000000ffff)) << 48 |
          (x & REP_C(0x00000000ffff0000)) << 16 |
          (x >> 16 & REP_C(0x00000000ffff0000)) |
          (x >> 48 & REP_C(0x000000000000ffff));
+#endif
 }
 #endif
 
 static __inline rep_t toRep(fp_t x) {
-#if defined(CRT_REVERSE_16BIT_FP_WORDS) && defined(DOUBLE_PRECISION)
+#if defined(CRT_REVERSE_16BIT_FP_WORDS) &&                                     \
+    (defined(SINGLE_PRECISION) || defined(DOUBLE_PRECISION))
   // Restore the logical IEEE representation when floating and integer object
   // representations use opposite 16-bit word orders.
   return reverseRepWords(__builtin_bit_cast(rep_t, x));
@@ -257,7 +223,8 @@ static __inline rep_t toRep(fp_t x) {
 }
 
 static __inline fp_t fromRep(rep_t x) {
-#if defined(CRT_REVERSE_16BIT_FP_WORDS) && defined(DOUBLE_PRECISION)
+#if defined(CRT_REVERSE_16BIT_FP_WORDS) &&                                     \
+    (defined(SINGLE_PRECISION) || defined(DOUBLE_PRECISION))
   return __builtin_bit_cast(fp_t, reverseRepWords(x));
 #else
   const union {

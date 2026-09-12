@@ -132,16 +132,27 @@ of the corresponding register area, and the second is a bit number from 0 to
 any nonzero value sets it. Accesses are implicitly volatile, the declarations
 allocate no storage, and their addresses cannot be taken.
 
-## Large, Medium, and Small C ABI
+## C ABI
 
 The data model has 8-bit `char`, 16-bit `short` and `int`, 32-bit `long`, and
-64-bit `double` and `long double`. Default data pointers are 32-bit in Large
-and Medium and 16-bit in Small; default function pointers are 32-bit in Large
-and Small, and 16-bit in Medium. `long long` is a diagnosed 32-bit alias of
-`long`, not a separate 64-bit integer type. `size_t` and the default
-`ptrdiff_t` are 16-bit. `intptr_t` follows the default data-pointer width:
-32-bit in Large and Medium, and 16-bit in Small. Scalars wider than a byte have
-two-byte alignment. External C symbols have the C166 leading underscore.
+64-bit `long long`, `double`, and `long double`. Default data pointers are
+32-bit in Large, Medium, and Huge and 16-bit in Tiny and Small. Default
+function pointers are 32-bit in Large, Small, and Huge and 16-bit in Tiny and
+Medium. The 64-bit `long long` type is an LLVM C166 extension. It does not
+alter any existing scalar, pointer, aggregate, or floating-point boundary, but
+a signature containing `long long` is not interoperable with a compiler that
+defines that type as 32 bits. `intmax_t` and `uintmax_t` consequently use the
+64-bit `long long` types and have the same interoperability restriction.
+`size_t` and the default `ptrdiff_t` are 16-bit.
+`intptr_t` follows the default data-pointer width: 32-bit in Large, Medium, and
+Huge and 16-bit in Tiny and Small. Scalars wider than a byte have two-byte
+alignment. External C symbols have the C166 leading underscore.
+
+`_Bool` is an unsigned one-byte type with one-byte alignment. A direct argument
+or result occupies one ABI word and has the canonical value zero or one; it is
+promoted to the 16-bit `int` type in a variadic call. Aggregate layout treats
+it like an unsigned byte. Interoperability with implementations that do not
+provide `_Bool` is not defined.
 
 `R0` is the downward-growing user-stack pointer. It is distinct from the
 hardware system stack used by `CALLS` and `RETS`. The first four argument
@@ -151,13 +162,21 @@ the remaining argument registers, that argument and all following arguments
 are passed on the user stack. The caller removes outgoing stack arguments.
 `R6` through `R9` are callee-saved.
 
+A `long long` uses four low-word-first ABI words. It occupies `R12` through
+`R15` when it is the first register argument; otherwise the normal stack stop
+rule applies. A `long long` result uses a caller-reserved eight-byte block and
+returns that block's near user-stack address in `R4`.
+
 Variable-length arrays and the `__builtin_alloca` family allocate from the
 same user stack. A function containing a runtime-sized stack object preserves
 `R6` and uses it as a stable base for fixed locals while `R0` moves. Leaving a
 VLA scope restores its saved `R0` value, and every function exit restores the
 fixed frame before loading callee-saved registers. Dynamic allocations must
 fit in the remaining DPP1 user-stack page; the compiler does not insert stack
-overflow checks or probing.
+overflow checks or probing. Clang's generic stack-limit and stack-clash options
+are not implemented for C166. A freestanding runtime that needs detection must
+size the user stack statically or place an explicit check around the dynamic
+allocation; there is no hidden prologue or calling-convention state.
 
 An `int` result is returned in `R4`; a `long`, default pointer, or `float`
 result is returned low word first in `R4:R5`. Aggregate and `double` results
@@ -361,11 +380,15 @@ environment using the corresponding operations must provide them:
 | `___udivsi3`, `___umodsi3` | unsigned 32-bit divide/remainder | same binary `unsigned long` convention |
 | `___ashlsi3`, `___ashrsi3`, `___lshrsi3` | 32-bit variable shift | value in `R12:R13`, 16-bit count in `R14`, result in `R4:R5` |
 | `___clzsi2` | 32-bit count-leading-zero | value in `R12:R13`; 16-bit result in `R4` |
+| `___ashldi3`, `___ashrdi3`, `___lshrdi3` | 64-bit variable shifts | ordinary `long long` stack/result convention |
+| `___muldi3`, `___divdi3`, `___udivdi3`, `___moddi3`, `___umoddi3` | 64-bit multiply, divide, and remainder | ordinary `long long` stack/result convention |
 | `___addsf3`, `___subsf3`, `___mulsf3`, `___divsf3` | IEEE-754 binary32 arithmetic | operand bit patterns in `R12:R13` and `R14:R15`; result bits in `R4:R5` |
 | `___adddf3`, `___subdf3`, `___muldf3`, `___divdf3` | IEEE-754 binary64 arithmetic | ordinary stack arguments and caller-reserved result block |
 | `___fixsfsi`, `___fixunssfsi`, `___floatsisf`, `___floatunsisf` | binary32/integer conversions | integer or binary32 bit-pattern boundary appropriate to the operation |
 | `___fixdfsi`, `___fixunsdfsi`, `___floatsidf`, `___floatunsidf` | binary64/integer conversions | ordinary C166 binary64 stack/result convention |
 | `___extendsfdf2`, `___truncdfsf2` | binary32/binary64 width conversion | ordinary C166 floating boundary |
+| `___fixsfdi`, `___fixdfdi`, `___fixunssfdi`, `___fixunsdfdi` | binary32/binary64 to 64-bit integer | floating argument and caller-reserved `long long` result block |
+| `___floatdisf`, `___floatdidf`, `___floatundisf`, `___floatundidf` | 64-bit integer to binary32/binary64 | `long long` argument and ordinary floating result convention |
 | `___eqsf2`, `___nesf2`, `___ltsf2`, `___lesf2`, `___gtsf2`, `___gesf2`, `___unordsf2` | binary32 comparisons | binary32 bit patterns in the ordinary two-word helper slots; `int` result |
 | `___eqdf2`, `___nedf2`, `___ltdf2`, `___ledf2`, `___gtdf2`, `___gedf2`, `___unorddf2` | binary64 comparisons | ordinary stack arguments; `int` result |
 | `_memcpy`, `_memmove`, `_memset` | memory operations not expanded inline | ordinary C function boundary |

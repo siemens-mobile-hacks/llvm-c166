@@ -105,6 +105,29 @@ class C166DAGToDAGISel : public SelectionDAGISel {
     }
   }
 
+  static bool isCarryConsumer(const SDUse &Use) {
+    unsigned Opcode = Use.getUser()->getOpcode();
+    if (!Use.getUser()->isMachineOpcode())
+      return Opcode == ISD::UADDO_CARRY || Opcode == ISD::USUBO_CARRY ||
+             Opcode == ISD::BR_CC || Opcode == ISD::BRCOND;
+    switch (Use.getUser()->getMachineOpcode()) {
+    case C166::ADD32CCarryrr:
+    case C166::ADD32CCarryValuerr:
+    case C166::ADDCCarryrr:
+    case C166::ADDCCarryInrr:
+    case C166::ADDCCarryValuerr:
+    case C166::SUB32CCarryrr:
+    case C166::SUB32CCarryValuerr:
+    case C166::SUBCCarryrr:
+    case C166::SUBCCarryInrr:
+    case C166::SUBCCarryValuerr:
+    case C166::FLAGSBR:
+      return true;
+    default:
+      return false;
+    }
+  }
+
   static SDValue getWordForZeroCompare(SDValue Value) {
     if ((Value.getOpcode() == ISD::ZERO_EXTEND ||
          Value.getOpcode() == ISD::SIGN_EXTEND) &&
@@ -873,10 +896,13 @@ public:
       assert((ValueType == MVT::i16 || ValueType == MVT::i32) &&
              "unexpected C166 carry operation type");
       bool IsWide = ValueType == MVT::i32;
-      unsigned CarryUseCount = 0;
-      for (const SDUse &Use : Node->uses())
-        CarryUseCount += Use.getResNo() == 1;
-      bool MaterializeCarry = CarryUseCount > 1;
+      bool HasValueConsumer = false;
+      for (const SDUse &Use : Node->uses()) {
+        if (Use.getResNo() != 1)
+          continue;
+        HasValueConsumer |= !isCarryConsumer(Use);
+      }
+      bool MaterializeCarry = HasValueConsumer;
       const ConstantSDNode *Constant =
           HasCarryIn ? GetConstant(CarryIn) : nullptr;
       if (!HasCarryIn && !IsWide && !MaterializeCarry) {
@@ -924,9 +950,15 @@ public:
           Opcode = IsAdd ? C166::ADDCCarryrr : C166::SUBCCarryrr;
         }
         if (!isCarryResult(CarryIn)) {
-          SDNode *SetCarry = CurDAG->getMachineNode(
-              C166::SETCARRY, DL, {MVT::i16, MVT::i16}, CarryIn);
-          CarryIn = SDValue(SetCarry, 1);
+          unsigned RegClass = C166::GR16RegClass.getID();
+          SDValue RC = CurDAG->getTargetConstant(RegClass, DL, MVT::i32);
+          SDValue Scratch(CurDAG->getMachineNode(
+                              TargetOpcode::COPY_TO_REGCLASS, DL, MVT::i16,
+                              CarryIn, RC),
+                          0);
+          CarryIn = SDValue(CurDAG->getMachineNode(
+                                C166::SETCARRY, DL, MVT::i16, Scratch),
+                            0);
         }
         Ops.push_back(CarryIn);
       }

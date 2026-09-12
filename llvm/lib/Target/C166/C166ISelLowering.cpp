@@ -88,6 +88,9 @@ C166TargetLowering::C166TargetLowering(const TargetMachine &TM,
   // SelectionDAG extends back to i32.
   setOperationAction(ISD::CTLZ, MVT::i32, Expand);
   setOperationAction(ISD::CTLZ_ZERO_POISON, MVT::i32, LibCall);
+  setOperationAction(ISD::CTTZ, MVT::i32, Expand);
+  setOperationAction(ISD::CTTZ_ZERO_POISON, MVT::i32, Expand);
+  setOperationAction(ISD::CTPOP, MVT::i32, LibCall);
   setOperationAction(ISD::VASTART, MVT::Other, Custom);
   setOperationAction(ISD::VAARG, MVT::Other, Custom);
   setOperationAction(ISD::BR_JT, MVT::Other, Custom);
@@ -185,6 +188,7 @@ SDValue C166TargetLowering::PerformDAGCombine(SDNode *N,
       Increment->getZExtValue() != MemoryVT.getStoreSize() ||
       Load->getAddressSpace() != C166::FarDataAddressSpace ||
       Load->getBasePtr() != Base ||
+      Load->getChain()->hasPredecessor(N) ||
       isa<const PseudoSourceValue *>(Load->getPointerInfo().V) ||
       (ByValArgument && ByValArgument->hasByValAttr()))
     return SDValue();
@@ -512,8 +516,8 @@ C166TargetLowering::getConstraintType(StringRef Constraint) const {
   return TargetLowering::getConstraintType(Constraint);
 }
 
-Register C166TargetLowering::getRegisterByName(
-    const char *RegName, LLT, const MachineFunction &) const {
+Register C166TargetLowering::getRegisterByName(const char *RegName, LLT,
+                                               const MachineFunction &) const {
   StringRef Name(RegName);
   if (Name == "mdl")
     return C166::MDL;
@@ -659,8 +663,7 @@ SDValue C166TargetLowering::LowerOperation(SDValue Op,
       if (Extension == ISD::ZERO_EXTEND &&
           DAG.computeKnownBits(Value).countMaxActiveBits() <= 16)
         return DAG.getNode(C166ISD::LOWORD, DL, MVT::i16, Value);
-      if (Extension == ISD::SIGN_EXTEND &&
-          DAG.ComputeNumSignBits(Value) >= 17)
+      if (Extension == ISD::SIGN_EXTEND && DAG.ComputeNumSignBits(Value) >= 17)
         return DAG.getNode(C166ISD::LOWORD, DL, MVT::i16, Value);
       return SDValue();
     };
@@ -1414,6 +1417,14 @@ static unsigned getCalleeCodeBank(const TargetLowering::CallLoweringInfo &CLI) {
   return 0;
 }
 
+static bool hasPublicF64ResultLayout(SDValue Callee) {
+  const auto *Symbol = dyn_cast<ExternalSymbolSDNode>(Callee);
+  // The hand-written extension helper writes the public MSW-first result
+  // block directly.  Generic softened calls return the internal i64 carrier
+  // layout and must not be reordered here.
+  return Symbol && StringRef(Symbol->getSymbol()) == "__extendsfdf2";
+}
+
 static std::pair<SDValue, int64_t> decomposeC166Address(SDValue Address) {
   int64_t Offset = 0;
   while (true) {
@@ -1549,6 +1560,13 @@ SDValue C166TargetLowering::LowerFormalArguments(
       continue;
     }
 
+    // Legalization splits i64 into two i32 parts.  Apply the register stop
+    // rule to the original four-word argument, not independently to each
+    // legalized part.
+    if (!UsedStack && Arg.PartOffset == 0 && Arg.OrigTy &&
+        Arg.OrigTy->isIntegerTy(64) && NextWord != 0)
+      UsedStack = true;
+
     bool IsFloat32 = Arg.ArgVT == MVT::f32;
     MVT ValVT = Arg.VT;
     MVT LocVT = ValVT;
@@ -1675,6 +1693,12 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
     if (!CLI.CB)
       report_fatal_error("C166 variadic call requires call-site type info");
     FixedArgCount = CLI.CB->getFunctionType()->getNumParams();
+    // SelectionDAG may prepend a lowering-only sret argument for a return type
+    // that is still non-void at the IR call site. OrigArgIndex includes that
+    // synthetic argument, while FunctionType::getNumParams() does not.
+    if (!CLI.Outs.empty() && CLI.Outs.front().Flags.isSRet() &&
+        !CLI.CB->getType()->isVoidTy())
+      ++FixedArgCount;
   }
   for (unsigned I = 0; I != CLI.Outs.size(); ++I) {
     if (CLI.Outs[I].Flags.isSRet()) {
@@ -1712,7 +1736,7 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
         SRetBytes =
             alignTo(MF.getFrameInfo().getObjectSize(FI->getIndex()), 2u);
         SRetObjectBytes = SRetBytes;
-        IsDoubleSRet = SRetBytes == 8;
+        IsDoubleSRet = hasPublicF64ResultLayout(CLI.Callee);
       }
       continue;
     }
@@ -1815,6 +1839,13 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
       --I;
       continue;
     }
+
+    // Legalization splits i64 into two i32 parts.  Apply the register stop
+    // rule to the original four-word argument, not independently to each
+    // legalized part.
+    if (!UsedStack && CLI.Outs[I].PartOffset == 0 && CLI.Outs[I].OrigTy &&
+        CLI.Outs[I].OrigTy->isIntegerTy(64) && NextWord != 0)
+      UsedStack = true;
 
     bool IsFloat32 = CLI.Outs[I].ArgVT == MVT::f32;
     MVT ValVT = CLI.Outs[I].VT;
@@ -2003,8 +2034,8 @@ SDValue C166TargetLowering::LowerCall(CallLoweringInfo &CLI,
   CLI.IsTailCall = RequestedTailCall && !CLI.IsVarArg && DirectCallee &&
                    CallFrameBytes == 0 &&
                    (!SRetDestination || ForwardStackTail) && !NeedsBankSwitch &&
-                   !MF.getFrameInfo().hasVarSizedObjects() &&
-                   CallerBank == 0 && CalleeBank == 0 &&
+                   !MF.getFrameInfo().hasVarSizedObjects() && CallerBank == 0 &&
+                   CalleeBank == 0 &&
                    CLI.CallConv == MF.getFunction().getCallingConv() &&
                    EmitNearCall == CallerReturnsNear;
   if (!CLI.IsTailCall && CLI.CB && CLI.CB->isMustTailCall())
@@ -2213,9 +2244,8 @@ getUserStackAddress(SelectionDAG &DAG, const SDLoc &DL, SDValue Chain,
   return {Address, Page.getValue(1)};
 }
 
-SDValue
-C166TargetLowering::LowerDYNAMIC_STACKALLOC(SDValue Op,
-                                             SelectionDAG &DAG) const {
+SDValue C166TargetLowering::LowerDYNAMIC_STACKALLOC(SDValue Op,
+                                                    SelectionDAG &DAG) const {
   SDLoc DL(Op);
   SDValue Chain = Op.getOperand(0);
   SDValue Size = Op.getOperand(1);
@@ -2224,19 +2254,17 @@ C166TargetLowering::LowerDYNAMIC_STACKALLOC(SDValue Op,
   assert(Size.getValueType() == MVT::i16 &&
          "unexpected C166 dynamic allocation size");
 
-  SDValue StackPointer =
-      DAG.getCopyFromReg(Chain, DL, C166::R0, MVT::i16);
-  SDValue NewStackPointer = DAG.getNode(ISD::SUB, DL, MVT::i16, StackPointer,
-                                        Size);
+  SDValue StackPointer = DAG.getCopyFromReg(Chain, DL, C166::R0, MVT::i16);
+  SDValue NewStackPointer =
+      DAG.getNode(ISD::SUB, DL, MVT::i16, StackPointer, Size);
   uint64_t Alignment = cast<ConstantSDNode>(Op.getOperand(2))->getZExtValue();
   if (Alignment > 2)
     NewStackPointer = DAG.getNode(
         ISD::AND, DL, MVT::i16, NewStackPointer,
-        DAG.getSignedConstant(-static_cast<int64_t>(Alignment), DL,
-                              MVT::i16));
+        DAG.getSignedConstant(-static_cast<int64_t>(Alignment), DL, MVT::i16));
 
-  Chain = DAG.getCopyToReg(StackPointer.getValue(1), DL, C166::R0,
-                           NewStackPointer);
+  Chain =
+      DAG.getCopyToReg(StackPointer.getValue(1), DL, C166::R0, NewStackPointer);
   unsigned AllocaAddressSpace = DAG.getDataLayout().getAllocaAddrSpace();
   auto [Address, AddressChain] = getUserStackAddress(
       DAG, DL, Chain, NewStackPointer, Op.getValueType(), AllocaAddressSpace);
@@ -2260,8 +2288,7 @@ SDValue C166TargetLowering::LowerSTACKRESTORE(SDValue Op,
   SDLoc DL(Op);
   SDValue StackPointer = Op.getOperand(1);
   if (StackPointer.getValueType() == MVT::i32) {
-    StackPointer =
-        DAG.getNode(C166ISD::LOWORD, DL, MVT::i16, StackPointer);
+    StackPointer = DAG.getNode(C166ISD::LOWORD, DL, MVT::i16, StackPointer);
     StackPointer = DAG.getNode(ISD::OR, DL, MVT::i16, StackPointer,
                                DAG.getConstant(0x4000, DL, MVT::i16));
   }

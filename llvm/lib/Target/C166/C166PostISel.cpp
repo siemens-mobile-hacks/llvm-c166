@@ -15,6 +15,7 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/InitializePasses.h"
+#include "llvm/Target/TargetMachine.h"
 
 using namespace llvm;
 
@@ -40,6 +41,48 @@ static MachineInstr *nextNonDebugInstruction(MachineInstr &MI) {
   while (Next && Next->isDebugInstr())
     Next = Next->getNextNode();
   return Next;
+}
+
+static bool lowerSetCarry(MachineFunction &MF, const C166InstrInfo &TII) {
+  MachineRegisterInfo &MRI = MF.getRegInfo();
+  bool Changed = false;
+
+  for (MachineBasicBlock &MBB : MF) {
+    for (MachineInstr &MI : make_early_inc_range(MBB)) {
+      if (MI.getOpcode() != C166::SETCARRY)
+        continue;
+
+      Register Carry = MI.getOperand(0).getReg();
+      Register Value = MI.getOperand(1).getReg();
+      assert(Carry == C166::C && "unexpected C166 carry register");
+      MachineInstr *Consumer = MI.getNextNode();
+      const TargetRegisterInfo &TRI = TII.getRegisterInfo();
+      while (Consumer && !Consumer->readsRegister(C166::C, &TRI))
+        Consumer = Consumer->getNextNode();
+      assert(Consumer && "SETCARRY result has no consumer");
+      Register Scratch = MRI.createVirtualRegister(&C166::GR16RegClass);
+      BuildMI(MBB, *Consumer, MIMetadata(MI), TII.get(TargetOpcode::COPY),
+              Scratch)
+          .addReg(Value);
+      MachineInstrBuilder Shift =
+          BuildMI(MBB, *Consumer, MIMetadata(MI), TII.get(C166::SHRri4),
+                  Scratch)
+              .addReg(Scratch)
+              .addImm(1);
+      Shift->getOperand(0).setIsDead();
+      if (MachineOperand *CarryDef =
+              Shift->findRegisterDefOperand(C166::C, &TII.getRegisterInfo()))
+        CarryDef->setIsDead(MI.getOperand(0).isDead());
+      if (MachineOperand *PSWDef =
+              Shift->findRegisterDefOperand(C166::PSW, &TII.getRegisterInfo()))
+        if (MachineOperand *OldPSWDef =
+                MI.findRegisterDefOperand(C166::PSW, &TII.getRegisterInfo()))
+          PSWDef->setIsDead(OldPSWDef->isDead());
+      MI.eraseFromParent();
+      Changed = true;
+    }
+  }
+  return Changed;
 }
 
 static Register getCopiedSource(const MachineInstr *Copy,
@@ -1116,7 +1159,10 @@ bool C166PostISel::runOnMachineFunction(MachineFunction &MF) {
   MachineDominatorTree &MDT =
       getAnalysis<MachineDominatorTreeWrapperPass>().getDomTree();
   SmallVector<MachineInstr *, 8> DeadConstants;
-  bool Changed = false;
+  bool Changed = lowerSetCarry(MF, TII);
+
+  if (MF.getTarget().getOptLevel() == CodeGenOptLevel::None)
+    return Changed;
 
   for (MachineBasicBlock &MBB : MF) {
     for (MachineInstr &MI : MBB) {

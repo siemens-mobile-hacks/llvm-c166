@@ -1,10 +1,8 @@
 # RUN: llc -mtriple=c166-none-elf -run-pass=postrapseudos -verify-machineinstrs -o - %s | FileCheck %s
 # RUN: llc -mtriple=c166-none-elf -run-pass=none -verify-machineinstrs -o - %s | FileCheck %s --check-prefix=FLAGS
 
-# FLAGS-LABEL: name: set_carry_dead_scratch
+# FLAGS-LABEL: name: set_carry_dead_flags
 # FLAGS: SETCARRY killed $r6, implicit-def dead $psw
-# FLAGS-LABEL: name: set_carry_live_scratch
-# FLAGS: SETCARRY killed $r7, implicit-def dead $psw
 # FLAGS-LABEL: name: set_carry_live_flags
 # FLAGS: SETCARRY killed $r6, implicit-def $psw
 
@@ -51,11 +49,7 @@
     ret void
   }
 
-  define void @set_carry_dead_scratch() {
-    ret void
-  }
-
-  define void @set_carry_live_scratch() {
+  define void @set_carry_dead_flags() {
     ret void
   }
 
@@ -183,7 +177,7 @@ body:             |
     RETS implicit $c
 
 # CHECK-LABEL: name: copy_gpr_to_carry
-# CHECK:       BMOV 2187, 3936, implicit-def $psw, implicit-def $c, implicit killed $r6
+# CHECK:       BMOV 2177, 3936, implicit-def $psw, implicit-def $c, implicit killed $r6
 # CHECK-NEXT:  RETS implicit $c
 ...
 ---
@@ -197,7 +191,7 @@ body:             |
     RETS implicit $r6, implicit $c
 
 # CHECK-LABEL: name: copy_live_gpr_to_carry
-# CHECK:       BMOV 2187, 3936, implicit-def $psw, implicit-def $c, implicit $r6
+# CHECK:       BMOV 2177, 3936, implicit-def $psw, implicit-def $c, implicit $r6
 # CHECK-NEXT:  RETS implicit $r6, implicit $c
 ...
 ---
@@ -215,32 +209,18 @@ body:             |
 # CHECK-NEXT:  RETS
 ...
 ---
-name:            set_carry_dead_scratch
+name:            set_carry_dead_flags
 tracksRegLiveness: true
 body:             |
   bb.0:
     liveins: $r6
 
-    dead $r6, $c = SETCARRY killed $r6, implicit-def dead $psw
+    $c = SETCARRY killed $r6, implicit-def dead $psw
     RETS implicit $c
 
-# CHECK-LABEL: name: set_carry_dead_scratch
+# CHECK-LABEL: name: set_carry_dead_flags
 # CHECK:       dead $r6 = SHRri4 killed $r6, 1, implicit-def dead $psw, implicit-def $c
 # CHECK-NEXT:  RETS implicit $c
-...
----
-name:            set_carry_live_scratch
-tracksRegLiveness: true
-body:             |
-  bb.0:
-    liveins: $r7
-
-    $r7, $c = SETCARRY killed $r7, implicit-def dead $psw
-    RETS implicit $r7, implicit $c
-
-# CHECK-LABEL: name: set_carry_live_scratch
-# CHECK:       $r7 = ADDri16 killed $r7, 65535, implicit-def dead $psw, implicit-def $c
-# CHECK-NEXT:  RETS implicit $r7, implicit $c
 ...
 ---
 name: set_carry_live_flags
@@ -248,7 +228,7 @@ tracksRegLiveness: true
 body: |
   bb.0:
     liveins: $r6
-    dead $r6, $c = SETCARRY killed $r6, implicit-def $psw
+    $c = SETCARRY killed $r6, implicit-def $psw
     RETS implicit $c, implicit $psw
 
 # CHECK-LABEL: name: set_carry_live_flags

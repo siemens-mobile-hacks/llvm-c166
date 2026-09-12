@@ -12,6 +12,7 @@
 // and ADJSP while retaining CALLSEQ_START and the outgoing argument block.
 // CHECK-LABEL: _extended_parameter_word:
 // CHECK: calls seg(___extendsfdf2), sof(___extendsfdf2)
+// CHECK: mov r1, [r4]
 // CHECK: add r0, #12
 // CHECK: rets
 unsigned int extended_parameter_word(float value) {

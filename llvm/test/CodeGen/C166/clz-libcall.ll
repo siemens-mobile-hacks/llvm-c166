@@ -7,6 +7,8 @@
 
 declare i32 @llvm.ctlz.i32(i32, i1 immarg)
 declare i16 @llvm.ctlz.i16(i16, i1 immarg)
+declare i32 @llvm.cttz.i32(i32, i1 immarg)
+declare i32 @llvm.ctpop.i32(i32)
 
 define i16 @clz16(i16 %value) {
 ; CHECK-LABEL: clz16:
@@ -44,5 +46,29 @@ define i32 @clz32(i32 %value) {
 ; HUGE:  rets
 ; NEAR:  ret
   %result = call i32 @llvm.ctlz.i32(i32 %value, i1 true)
+  ret i32 %result
+}
+
+; CHECK-LABEL: ctz32:
+; HUGE: calls {{.*}}___popcountsi2
+; NEAR: calla {{.*}}___popcountsi2
+; CHECK: mov r5, r4
+; CHECK-NEXT: ashr r5, #15
+; HUGE: rets
+; NEAR: ret
+define i32 @ctz32(i32 %value) {
+  %result = call i32 @llvm.cttz.i32(i32 %value, i1 true)
+  ret i32 %result
+}
+
+; CHECK-LABEL: popcount32:
+; HUGE: calls {{.*}}___popcountsi2
+; NEAR: calla {{.*}}___popcountsi2
+; CHECK: mov r5, r4
+; CHECK-NEXT: ashr r5, #15
+; HUGE: rets
+; NEAR: ret
+define i32 @popcount32(i32 %value) {
+  %result = call i32 @llvm.ctpop.i32(i32 %value)
   ret i32 %result
 }
