@@ -38,7 +38,8 @@ static bool hasNamedRegisterBank(const MachineFunction &MF) {
 }
 
 bool C166FrameLowering::hasFPImpl(const MachineFunction &MF) const {
-  return MF.getFrameInfo().hasVarSizedObjects();
+  return MF.getFrameInfo().hasVarSizedObjects() ||
+         MF.getInfo<C166MachineFunctionInfo>()->needsStableFramePointer();
 }
 
 void C166FrameLowering::determineCalleeSaves(MachineFunction &MF,

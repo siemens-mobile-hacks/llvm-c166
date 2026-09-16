@@ -1278,17 +1278,16 @@ public:
       auto CC = cast<CondCodeSDNode>(Node->getOperand(1))->get();
       SDValue LHS = Node->getOperand(2);
       SDValue RHS = Node->getOperand(3);
-      auto GetWordImmediate = [](SDValue Value) -> std::optional<uint16_t> {
+      auto GetImmediate = [](SDValue Value) -> std::optional<uint64_t> {
         if (auto *Constant = dyn_cast<ConstantSDNode>(Value))
-          return static_cast<uint16_t>(Constant->getZExtValue());
+          return Constant->getZExtValue();
         if (Value.isMachineOpcode() &&
             (Value.getMachineOpcode() == C166::MOVri4 ||
              Value.getMachineOpcode() == C166::MOVri16))
-          return static_cast<uint16_t>(
-              cast<ConstantSDNode>(Value.getOperand(0))->getZExtValue());
+          return cast<ConstantSDNode>(Value.getOperand(0))->getZExtValue();
         return std::nullopt;
       };
-      std::optional<uint16_t> Immediate = GetWordImmediate(RHS);
+      std::optional<uint64_t> Immediate = GetImmediate(RHS);
       if (isCarryResult(LHS) && Immediate && *Immediate <= 1 &&
           (CC == ISD::SETEQ || CC == ISD::SETNE)) {
         bool BranchOnSet = CC == ISD::SETEQ ? *Immediate == 1 : *Immediate == 0;

@@ -1015,6 +1015,8 @@ C166TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     const BasicBlock *IRBB = MBB->getBasicBlock();
     MachineFunction::iterator InsertAt = std::next(MBB->getIterator());
     unsigned CallFrameSize = TII->getCallFrameSizeAt(MI);
+    if (CallFrameSize)
+      MF->getInfo<C166MachineFunctionInfo>()->setNeedsStableFramePointer();
     auto NewBlock = [&] {
       MachineBasicBlock *Block = MF->CreateMachineBasicBlock(IRBB);
       MF->insert(InsertAt, Block);
@@ -1306,6 +1308,8 @@ C166TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   // the custom inserter so frame-index elimination and the machine verifier
   // see the same R0 adjustment along every path.
   unsigned CallFrameSize = TII->getCallFrameSizeAt(MI);
+  if (CallFrameSize)
+    MF->getInfo<C166MachineFunctionInfo>()->setNeedsStableFramePointer();
   FalseMBB->setCallFrameSize(CallFrameSize);
   SinkMBB->setCallFrameSize(CallFrameSize);
 

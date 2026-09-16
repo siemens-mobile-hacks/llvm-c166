@@ -41,14 +41,19 @@ void *shuge_to_direct(shuge_void *pointer) { return (void *)pointer; }
 // IR:       trunc i32 %address to i16
 // IR:       inttoptr i16 {{.*}} to ptr addrspace(3)
 
-// Direct-to-far builds offset:page from the selected DPP and preserves null.
-// Direct-to-huge/shuge produces a linear segment:offset value.  Narrowing
-// back to direct retains the selector-containing low word.
+// Direct-to-far first forms the linear address selected by the DPP, then uses
+// the target conversion intrinsic.  Keeping that conversion explicit prevents
+// the late lowering pass from treating an already packed offset:page value as
+// linear and converting it a second time.  Direct-to-huge/shuge produces a
+// linear segment:offset value.  Narrowing back to direct retains the
+// selector-containing low word.
 // IR-LABEL: define{{.*}}ptr addrspace(2) @direct_to_far(ptr addrspace(3){{.*}}%pointer)
+// IR-NOT:   inttoptr
 // IR-DAG:   call{{.*}} i16 @llvm.c166.read.dpp(i16 0)
 // IR-DAG:   call{{.*}} i16 @llvm.c166.read.dpp(i16 3)
-// IR:       inttoptr i32 {{.*}} to ptr addrspace(2)
-// IR:       select i1 {{.*}}, ptr addrspace(2) null, ptr addrspace(2) {{.*}}
+// IR:       select i1 {{.*}}, i32 0, i32 {{.*}}
+// IR-NEXT:  call{{.*}} ptr addrspace(2) @llvm.c166.linear.to.far.p2(i32 {{.*}})
+// IR-NOT:   inttoptr
 // IR-LABEL: define{{.*}}ptr addrspace(3) @far_to_direct(ptr addrspace(2){{.*}}%pointer)
 // IR:       lshr i32 {{.*}}, 2
 // IR:       and i16 {{.*}}, -16384

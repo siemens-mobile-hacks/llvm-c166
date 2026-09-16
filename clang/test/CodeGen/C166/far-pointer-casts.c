@@ -40,15 +40,16 @@ u32 data_pointer_roundtrip(u32 address) {
 // IR:       call{{.*}} ptr addrspace(2) @llvm.c166.linear.to.far.p2(i32 %address)
 // IR:       call{{.*}} i32 @llvm.c166.far.to.linear.p2(ptr addrspace(2) {{.*}})
 
-// The optimized data-pointer conversions perform the default
-// far<->huge conversion using native constant shifts followed by masks for the
-// page and 14-bit offset fields.
+// The optimized data-pointer conversions perform the default far<->huge
+// conversion using native constant shifts.  Conversion from far preserves the
+// complete 16-bit offset so a one-past pointer at a 16 KiB boundary carries
+// into the next linear page.
 // ASM-LABEL: _data_pointer_to_long:
 // ASM:       shr {{r[0-9]+}}, #2
 // ASM:       shl {{r[0-9]+}}, #14
 // ASM:       shr {{r[0-9]+}}, #2
-// ASM:       and {{r[0-9]+}}, #16383
-// ASM:       or
+// ASM:       add
+// ASM:       addc
 // ASM:       rets
 // ASM-LABEL: _long_to_data_pointer:
 // ASM:       shl {{r[0-9]+}}, #1

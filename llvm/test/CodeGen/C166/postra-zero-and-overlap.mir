@@ -1,0 +1,24 @@
+# RUN: llc -mtriple=c166-none-elf -run-pass=c166-post-ra \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+--- |
+  target triple = "c166-none-elf"
+
+  define void @keep_other_pair_half() { ret void }
+...
+---
+name:            keep_other_pair_half
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r2r1, $r9r8
+
+    $r8 = MOVrr $r2, implicit-def dead $psw, implicit killed $r2r1, implicit $r9r8, implicit-def $r9r8
+    $r9 = ANDri3 $r9, 0, implicit-def dead $psw, implicit-def dead $c
+    RETS implicit $r8
+
+# CHECK-LABEL: name: keep_other_pair_half
+# CHECK:       $r8 = MOVrr $r2
+# CHECK-NEXT:  $r9 = MOVri4 0
+# CHECK-NEXT:  RETS implicit $r8
+...

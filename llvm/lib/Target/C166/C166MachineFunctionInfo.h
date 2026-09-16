@@ -20,6 +20,7 @@ class C166MachineFunctionInfo : public MachineFunctionInfo {
   int VarArgsFrameIndex = 0;
   bool HasVarArgsFrameIndex = false;
   unsigned CalleeSavedFrameSize = 0;
+  bool NeedsStableFramePointer = false;
 
 public:
   C166MachineFunctionInfo() = default;
@@ -42,6 +43,9 @@ public:
 
   unsigned getCalleeSavedFrameSize() const { return CalleeSavedFrameSize; }
   void setCalleeSavedFrameSize(unsigned Size) { CalleeSavedFrameSize = Size; }
+
+  bool needsStableFramePointer() const { return NeedsStableFramePointer; }
+  void setNeedsStableFramePointer() { NeedsStableFramePointer = true; }
 };
 
 } // namespace llvm

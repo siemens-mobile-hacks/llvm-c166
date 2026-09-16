@@ -2286,7 +2286,9 @@ static bool replaceZeroAnds(MachineFunction &MF, const C166InstrInfo &TII) {
         bool IsDiscardableDef = Opcode == C166::MOVri4 ||
                                 Opcode == C166::MOVri16 ||
                                 Opcode == C166::MOVrr;
-        if (IsDiscardableDef &&
+        if (IsDiscardableDef && Scan->getOperand(0).isReg() &&
+            Scan->getOperand(0).getReg() == Value &&
+            !Scan->getOperand(0).getSubReg() &&
             TII.isRegisterOverwrittenBeforeUse(*Scan, C166::PSW) &&
             !isInsideExtensionWindow(MBB, Scan))
           DiscardedDef = &*Scan;

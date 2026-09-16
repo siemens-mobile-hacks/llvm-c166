@@ -54,20 +54,37 @@ static bool lowerSetCarry(MachineFunction &MF, const C166InstrInfo &TII) {
 
       Register Carry = MI.getOperand(0).getReg();
       Register Value = MI.getOperand(1).getReg();
-      assert(Carry == C166::C && "unexpected C166 carry register");
-      MachineInstr *Consumer = MI.getNextNode();
       const TargetRegisterInfo &TRI = TII.getRegisterInfo();
-      while (Consumer && !Consumer->readsRegister(C166::C, &TRI))
-        Consumer = Consumer->getNextNode();
+      MachineInstr *Consumer = nullptr;
+      if (Carry.isVirtual()) {
+        if (!MRI.hasOneNonDBGUse(Carry))
+          continue;
+        MachineOperand &Use = *MRI.use_nodbg_operands(Carry).begin();
+        Consumer = Use.getParent();
+        if (Consumer->isPHI())
+          continue;
+        Use.setReg(C166::C);
+        MRI.markUsesInDebugValueAsUndef(Carry);
+      } else {
+        assert(Carry == C166::C && "unexpected C166 carry register");
+        Consumer = MI.getNextNode();
+        while (Consumer && !Consumer->readsRegister(C166::C, &TRI))
+          Consumer = Consumer->getNextNode();
+      }
       assert(Consumer && "SETCARRY result has no consumer");
-      Register Scratch = MRI.createVirtualRegister(&C166::GR16RegClass);
-      BuildMI(MBB, *Consumer, MIMetadata(MI), TII.get(TargetOpcode::COPY),
-              Scratch)
-          .addReg(Value);
+      MachineBasicBlock &ConsumerMBB = *Consumer->getParent();
+      Register Scratch = Value;
+      if (!MI.getOperand(1).isKill()) {
+        Scratch = MRI.createVirtualRegister(&C166::GR16RegClass);
+        BuildMI(ConsumerMBB, *Consumer, MIMetadata(MI),
+                TII.get(TargetOpcode::COPY), Scratch)
+            .addReg(Value);
+      }
+      Register Shifted = MRI.createVirtualRegister(&C166::GR16RegClass);
       MachineInstrBuilder Shift =
-          BuildMI(MBB, *Consumer, MIMetadata(MI), TII.get(C166::SHRri4),
-                  Scratch)
-              .addReg(Scratch)
+          BuildMI(ConsumerMBB, *Consumer, MIMetadata(MI),
+                  TII.get(C166::SHRri4), Shifted)
+              .addReg(Scratch, RegState::Kill)
               .addImm(1);
       Shift->getOperand(0).setIsDead();
       if (MachineOperand *CarryDef =

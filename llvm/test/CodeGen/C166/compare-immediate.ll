@@ -120,6 +120,27 @@ zero:
 ; CHECK:       jnb r13.7
 ; CHECK-NOT:   and
 
+define i16 @ne_i32_mask_value(i32 %value) {
+entry:
+  %masked = and i32 %value, 2146435072
+  %condition = icmp ne i32 %masked, 2146435072
+  br i1 %condition, label %different, label %equal
+
+different:
+  ret i16 1
+
+equal:
+  ret i16 0
+}
+
+; The i32 comparison constant has a zero low word. It must not be mistaken
+; for an i32 zero comparison and reduced to a plain masked-zero test.
+; CHECK-LABEL: ne_i32_mask_value:
+; CHECK:       and r13, #32752
+; CHECK:       mov [[MASK:r[0-9]+]], #32752
+; CHECK-NEXT:  cmp r13, [[MASK]]
+; CHECK-NEXT:  jmpr cc_ne
+
 define i16 @eq_zero_i16_bit(i16 %value) {
 entry:
   %masked = and i16 %value, 8192

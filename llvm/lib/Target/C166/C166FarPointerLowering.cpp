@@ -94,15 +94,14 @@ Value *convertDirectToLinear(IRBuilder<> &Builder, Module &M, Value *Raw) {
 
 Value *convertDirectToFar(IRBuilder<> &Builder, Module &M, Value *Raw,
                           Type *DestinationType) {
-  Value *Offset =
-      Builder.CreateAnd(Raw, Builder.getInt16(0x3fff), "direct.cast.offset");
-  Value *Page = readDirectPointerDPP(Builder, M, Raw);
-  Value *RawFar = buildI32Words(Builder, Offset, Page, "direct.cast.far.raw");
+  Value *Linear = convertDirectToLinear(Builder, M, Raw);
   Value *IsNull =
       Builder.CreateICmpEQ(Raw, Builder.getInt16(0), "direct.cast.null");
-  RawFar = Builder.CreateSelect(IsNull, Builder.getInt32(0), RawFar,
-                                "direct.cast.far");
-  return Builder.CreateIntToPtr(RawFar, DestinationType, "direct.cast.pointer");
+  Linear = Builder.CreateSelect(IsNull, Builder.getInt32(0), Linear,
+                                "direct.cast.linear.nonnull");
+  Function *ToFar = Intrinsic::getOrInsertDeclaration(
+      &M, Intrinsic::c166_linear_to_far, {DestinationType});
+  return Builder.CreateCall(ToFar, {Linear}, "direct.cast.pointer");
 }
 
 Value *forceNearSelector(IRBuilder<> &Builder, Value *Raw,
@@ -569,13 +568,18 @@ bool C166FarPointerLowering::runOnFunction(Function &F) {
     if (ID == Intrinsic::c166_far_to_linear) {
       Value *Raw =
           Builder.CreatePtrToAddr(Conversion->getArgOperand(0), "far.cast.raw");
+      // Far-pointer arithmetic is 16-bit wide.  The low word can therefore
+      // contain a non-canonical one-past offset at a 16 KiB page boundary.
+      // Preserve that word when converting to the linear huge representation;
+      // adding it to the page base carries the boundary offset into the next
+      // page, as required for a valid one-past pointer.
       Value *Offset =
-          Builder.CreateAnd(Raw, Builder.getInt32(0x3fff), "far.cast.offset");
+          Builder.CreateAnd(Raw, Builder.getInt32(0xffff), "far.cast.offset");
       Value *Page =
           Builder.CreateLShr(Raw, Builder.getInt32(16), "far.cast.page");
       Value *LinearPage =
           Builder.CreateShl(Page, Builder.getInt32(14), "far.cast.linear.page");
-      Value *Linear = Builder.CreateOr(Offset, LinearPage, "far.cast.linear");
+      Value *Linear = Builder.CreateAdd(Offset, LinearPage, "far.cast.linear");
       Conversion->replaceAllUsesWith(Linear);
     } else if (ID == Intrinsic::c166_linear_to_far) {
       // Shifting in i32 intentionally discards input bits above the
