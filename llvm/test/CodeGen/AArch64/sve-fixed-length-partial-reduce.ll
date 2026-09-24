@@ -12,14 +12,33 @@ target triple = "aarch64"
 
 define <8 x i16> @two_way_i8_i16_vl128(ptr %accptr, ptr %uptr, ptr %sptr) {
 ;
-; COMMON-LABEL: two_way_i8_i16_vl128:
-; COMMON:       // %bb.0:
-; COMMON-NEXT:    ldr q0, [x0]
-; COMMON-NEXT:    ldr q1, [x1]
-; COMMON-NEXT:    ldr q2, [x2]
-; COMMON-NEXT:    umlal v0.8h, v2.8b, v1.8b
-; COMMON-NEXT:    umlal2 v0.8h, v2.16b, v1.16b
-; COMMON-NEXT:    ret
+; NEON-LABEL: two_way_i8_i16_vl128:
+; NEON:       // %bb.0:
+; NEON-NEXT:    ldr q0, [x0]
+; NEON-NEXT:    ldr q1, [x1]
+; NEON-NEXT:    ldr q2, [x2]
+; NEON-NEXT:    umlal v0.8h, v2.8b, v1.8b
+; NEON-NEXT:    umlal2 v0.8h, v2.16b, v1.16b
+; NEON-NEXT:    ret
+;
+; SVE-LABEL: two_way_i8_i16_vl128:
+; SVE:       // %bb.0:
+; SVE-NEXT:    ldr q0, [x0]
+; SVE-NEXT:    ldr q1, [x1]
+; SVE-NEXT:    ldr q2, [x2]
+; SVE-NEXT:    umlal v0.8h, v2.8b, v1.8b
+; SVE-NEXT:    umlal2 v0.8h, v2.16b, v1.16b
+; SVE-NEXT:    ret
+;
+; SVE2-LABEL: two_way_i8_i16_vl128:
+; SVE2:       // %bb.0:
+; SVE2-NEXT:    ldr q0, [x0]
+; SVE2-NEXT:    ldr q1, [x1]
+; SVE2-NEXT:    ldr q2, [x2]
+; SVE2-NEXT:    umlalb z0.h, z2.b, z1.b
+; SVE2-NEXT:    umlalt z0.h, z2.b, z1.b
+; SVE2-NEXT:    // kill: def $q0 killed $q0 killed $z0
+; SVE2-NEXT:    ret
 ;
 ; SME-LABEL: two_way_i8_i16_vl128:
 ; SME:       // %bb.0:
@@ -143,14 +162,33 @@ define <16 x i16> @two_way_i8_i16_vl256(ptr %accptr, ptr %uptr, ptr %sptr) vscal
 
 define <4 x i32> @two_way_i16_i32_vl128(ptr %accptr, ptr %uptr, ptr %sptr) {
 ;
-; COMMON-LABEL: two_way_i16_i32_vl128:
-; COMMON:       // %bb.0:
-; COMMON-NEXT:    ldr q0, [x0]
-; COMMON-NEXT:    ldr q1, [x1]
-; COMMON-NEXT:    ldr q2, [x2]
-; COMMON-NEXT:    umlal v0.4s, v2.4h, v1.4h
-; COMMON-NEXT:    umlal2 v0.4s, v2.8h, v1.8h
-; COMMON-NEXT:    ret
+; NEON-LABEL: two_way_i16_i32_vl128:
+; NEON:       // %bb.0:
+; NEON-NEXT:    ldr q0, [x0]
+; NEON-NEXT:    ldr q1, [x1]
+; NEON-NEXT:    ldr q2, [x2]
+; NEON-NEXT:    umlal v0.4s, v2.4h, v1.4h
+; NEON-NEXT:    umlal2 v0.4s, v2.8h, v1.8h
+; NEON-NEXT:    ret
+;
+; SVE-LABEL: two_way_i16_i32_vl128:
+; SVE:       // %bb.0:
+; SVE-NEXT:    ldr q0, [x0]
+; SVE-NEXT:    ldr q1, [x1]
+; SVE-NEXT:    ldr q2, [x2]
+; SVE-NEXT:    umlal v0.4s, v2.4h, v1.4h
+; SVE-NEXT:    umlal2 v0.4s, v2.8h, v1.8h
+; SVE-NEXT:    ret
+;
+; SVE2-LABEL: two_way_i16_i32_vl128:
+; SVE2:       // %bb.0:
+; SVE2-NEXT:    ldr q0, [x0]
+; SVE2-NEXT:    ldr q1, [x1]
+; SVE2-NEXT:    ldr q2, [x2]
+; SVE2-NEXT:    umlalb z0.s, z2.h, z1.h
+; SVE2-NEXT:    umlalt z0.s, z2.h, z1.h
+; SVE2-NEXT:    // kill: def $q0 killed $q0 killed $z0
+; SVE2-NEXT:    ret
 ;
 ; SME-LABEL: two_way_i16_i32_vl128:
 ; SME:       // %bb.0:
@@ -274,14 +312,33 @@ define <8 x i32> @two_way_i16_i32_vl256(ptr %accptr, ptr %uptr, ptr %sptr) vscal
 
 define <2 x i64> @two_way_i32_i64_vl128(ptr %accptr, ptr %uptr, ptr %sptr) {
 ;
-; COMMON-LABEL: two_way_i32_i64_vl128:
-; COMMON:       // %bb.0:
-; COMMON-NEXT:    ldr q0, [x0]
-; COMMON-NEXT:    ldr q1, [x1]
-; COMMON-NEXT:    ldr q2, [x2]
-; COMMON-NEXT:    umlal v0.2d, v2.2s, v1.2s
-; COMMON-NEXT:    umlal2 v0.2d, v2.4s, v1.4s
-; COMMON-NEXT:    ret
+; NEON-LABEL: two_way_i32_i64_vl128:
+; NEON:       // %bb.0:
+; NEON-NEXT:    ldr q0, [x0]
+; NEON-NEXT:    ldr q1, [x1]
+; NEON-NEXT:    ldr q2, [x2]
+; NEON-NEXT:    umlal v0.2d, v2.2s, v1.2s
+; NEON-NEXT:    umlal2 v0.2d, v2.4s, v1.4s
+; NEON-NEXT:    ret
+;
+; SVE-LABEL: two_way_i32_i64_vl128:
+; SVE:       // %bb.0:
+; SVE-NEXT:    ldr q0, [x0]
+; SVE-NEXT:    ldr q1, [x1]
+; SVE-NEXT:    ldr q2, [x2]
+; SVE-NEXT:    umlal v0.2d, v2.2s, v1.2s
+; SVE-NEXT:    umlal2 v0.2d, v2.4s, v1.4s
+; SVE-NEXT:    ret
+;
+; SVE2-LABEL: two_way_i32_i64_vl128:
+; SVE2:       // %bb.0:
+; SVE2-NEXT:    ldr q0, [x0]
+; SVE2-NEXT:    ldr q1, [x1]
+; SVE2-NEXT:    ldr q2, [x2]
+; SVE2-NEXT:    umlalb z0.d, z2.s, z1.s
+; SVE2-NEXT:    umlalt z0.d, z2.s, z1.s
+; SVE2-NEXT:    // kill: def $q0 killed $q0 killed $z0
+; SVE2-NEXT:    ret
 ;
 ; SME-LABEL: two_way_i32_i64_vl128:
 ; SME:       // %bb.0:
@@ -510,6 +567,18 @@ define <2 x i64> @four_way_i8_i64_vl128_usdot(ptr %accptr, ptr %uptr, ptr %sptr)
 ; COMMON-NEXT:    ldr q0, [x0]
 ; COMMON-NEXT:    sadalp v0.2d, v1.4s
 ; COMMON-NEXT:    ret
+;
+; SVE2-LABEL: four_way_i8_i64_vl128_usdot:
+; SVE2:       // %bb.0:
+; SVE2-NEXT:    movi v0.2d, #0000000000000000
+; SVE2-NEXT:    ldr q1, [x1]
+; SVE2-NEXT:    ldr q2, [x2]
+; SVE2-NEXT:    usdot z0.s, z1.b, z2.b
+; SVE2-NEXT:    ldr q1, [x0]
+; SVE2-NEXT:    saddwb z1.d, z1.d, z0.s
+; SVE2-NEXT:    saddwt z0.d, z1.d, z0.s
+; SVE2-NEXT:    // kill: def $q0 killed $q0 killed $z0
+; SVE2-NEXT:    ret
 ;
 ; SME-LABEL: four_way_i8_i64_vl128_usdot:
 ; SME:       // %bb.0:
@@ -1056,6 +1125,67 @@ define <2 x i64> @eight_way_i8_i64_vl256(ptr %accptr, ptr %uptr, ptr %sptr) vsca
 ; SME-NEXT:    udot z1.s, z2.b, z0.b
 ; SME-NEXT:    ldr q0, [x0]
 ; SME-NEXT:    uadalp z0.d, p0/m, z1.s
+; SME-NEXT:    ret
+  %acc = load <2 x i64>, ptr %accptr
+  %u = load <16 x i8>, ptr %uptr
+  %s = load <16 x i8>, ptr %sptr
+  %u.wide = zext <16 x i8> %u to <16 x i64>
+  %s.wide = zext <16 x i8> %s to <16 x i64>
+  %mult = mul nuw nsw <16 x i64> %s.wide, %u.wide
+  %partial.reduce = tail call <2 x i64> @llvm.vector.partial.reduce.add(<2 x i64> %acc, <16 x i64> %mult)
+  ret <2 x i64> %partial.reduce
+}
+
+; Regression test for the off-diagonal case: a 128-bit (<2 x i64>) result at
+; VL=256, where the fixed result width is smaller than the SVE vector length.
+; Before the fix the SVE run lowered via a scalable partial reduction whose
+; sums were spread across 4 d-lanes and then truncated to the low 2, dropping
+; half the count at runtime. The fix keeps it on the VL-independent NEON path.
+define <2 x i64> @eight_way_i8_i64_vl256(ptr %accptr, ptr %uptr, ptr %sptr) vscale_range(2,2) {
+;
+; NEON-LABEL: eight_way_i8_i64_vl256:
+; NEON:       // %bb.0:
+; NEON-NEXT:    movi v0.2d, #0000000000000000
+; NEON-NEXT:    ldr q1, [x1]
+; NEON-NEXT:    ldr q2, [x2]
+; NEON-NEXT:    udot v0.4s, v2.16b, v1.16b
+; NEON-NEXT:    ldr q1, [x0]
+; NEON-NEXT:    uaddw v1.2d, v1.2d, v0.2s
+; NEON-NEXT:    uaddw2 v0.2d, v1.2d, v0.4s
+; NEON-NEXT:    ret
+;
+; SVE-LABEL: eight_way_i8_i64_vl256:
+; SVE:       // %bb.0:
+; SVE-NEXT:    movi v0.2d, #0000000000000000
+; SVE-NEXT:    ldr q1, [x1]
+; SVE-NEXT:    ldr q2, [x2]
+; SVE-NEXT:    udot z0.s, z2.b, z1.b
+; SVE-NEXT:    ldr q1, [x0]
+; SVE-NEXT:    uaddw v1.2d, v1.2d, v0.2s
+; SVE-NEXT:    uaddw2 v0.2d, v1.2d, v0.4s
+; SVE-NEXT:    ret
+;
+; SVE2-LABEL: eight_way_i8_i64_vl256:
+; SVE2:       // %bb.0:
+; SVE2-NEXT:    movi v0.2d, #0000000000000000
+; SVE2-NEXT:    ldr q1, [x1]
+; SVE2-NEXT:    ldr q2, [x2]
+; SVE2-NEXT:    udot z0.s, z2.b, z1.b
+; SVE2-NEXT:    ldr q1, [x0]
+; SVE2-NEXT:    uaddwb z1.d, z1.d, z0.s
+; SVE2-NEXT:    uaddwt z0.d, z1.d, z0.s
+; SVE2-NEXT:    // kill: def $q0 killed $q0 killed $z0
+; SVE2-NEXT:    ret
+;
+; SME-LABEL: eight_way_i8_i64_vl256:
+; SME:       // %bb.0:
+; SME-NEXT:    mov z0.s, #0 // =0x0
+; SME-NEXT:    ldr q1, [x1]
+; SME-NEXT:    ldr q2, [x2]
+; SME-NEXT:    udot z0.s, z2.b, z1.b
+; SME-NEXT:    ldr q1, [x0]
+; SME-NEXT:    uaddwb z1.d, z1.d, z0.s
+; SME-NEXT:    uaddwt z0.d, z1.d, z0.s
 ; SME-NEXT:    ret
   %acc = load <2 x i64>, ptr %accptr
   %u = load <16 x i8>, ptr %uptr

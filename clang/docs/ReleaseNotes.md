@@ -222,6 +222,11 @@ features cannot lower the translation-unit ABI level;
   path share one module cache, and is only sound when no module needs the path
   -- a lookup that would have resolved through an ignored path simply fails.
 
+- Added `-mscs-reg=<reg>` on Hexagon to select which callee-saved register
+  (`r16`-`r27`, default `r18`) holds the shadow call stack pointer under
+  `-fsanitize=shadow-call-stack`. The selected register must also be reserved
+  with the matching `-ffixed-<reg>`.
+
 ### Deprecated Compiler Flags
 
 ### Modified Compiler Flags
@@ -584,6 +589,9 @@ features cannot lower the translation-unit ABI level;
   pointers stored in VTTs via the `-fptrauth-vtt-vtable-pointer-discrimination`
   option.
 
+- On AArch64 Windows targets, `-mbranch-protection=standard` and `-mbranch-protection=pac-ret`
+  now uses the B-key by default.
+
 #### Android Support
 
 - Enabled PAC and BTI by default for AArch64 Android targets.
@@ -626,6 +634,20 @@ features cannot lower the translation-unit ABI level;
 
 - Added `--cuda-emit-nvcc-abi` to emit the NVCC-compatible host registration ABI
   (`__cudaRegisterLinkedBinary`).
+
+#### PowerPC Support
+
+- Added support for AMO load and store builtins.
+- Added DMF crypto builtins for extended mnemonics.
+- Added ISA Future (`-mcpu=future`) builtins for AES encrypt/decrypt/key-generation,
+  Post-Quantum Cryptography Acceleration (`vec_mulh`), Deeply Compressed Weights
+  (`vec_uncompress*`/`vec_unpack_*`), and Elliptic Curve Cryptography.
+- Updated DMR builtin names to remove the `_mma` infix.
+- Added early target feature validation for PowerPC builtins during semantic analysis.
+- Added support for the following PowerPC BCD (Binary-Coded Decimal) builtins
+  for POWER9 targets (requires including `bcd.h`):
+  `__builtin_bcdshift`, `__builtin_bcdshiftround`, `__builtin_bcdtruncate`,
+  `__builtin_bcdunsignedtruncate`, and `__builtin_bcdunsignedshift`.
 
 #### AIX Support
 

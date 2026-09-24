@@ -28,7 +28,6 @@
 #include "clang/StaticAnalyzer/Core/PathSensitive/SVals.h"
 #include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include <functional>
@@ -83,7 +82,7 @@ class CStringChecker
     : public CheckerFamily<eval::Call, check::PreStmt<DeclStmt>,
                            check::LiveSymbols, check::DeadSymbols,
                            check::RegionChanges> {
-  mutable StringRef CurrentFunctionDescription;
+  mutable const char *CurrentFunctionDescription = nullptr;
 
 public:
   // FIXME: The bug types emitted by this checker family have confused garbage
@@ -405,7 +404,7 @@ ProgramStateRef CStringChecker::checkNonNull(CheckerContext &C,
     if (NullArg.isEnabled()) {
       SmallString<80> buf;
       llvm::raw_svector_ostream OS(buf);
-      assert(!CurrentFunctionDescription.empty());
+      assert(CurrentFunctionDescription);
       OS << "Null pointer passed as " << (Arg.ArgumentIndex + 1)
          << llvm::getOrdinalSuffix(Arg.ArgumentIndex + 1) << " argument to "
          << CurrentFunctionDescription;
@@ -1098,7 +1097,7 @@ SVal CStringChecker::getCStringLength(CheckerContext &C, ProgramStateRef &state,
       if (NotNullTerm.isEnabled()) {
         SmallString<120> buf;
         llvm::raw_svector_ostream os(buf);
-        assert(!CurrentFunctionDescription.empty());
+        assert(CurrentFunctionDescription);
         os << "Argument to " << CurrentFunctionDescription
            << " is the address of the label '" << Label->getLabel()->getName()
            << "', which is not a null-terminated string";
@@ -1168,7 +1167,7 @@ SVal CStringChecker::getCStringLength(CheckerContext &C, ProgramStateRef &state,
       SmallString<120> buf;
       llvm::raw_svector_ostream os(buf);
 
-      assert(!CurrentFunctionDescription.empty());
+      assert(CurrentFunctionDescription);
       os << "Argument to " << CurrentFunctionDescription << " is ";
 
       if (SummarizeRegion(os, C.getASTContext(), MR))

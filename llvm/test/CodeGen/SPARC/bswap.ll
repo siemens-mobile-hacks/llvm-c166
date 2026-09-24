@@ -1169,3 +1169,4 @@ define void @u64tou32_bswapstore_truncated(ptr %0, i64 %1) #0 {
 }
 
 attributes #0 = { nounwind }
+

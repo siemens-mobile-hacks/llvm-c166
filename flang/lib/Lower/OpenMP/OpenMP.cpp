@@ -951,7 +951,6 @@ static void bindEntryBlockArgs(lower::AbstractConverter &converter,
               /*contiguousHint=*/
               evaluate::IsSimplyContiguous(*sym, converter.getFoldingContext()))
               .first);
-    }
   };
 
   // Process in clause name alphabetical order to match block arguments order.

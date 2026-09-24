@@ -1285,6 +1285,13 @@ def ProcessorFeatures {
 // cores are expected to be less sensitive and scheduling from an in-order
 // model will be sufficient.
 
+// A note on scheduling models - we do not have exact models for each core and
+// attempt to use the "best equivalent" that we have for those that are
+// missing. -mcpu=generic uses a cortex-a510 model to get good scheduling
+// performance for in-order cores where it is most beneficial. Out-of-order
+// cores are expected to be less sensitive and scheduling from an in-order
+// model will be sufficient.
+
 // FeatureFuseAdrpAdd is enabled under Generic to allow linker merging
 // optimizations. We use a fixed load latency of 4 as the a510 scheduling model
 // has a latency of 2 for most loads which is disproportionately low for many
